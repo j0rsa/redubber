@@ -1,0 +1,29 @@
+[browser]
+showErrorDetails = false
+
+[client]
+showErrorDetails = false
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
+[theme]
+base = "light"
+
+[ui]
+hideTopBar = false
+hideSidebarNav = false
+
+[global]
+showWarningOnDirectExecution = false
+
+# Hide deploy button and other Streamlit UI elements
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+
+[client]
+toolbarMode = "minimal"
