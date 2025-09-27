@@ -57,7 +57,43 @@ class DatabaseManager:
                     FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
                 )
             """)
-            
+
+            # Project scan results table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS project_scans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    scan_data TEXT NOT NULL,
+                    scan_status TEXT DEFAULT 'completed',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+                )
+            """)
+
+            # Video analysis table - detailed video file analysis
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS video_analysis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    size_mb REAL,
+                    duration_seconds REAL,
+                    audio_streams TEXT,
+                    subtitle_matches TEXT,
+                    status TEXT DEFAULT 'analyzed',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+                )
+            """)
+
+            # Add duration_seconds column if it doesn't exist (migration)
+            try:
+                cursor.execute("SELECT duration_seconds FROM video_analysis LIMIT 1")
+            except sqlite3.OperationalError:
+                # Column doesn't exist, add it
+                cursor.execute("ALTER TABLE video_analysis ADD COLUMN duration_seconds REAL DEFAULT 0")
+
             conn.commit()
     
     def add_project(self, path: str, name: str) -> int:
@@ -170,7 +206,97 @@ class DatabaseManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             cursor.execute("SELECT * FROM projects ORDER BY updated_at DESC")
-            
+
             return [dict(row) for row in cursor.fetchall()]
+
+    def save_project_scan(self, project_id: int, scan_data: str) -> None:
+        """Save project scan results to database."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Remove existing scan data for this project
+            cursor.execute("DELETE FROM project_scans WHERE project_id = ?", (project_id,))
+
+            # Insert new scan data
+            cursor.execute("""
+                INSERT INTO project_scans (project_id, scan_data)
+                VALUES (?, ?)
+            """, (project_id, scan_data))
+
+            conn.commit()
+
+    def get_project_scan(self, project_id: int) -> Optional[str]:
+        """Get project scan results from database."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT scan_data FROM project_scans
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (project_id,))
+
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    def has_project_scan(self, project_id: int) -> bool:
+        """Check if project has scan results."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM project_scans WHERE project_id = ?
+            """, (project_id,))
+
+            result = cursor.fetchone()
+            return result[0] > 0 if result else False
+
+    def save_video_analysis(self, project_id: int, video_data: Dict) -> None:
+        """Save individual video analysis data."""
+        import json
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO video_analysis
+                (project_id, filename, file_path, size_mb, duration_seconds, audio_streams, subtitle_matches)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                project_id,
+                video_data['filename'],
+                video_data['path'],
+                video_data['size_mb'],
+                video_data['duration_seconds'],
+                json.dumps(video_data['audio_streams']),
+                json.dumps(video_data['subtitles'])
+            ))
+
+            conn.commit()
+
+    def get_video_analysis(self, project_id: int) -> List[Dict]:
+        """Get all video analysis data for a project."""
+        import json
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT * FROM video_analysis
+                WHERE project_id = ?
+                ORDER BY filename
+            """, (project_id,))
+
+            results = []
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                # Parse JSON fields
+                row_dict['audio_streams'] = json.loads(row_dict['audio_streams'])
+                row_dict['subtitle_matches'] = json.loads(row_dict['subtitle_matches'])
+                results.append(row_dict)
+
+            return results
