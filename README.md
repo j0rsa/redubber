@@ -12,14 +12,24 @@ A Streamlit application for managing audio-redub projects with automatic video a
 
 ## Installation
 
-1. Install dependencies:
+1. Install Poetry (if not already installed):
 ```bash
-pip install -r requirements.txt
+curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-2. Run the application:
+2. Install dependencies:
 ```bash
-streamlit run app.py
+poetry install
+```
+
+3. Run the application:
+```bash
+poetry run streamlit run app.py
+```
+
+Or use the convenience script:
+```bash
+./run.sh
 ```
 
 ## Usage

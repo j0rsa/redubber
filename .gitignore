@@ -209,3 +209,8 @@ __marimo__/
 # Redubber specific
 redubber.db
 openai_config.json
+
+dest/
+redubber_tmp/
+
+.DS_Store
