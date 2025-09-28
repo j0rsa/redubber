@@ -7,4 +7,4 @@ echo "Press Ctrl+C to stop the application"
 echo ""
 
 cd "$(dirname "$0")"
-streamlit run app.py
+poetry run streamlit run app.py
