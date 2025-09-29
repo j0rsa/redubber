@@ -10,20 +10,36 @@ import logging
 from pydantic import TypeAdapter
 from concurrent.futures import ThreadPoolExecutor
 import time
+from pydantic import BaseModel
+from reproj import Reproj
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 
-class Redubber:
-    supported_video_formats = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".vob", ".m4v", ".3gp", ".3g2", ".m2ts", ".mts", ".ts", ".f4v", ".f4p",
+class Redubber(BaseModel):
+    supported_video_formats: List[str] = [".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv", ".webm", ".vob", ".m4v", ".3gp", ".3g2", ".m2ts", ".mts", ".ts", ".f4v", ".f4p",
                                ".f4a", ".f4b", ".m2v", ".m4v", ".m1v", ".mpg", ".mpeg", ".mpv", ".mp2", ".mpe", ".m2p", ".m2t", ".mp2v", ".mpv2", ".m2ts", ".m2ts", ".mts", ".m2v"]
-    tmp = "redubber_tmp"
-    audio_ext = ".mp3"
-    model = "gpt-4o"
-    openai_token = ""
-    default_audio_chunk_duration = 20*60  # 20 minutes
+
+    audio_ext: str = ".mp3"
+    model: str = "gpt-4o"
+    openai_token: str = ""
+    default_audio_chunk_duration: int = 20*60  # 20 minutes
+    interactive: bool = False
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def __init__(self, openai_token: str, interactive: bool = False):
+        """Initialize the Redubber class.
+
+        Args:
+            openai_token: The OpenAI API token.
+            interactive: Whether to show progress bars for long-running operations.
+        """
+        super().__init__(openai_token=openai_token, interactive=interactive)
 
     def can_redub(self, source):
         result = os.path.splitext(source)[1] in self.supported_video_formats
@@ -57,32 +73,27 @@ class Redubber:
         seconds = int(seconds % 60)
         return f"{hours:02}:{minutes:02}:{seconds:02}"
 
-    def get_file_working_dir(self, source, file_path):
-        rel_file = os.path.relpath(file_path, source)
-        return os.path.join(self.tmp, rel_file)
-
-    def extract_audio_chunks(self, source, file_path, chunk_duration=default_audio_chunk_duration, replace=False) -> list[str]:
+    def extract_audio_chunks(self, reproj: Reproj, chunk_duration: int = default_audio_chunk_duration, replace: bool = False) -> list[str]:
         """Extract audio chunks from a video file.
 
         Args:
-            source: The source directory of the video file.
-            file_path: The path to the video file.
+            reproj: The reproj object.
             chunk_duration: The duration of each audio chunk in seconds.
             replace: Whether to replace the existing audio chunks.
 
         Returns:
-            A list of paths to the audio chunks.
+            A list of paths to the audio chunks that are extracted and saved in SOURCE_AUDIO_CHUNKS section.
         """
-        log.info(f"Extracting audio from {file_path}")
+        log.info(f"Extracting audio from {reproj.file_path}")
         # keep all audio files in the directory, that is constructed out of rel_file
         # E.g. if rel_file is "test.mp4" then target_rel_dir is "redubber_tmp/test.mp4/"
-        target_rel_dir = self.get_file_working_dir(source, file_path)
-        total_duration = self.get_media_duration(file_path)
+        target_rel_dir = reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS)
+        total_duration = self.get_media_duration(reproj.file_path)
         log.info(f"Video duration {self.seconds_to_hms(total_duration)}")
         num_chunks = math.ceil(total_duration / chunk_duration)
         log.info(f"Extracting {num_chunks} chunks of {self.seconds_to_hms(chunk_duration)} each")
 
-        audio_file_template = os.path.splitext(os.path.basename(file_path))[
+        audio_file_template = os.path.splitext(os.path.basename(reproj.file_path))[
             0] + "_{:03d}" + self.audio_ext
         # delete all mp3 files in the directory
         if replace:
@@ -93,7 +104,13 @@ class Redubber:
 
         total_audio_duration = 0.0
         result = []
-        for i in range(num_chunks):
+        
+        # Create progress bar if interactive mode is enabled
+        chunk_range = range(num_chunks)
+        if self.interactive:
+            chunk_range = tqdm(chunk_range, desc="Extracting audio chunks", unit="chunk")
+            
+        for i in chunk_range:
             start_time = i * chunk_duration
             output_audio_path = audio_file_template.format(i+1)  # Naming each chunk
             audio_path = os.path.join(target_rel_dir, output_audio_path)
@@ -108,7 +125,7 @@ class Redubber:
             os.makedirs(target_rel_dir, exist_ok=True)
             # Use subprocess to call ffmpeg directly
             cmd = [
-                'ffmpeg', '-i', file_path, '-ss', str(start_time), 
+                'ffmpeg', '-i', reproj.file_path, '-ss', str(start_time), 
                 '-t', str(chunk_duration), '-vn', '-acodec', 'libmp3lame',
                 '-y', audio_path
             ]
@@ -122,15 +139,26 @@ class Redubber:
 
         return result
 
-    def transcribe_audio(self, file_path, time_offset: float=0.0) -> tuple[str, List[TranscriptionSegment]]:
-        filename = os.path.splitext(os.path.basename(file_path))[0]
+    def transcribe_audio(self, reproj: Reproj, audio_file: str, time_offset: float=0.0) -> tuple[str, List[TranscriptionSegment]]:
+        """
+        Transcribe the audio file and return the text and segments.
+
+        Args:
+            reproj: The reproj object.
+            audio_file: The path to the audio file.
+            time_offset: The time offset of the audio file.
+
+        Returns:
+            A tuple of the text and segments.
+        """
+        audio_filename = os.path.splitext(os.path.basename(audio_file))[0]
         # location of the file is the same as the file_path
-        target = os.path.dirname(file_path)
-        transcript_file = os.path.join(target, filename + ".transcript.json")
-        text_file = os.path.join(target, filename + ".txt")
-        segments_file = os.path.join(target, filename + ".seg")
+        target = reproj.get_file_working_dir(Reproj.Section.STT)
+        transcript_file = os.path.join(target, audio_filename + ".transcript.json")
+        text_file = os.path.join(target, audio_filename + ".txt")
+        segments_file = os.path.join(target, audio_filename + ".seg")
         if os.path.exists(text_file) and os.path.exists(segments_file):
-            log.info(f"Transcript and segments already exist for {filename}")
+            log.info(f"Transcript and segments already exist for {audio_filename}")
             with open(text_file, 'r') as f:
                 text = f.read()
             with open(segments_file, 'r') as f:
@@ -140,17 +168,20 @@ class Redubber:
 
         # # transcript
         if os.path.exists(transcript_file):
-            log.info(f"Transcript already exists for {filename}")
+            log.info(f"Transcript already exists for {audio_filename}")
             with open(transcript_file, 'r') as f:
                 transcript = TranslationVerbose.model_validate_json(f.read())
         else:
-            log.info(f"Transcribing {filename}")
+            log.info(f"Transcribing {audio_filename}")
             client = OpenAI(api_key=self.openai_token)
             # https://platform.openai.com/docs/api-reference/audio/verbose-json-object
-            with open(file_path, "rb") as audio_file:
-                # Transcribe the audio using the Whisper API
+            with open(audio_file, "rb") as audio_file_buffer:
+                # Transcribe the audio using the OpenAI API transcribe model
                 transcript = client.audio.translations.create(
-                    model="whisper-1", file=audio_file, response_format='verbose_json')
+                    model="whisper-1", 
+                    file=audio_file_buffer, 
+                    response_format='verbose_json'
+                )
                 log.info(f"Transcript type: {type(transcript)}")
             with open(transcript_file, 'w') as f:
                 f.write(transcript.model_dump_json())
@@ -159,7 +190,7 @@ class Redubber:
 
         transcript_segments: List[TranscriptionSegment] | None = transcript.segments
         if transcript_segments is None:
-            log.error(f"Transcript segments are None for {filename}")
+            log.error(f"Transcript segments are None for {audio_filename}")
             return transcript.text, []
         for segment in transcript_segments:
             segment.start += float(time_offset)
@@ -180,6 +211,28 @@ class Redubber:
         seconds = int(seconds % 60)
         milliseconds = int((seconds % 1) * 1000)
         return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
+
+    def compact_segments(self, segments: List[TranscriptionSegment]) -> List[TranscriptionSegment]:
+        return self.join_segments_without_punctuation(segments)
+        
+    def join_segments_without_punctuation(self, segments: List[TranscriptionSegment]) -> List[TranscriptionSegment]:
+        if not segments:
+            return []
+        result = []
+        current_segment = segments[0]
+        current_added = False
+        for seg in segments[1:]:
+            if not seg.text.strip().endswith(('.', '?', '!', ':', ';', ',', '(', ')', '[', ']', '{', '}', '\'', '\"')):
+                current_segment.text += seg.text.strip()
+                current_segment.end = seg.end
+                current_added = False
+            else:
+                result.append(current_segment)
+                current_added = True
+                current_segment = seg
+        if not current_added:
+            result.append(current_segment)
+        return result
 
     def write_srt(self, segments: List[TranscriptionSegment], output_file):
         with open(output_file, 'w') as srt_file:
@@ -217,7 +270,18 @@ class Redubber:
         raise Exception(f"Failed to generate TTS for {text}")
         
     
-    def process_tts_segment(self, segment, output_dir, i):
+    def process_tts_segment(self, segment, output_dir, i) -> str:
+        """
+        Process a TTS segment and return the path to the audio file.
+        
+        Args:
+            segment: The transcription segment.
+            output_dir: The directory to save the audio file.
+            i: The index of the segment.
+
+        Returns:
+            The path to the audio file.
+        """
         if os.path.exists(os.path.join(output_dir, f"{i:03d}.en.mp3")):
             log.debug(f"TTS already exists for {i:03d}.en.mp3")
         else:    
@@ -225,59 +289,177 @@ class Redubber:
                 output_dir, f"{i:03d}.en.mp3"))
         return f"{i:03d}.en.mp3"
 
-    def tts_segments(self, segments, source, src_file):
-        log.info(f"TTS segments({len(segments)}) for {src_file}")
+    def tts_segments(self, reproj: Reproj, segments) -> set[str]:
+        """
+        Process a list of TTS segments and return a dictionary of the paths to the audio files.
+
+        Args:
+            reproj: The reproj object.
+            segments: The list of transcription segments.
+
+        Returns:
+            A list of the audio files.
+        """
+        log.info(f"TTS segments({len(segments)}) for {reproj.file_path}")
         result = {}
-        output_dir = self.get_file_working_dir(source, src_file)
-        n_threads = 10
+        output_dir = reproj.get_file_working_dir(Reproj.Section.TTS)
+        n_threads = 20
+        
         with ThreadPoolExecutor(max_workers=n_threads) as executor:
             futures = [executor.submit(self.process_tts_segment, segment, output_dir, i) for i, segment in enumerate(segments)]
-            for future in futures:
-                result[future.result()] = future.result()
-        return result
+            
+            if self.interactive:
+                # Show progress bar when interactive mode is enabled
+                with tqdm(total=len(futures), desc="Processing TTS segments", unit="segment") as pbar:
+                    for future in futures:
+                        result[future.result()] = future.result()
+                        pbar.update(1)
+            else:
+                # Original behavior without progress bar
+                for future in futures:
+                    result[future.result()] = future.result()
+                    
+        return set(result.values())
 
-    def get_text_and_segments(self, source, src_file) -> List[TranscriptionSegment]:
+    def get_text_and_segments(self, reproj: Reproj, compact=False) -> List[TranscriptionSegment]:
         """Get the text and segments from the audio file.
 
         Args:
-            source: The source directory of the video file.
-            src_file: The path to the video file.
+            reproj: The reproj object.
+            compact: Whether to compact the segments.
 
         Returns:
             A list of transcription segments.
         """
-        audio_files = self.extract_audio_chunks(source, src_file)
+        audio_files = self.extract_audio_chunks(reproj)
         all_segments = []
         time_offset = 0.0
-        for audio_file in audio_files:
-            _text, segments = self.transcribe_audio(audio_file, time_offset)
+        
+        # Create progress bar if interactive mode is enabled
+        audio_file_iter = audio_files
+        if self.interactive:
+            audio_file_iter = tqdm(audio_files, desc="Transcribing audio files", unit="file")
+            
+        for audio_file in audio_file_iter:
+            _text, segments = self.transcribe_audio(reproj, audio_file, time_offset)
             time_offset = segments[-1].end
             all_segments.extend(segments)
+        if compact:
+            all_segments = self.compact_segments(all_segments)
         return all_segments
 
-    def generate_subtitles(self, source, src_file, target, replace=False) -> List[TranscriptionSegment]:
-        filename = os.path.splitext(os.path.basename(src_file))[0]
+    def generate_subtitles(self, reproj: Reproj, compact=False, replace=False) -> str:
+        """
+        Generate subtitles for the video file.
+
+        Args:
+            reproj: The reproj object.
+            compact: Whether to compact the subtitles.
+            replace: Whether to replace the existing subtitles.
+
+        Returns:
+            The path to the subtitles file.
+        """
+        filename = reproj.filename
+        target = reproj.get_file_working_dir(Reproj.Section.SUBTITLES)
+        target_file = os.path.join(target, filename + ".en.srt")
         # if replace is True, delete the existing subtitles
         if replace:
             log.info(f"Replacing subtitles for {filename}")
-            if os.path.exists(os.path.join(target, filename + ".en.srt")):
-                os.remove(os.path.join(target, filename + ".en.srt"))
+            if os.path.exists(target_file):
+                os.remove(target_file)
         # if replace is False and the subtitles exist, return
-        if os.path.exists(os.path.join(source, filename + ".en.srt")):
+        if os.path.exists(target_file):
             log.info(f"Subtitles already exist for {filename}")
-            return []
+            return target_file
 
-        all_segments = self.get_text_and_segments(source, src_file)
-        self.write_srt(all_segments, os.path.join(
-            target, os.path.splitext(os.path.basename(src_file))[0] + ".en.srt"))
-        return all_segments
+        all_segments = self.get_text_and_segments(reproj)
+        self.write_srt(all_segments, target_file)
+        return target_file
 
-    def assemble_audio(self, audio_dict: List[TranscriptionSegment], source, src_file, duration):
-        # Create a complex filter command for mixing audio files with delays
+    def assemble_long_audio(self, audio_dict: List[TranscriptionSegment], reproj: Reproj, duration, max_segments=600):
+        """
+        Assemble a long audio file from a list of transcription segments.
+        If the number of segments is greater than max_segments, then split the audio into chunks of max_segments and assemble each chunk.
+        If the number of segments is less than max_segments, then assemble the audio in one go.
+
+        Args:
+            audio_dict: A list of transcription segments.
+            reproj: The reproj object.
+            duration: The duration of the audio file.
+            max_segments: The maximum number of segments to assemble.
+        """
+        if len(audio_dict) > max_segments:
+            log.warning(f"Assembling long audio for {reproj.file_path} with {len(audio_dict)} segments")
+            audio_file_indices = []
+            working_dir = reproj.get_file_working_dir(Reproj.Section.TARGET_AUDIO_CHUNKS)
+            output_file = os.path.join(working_dir, reproj.filename + ".en.mp3")
+            for i in range(0, len(audio_dict), max_segments):
+                j = i // max_segments + 1
+                index_suffix = f"_{j:03d}"
+                input_file = os.path.join(working_dir, reproj.filename + index_suffix + ".en.mp3")
+                if os.path.exists(input_file):
+                    log.info(f"Audio already exists for {input_file}")
+                else:
+                    self.assemble_audio(audio_dict[i:i+max_segments], reproj, duration, j)
+                audio_file_indices.append((i, audio_dict[i].start))
+            
+            log.info(f"Mixing {len(audio_file_indices)} audio files to {output_file}")
+            if os.path.exists(output_file):
+                log.info(f"Audio already exists for {output_file}")
+                return output_file
+            input_args = []
+            filter_complex_parts = []
+            for i, _start_time in audio_file_indices:
+                j = i // max_segments + 1
+                index_suffix = f"_{j:03d}"
+                input_file = os.path.join(working_dir, reproj.filename + index_suffix + ".en.mp3")
+                input_args.extend(['-i', input_file])
+                
+            # Mix all inputs
+            mix_inputs = ''.join(f'[{i}]' for i in range(len(audio_file_indices)))
+            filter_complex_parts.append(f'{mix_inputs}amix=inputs={len(audio_file_indices)}:normalize=0[mixed]')
+            
+            # Trim and pad to exact duration
+            filter_complex_parts.append(f'[mixed]atrim=end={duration},apad=whole_dur={duration}[final]')
+            
+            filter_complex = ';'.join(filter_complex_parts)
+            
+            cmd = [
+                'ffmpeg', *input_args, '-filter_complex', filter_complex,
+                '-map', '[final]', '-acodec', 'libmp3lame', '-b:a', '320k',
+                '-ar', '44100', '-y', output_file
+            ]
+            log.debug(f"Running command: {cmd}")
+            subprocess.run(cmd, check=True, capture_output=True)
+            return output_file
+            
+        else:
+            self.assemble_audio(audio_dict, reproj, duration)
+
+    def assemble_audio(
+        self, 
+        audio_dict: List[TranscriptionSegment], 
+        reproj: Reproj,
+        duration: float,
+        output_index: int | None = None
+    ) -> str:
+        """
+        Create a complex filter command for mixing audio files with delays
+
+        Args:
+            audio_dict: A list of transcription segments.
+            reproj: The reproj object.
+            duration: The duration of the final audio file.
+            output_index: The index of the output file. If None, the output file will be named like the source file.
+        """
         inputs = []
         filter_complex_parts = []
-        output_file = os.path.join(self.get_file_working_dir(source, src_file), os.path.splitext(os.path.basename(src_file))[0] + ".en.mp3")
-        log.info(f"Assembling audio for {src_file} out of {len(audio_dict)} segments")
+        index_suffix = f"_{output_index:03d}" if output_index is not None else ""
+        tts_dir = reproj.get_file_working_dir(Reproj.Section.TTS)
+        target_dir = reproj.get_file_working_dir(Reproj.Section.TARGET_AUDIO_CHUNKS)
+        output_file = os.path.join(target_dir, reproj.filename + index_suffix + ".en.mp3")
+        log.info(f"Assembling audio for {reproj.filename} out of {len(audio_dict)} segments to {output_file}")
         if os.path.exists(output_file):
             log.info(f"Audio already exists for {output_file}")
             return output_file
@@ -285,7 +467,7 @@ class Redubber:
         for i, segment in enumerate(sorted(audio_dict, key=lambda s: s.start)):
             start_time = segment.start
             input_file = f"{i:03d}.en.mp3"
-            input_path = os.path.join(self.get_file_working_dir(source, src_file), input_file)
+            input_path = os.path.join(tts_dir, input_file)
             inputs.extend(['-i', input_path])
             # Add delay filter for each input
             delay_ms = int(start_time * 1000)
@@ -305,24 +487,32 @@ class Redubber:
             '-map', '[final]', '-acodec', 'libmp3lame', '-b:a', '320k',
             '-ar', '44100', '-y', output_file
         ]
-        
+        log.debug(f"Running command: {cmd}")
         subprocess.run(cmd, check=True, capture_output=True)
         return output_file
 
     def mix_audio_with_video(self, 
-        source: str, 
-        src_file: str, 
+        reproj: Reproj, 
         audio_file: str, 
         output_file: str,
         # https://en.wikipedia.org/wiki/List_of_ISO_639-2_codes
         # for example: "eng", "fra", "spa", "deu"
         languages: List[str]):
-        log.info(f"Mixing audio with video for {src_file} {audio_file} out of {len(languages)} languages")
+        """
+        Mix audio with video.
+
+        Args:
+            reproj: The reproj object.
+            audio_file: The path to the audio file.
+            output_file: The path to the output file.
+            languages: The list of languages.
+        """
+        log.info(f"Mixing video `{reproj.file_path}` with audio `{audio_file}` out of {len(languages)} languages")
         if os.path.exists(output_file):
             log.info(f"Audio with video already exists for {output_file}")
             return
 
-        audio_streams = self.get_media_audio_streams(src_file)
+        audio_streams = self.get_media_audio_streams(reproj.file_path)
         if len(audio_streams) != len(languages) -1:
             log.error(f"Number of audio streams ({len(audio_streams)}) does not match number of languages ({len(languages)})")
             raise Exception(f"Number of audio streams ({len(audio_streams)}) does not match number of languages ({len(languages)})")
@@ -333,6 +523,6 @@ class Redubber:
             args.append(f'language={language}')
 
         cmd = [
-            'ffmpeg', '-i', src_file, '-i', audio_file, '-c:v', 'copy', '-c:a', 'copy', '-map', '0', '-map', '1', *args, '-y', output_file
+            'ffmpeg', '-i', reproj.file_path, '-i', audio_file, '-c:v', 'copy', '-c:a', 'copy', '-map', '0', '-map', '1', *args, '-y', output_file
         ]
         subprocess.run(cmd, check=True, capture_output=True)
