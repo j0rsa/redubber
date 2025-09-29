@@ -79,6 +79,7 @@ def get_video_info_with_duration(video_path: Path) -> Dict:
 
 def detect_language_from_filename(video_path: Path) -> Optional[str]:
     """Fallback language detection from filename patterns."""
+    from utils import convert_to_three_char_lang_code
     filename = video_path.name.lower()
 
     # Common language patterns in filenames
@@ -100,7 +101,7 @@ def detect_language_from_filename(video_path: Path) -> Optional[str]:
     import re
     for pattern, lang_code in language_patterns.items():
         if re.search(pattern, filename):
-            return lang_code
+            return convert_to_three_char_lang_code(lang_code)
 
     return None
 

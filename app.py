@@ -5,15 +5,11 @@ indexing files in a SQLite database for fast access.
 """
 
 import streamlit as st
-import sqlite3
 import os
-from pathlib import Path
-from typing import List, Dict, Optional
-import time
 
 from database import DatabaseManager
 from file_scanner import FileScanner
-from utils import detect_video_language, detect_subtitle_language
+from utils import detect_video_language, detect_subtitle_language, get_language_flag
 from components.open import display_open_page
 from components.project import display_current_project_page
 
@@ -145,7 +141,7 @@ def main():
     )
 
     
-    st.title("🎬 Redubber - Audio Redub Project Manager")
+    # st.title("🎬 Redubber - Audio Redub Project Manager")
     
     # Initialize session state
     if 'db_manager' not in st.session_state:
@@ -277,32 +273,7 @@ def main():
 
         # Redub Settings
         with st.expander("🎬 Redub Settings", expanded=False):
-            # Common language options (3-character codes)
-            language_options = {
-                '': 'Select language...',
-                'eng': 'English (eng)',
-                'spa': 'Spanish (spa)',
-                'fra': 'French (fra)',
-                'deu': 'German (deu)',
-                'ita': 'Italian (ita)',
-                'por': 'Portuguese (por)',
-                'rus': 'Russian (rus)',
-                'jpn': 'Japanese (jpn)',
-                'kor': 'Korean (kor)',
-                'zho': 'Chinese (zho)',
-                'ara': 'Arabic (ara)',
-                'hin': 'Hindi (hin)',
-                'nld': 'Dutch (nld)',
-                'swe': 'Swedish (swe)',
-                'nor': 'Norwegian (nor)',
-                'dan': 'Danish (dan)',
-                'fin': 'Finnish (fin)',
-                'pol': 'Polish (pol)',
-                'tur': 'Turkish (tur)'
-            }
-
-            # Fixed target language setting
-            current_target = st.session_state.get('target_language', 'eng')
+            # Fixed target language setting - English only for now
 
             # Display as read-only text instead of disabled selectbox
             st.text_input(
@@ -453,11 +424,11 @@ def display_project_files():
                 if subtitle_files:
                     for sub_file in subtitle_files:
                         if sub_file['language']:
-                            st.markdown(f"📝 `{sub_file['language']}`")
+                            st.markdown(f"{get_language_flag(sub_file['language'])} `{sub_file['language']}`")
                         else:
-                            st.markdown("📝 `unknown`")
+                            st.markdown("❓ `unknown`")
                 else:
-                    st.markdown("📝 *No subtitles*")
+                    st.markdown("❌ *No subtitles*")
             
             st.divider()
 

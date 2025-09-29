@@ -32,6 +32,11 @@ Or use the convenience script:
 ./run.sh
 ```
 
+Or run the example script:
+```bash
+OPENAI_TOKEN=$OPENAI_TOKEN poetry run python example.py
+```
+
 ## Usage
 
 1. Enter the path to your video project folder in the sidebar
