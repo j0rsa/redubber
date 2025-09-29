@@ -46,8 +46,8 @@ def detect_video_language(video_path: Path) -> Optional[str]:
     
     for pattern, lang_code in language_patterns.items():
         if re.search(pattern, filename):
-            return lang_code
-    
+            return convert_to_three_char_lang_code(lang_code)
+
     return None
 
 
@@ -83,8 +83,8 @@ def detect_subtitle_language(subtitle_path: Path) -> Optional[str]:
     
     for pattern, lang_code in language_patterns.items():
         if re.search(pattern, filename):
-            return lang_code
-    
+            return convert_to_three_char_lang_code(lang_code)
+
     # If filename pattern detection fails, try content-based detection
     if LANGDETECT_AVAILABLE:
         return detect_subtitle_content_language(subtitle_path)
@@ -114,7 +114,7 @@ def detect_subtitle_content_language(subtitle_path: Path) -> Optional[str]:
         
         if text_content and len(text_content.strip()) > 50:  # Need sufficient text
             detected_lang = detect(text_content)
-            return detected_lang
+            return convert_to_three_char_lang_code(detected_lang)
     
     except (LangDetectException, UnicodeDecodeError, OSError):
         pass
@@ -166,3 +166,82 @@ def format_file_size(size_bytes: int) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} PB"
+
+
+def get_language_flag(language_code: Optional[str]) -> str:
+    """
+    Get the flag emoji for a given language code.
+
+    Args:
+        language_code: Two or three-letter language code (ISO 639-1/639-2/639-3)
+
+    Returns:
+        Flag emoji corresponding to the language
+    """
+    if not language_code:
+        return "❓"
+
+    # Normalize the language code to lowercase
+    lang_code = language_code.lower()
+
+    # Language code to flag emoji mapping (supports both 2 and 3 character codes)
+    language_flags = {
+        # English
+        'en': '🇺🇸', 'eng': '🇺🇸', 'english': '🇺🇸',
+        # Spanish
+        'es': '🇪🇸', 'esp': '🇪🇸', 'spa': '🇪🇸', 'spanish': '🇪🇸',
+        # French
+        'fr': '🇫🇷', 'fre': '🇫🇷', 'fra': '🇫🇷', 'french': '🇫🇷',
+        # German
+        'de': '🇩🇪', 'ger': '🇩🇪', 'deu': '🇩🇪', 'german': '🇩🇪',
+        # Italian
+        'it': '🇮🇹', 'ita': '🇮🇹', 'italian': '🇮🇹',
+        # Portuguese
+        'pt': '🇵🇹', 'por': '🇵🇹', 'portuguese': '🇵🇹',
+        # Russian
+        'ru': '🇷🇺', 'rus': '🇷🇺', 'russian': '🇷🇺',
+        # Japanese
+        'ja': '🇯🇵', 'jpn': '🇯🇵', 'japanese': '🇯🇵',
+        # Korean
+        'ko': '🇰🇷', 'kor': '🇰🇷', 'korean': '🇰🇷',
+        # Chinese
+        'zh': '🇨🇳', 'chi': '🇨🇳', 'zho': '🇨🇳', 'chinese': '🇨🇳',
+        # Arabic
+        'ar': '🇸🇦', 'ara': '🇸🇦', 'arabic': '🇸🇦',
+        # Hindi
+        'hi': '🇮🇳', 'hin': '🇮🇳', 'hindi': '🇮🇳',
+    }
+
+    return language_flags.get(lang_code, "❓")
+
+
+def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[str]:
+    """
+    Convert 2-character language code to 3-character equivalent.
+
+    Args:
+        language_code: Two-character language code (ISO 639-1)
+
+    Returns:
+        Three-character language code (ISO 639-2) if found, original code otherwise
+    """
+    if not language_code:
+        return language_code
+
+    # Mapping from 2-character to 3-character language codes
+    lang_code_mapping = {
+        'en': 'eng',   # English
+        'es': 'spa',   # Spanish (using 'spa' as it's more standard than 'esp')
+        'fr': 'fra',   # French
+        'de': 'deu',   # German (using 'deu' as it's more standard than 'ger')
+        'it': 'ita',   # Italian
+        'pt': 'por',   # Portuguese
+        'ru': 'rus',   # Russian
+        'ja': 'jpn',   # Japanese
+        'ko': 'kor',   # Korean
+        'zh': 'zho',   # Chinese (using 'zho' as it's more standard than 'chi')
+        'ar': 'ara',   # Arabic
+        'hi': 'hin',   # Hindi
+    }
+
+    return lang_code_mapping.get(language_code.lower(), language_code)

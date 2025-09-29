@@ -4,13 +4,14 @@ version = "0.1.0"
 description = "A Streamlit application for managing audio-redub projects with automatic video and subtitle file indexing"
 authors = ["red <red.avtovo@gmail.com>"]
 readme = "README.md"
-packages = [{include = "redubber"}]
 
 [tool.poetry.dependencies]
-python = "^3.13"
+python = ">=3.13,<3.14"
 streamlit = "^1.50.0"
 langdetect = "^1.0.9"
 openai = "^1.109.1"
+tqdm = "^4.67.1"
+tdqm = "^0.0.1"
 
 [tool.poetry.scripts]
 redubber = "app:main"
@@ -18,6 +19,7 @@ redubber = "app:main"
 [tool.poetry.group.dev.dependencies]
 poetry-types = "^0.6.0"
 # Usage: poetry types add <package-name>
+types-tqdm = "^4.67.0.20250809"
 
 [[tool.mypy.overrides]]
 module = "ffmpeg"
@@ -26,3 +28,4 @@ ignore_missing_imports = true
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+

@@ -6,6 +6,7 @@ import streamlit as st
 import os
 import time
 from video_analyzer import analyze_project_files
+from utils import get_language_flag
 
 
 def check_video_readiness(video_data, target_language):
@@ -261,7 +262,7 @@ def display_project_analysis(project_id: int):
                         if isinstance(stream, dict):
                             lang = stream.get('language', 'unknown')
                             if lang and lang != 'unknown':
-                                audio_langs.append(f"🎵 {lang}")
+                                audio_langs.append(f"{get_language_flag(lang)} {lang}")
 
                 # Extract subtitle languages
                 sub_langs = []
@@ -271,7 +272,7 @@ def display_project_analysis(project_id: int):
                         if isinstance(sub, dict):
                             lang = sub.get('language')
                             if lang and lang != 'unknown':
-                                sub_langs.append(f"📝 {lang}")
+                                sub_langs.append(f"{get_language_flag(lang)} {lang}")
 
                 # Ensure size_mb is a valid number and format it
                 size_mb = video.get('size_mb', 0)
@@ -512,10 +513,10 @@ def display_project_analysis(project_id: int):
                 with col3:
                     st.write(f"**{total_duration_str}**")
                 with col4:
-                    common_audio_display = ', '.join([f"🎵 {lang}" for lang in sorted(common_audio_langs)]) if common_audio_langs else "❌ No common audio"
+                    common_audio_display = ', '.join([f"{get_language_flag(lang)} {lang}" for lang in sorted(common_audio_langs)]) if common_audio_langs else "❌ No common audio"
                     st.write(f"**{common_audio_display}**")
                 with col5:
-                    common_sub_display = ', '.join([f"📝 {lang}" for lang in sorted(common_sub_langs)]) if common_sub_langs else "❌ No common subtitles"
+                    common_sub_display = ', '.join([f"{get_language_flag(lang)} {lang}" for lang in sorted(common_sub_langs)]) if common_sub_langs else "❌ No common subtitles"
                     st.write(f"**{common_sub_display}**")
                 with col6:
                     st.write("**📈 Summary**")
@@ -534,7 +535,7 @@ def display_project_analysis(project_id: int):
         for sub in analysis_data['subtitles']:
             standalone_data.append({
                 'File': sub['filename'],
-                'Language': f"📝 {sub['language']}" if sub['language'] else '❓ Unknown'
+                'Language': f"{get_language_flag(sub['language'])} {sub['language']}" if sub['language'] else '❓ Unknown'
             })
 
         if standalone_data:
@@ -643,7 +644,7 @@ def display_video_modal():
             sub_language = subtitle.get('language', 'unknown')
             sub_path = subtitle.get('path', '')
 
-            with st.expander(f"📄 {sub_filename} ({sub_language})"):
+            with st.expander(f"📄 {sub_filename} ({get_language_flag(sub_language)} {sub_language})"):
                 try:
                     # Try to read and display subtitle content
                     with open(sub_path, 'r', encoding='utf-8') as sub_file:
