@@ -376,7 +376,7 @@ class Redubber(BaseModel):
 
         return set(result.values())
 
-    def get_text_and_segments(self, reproj: Reproj) -> List[TranscriptionSegment]:
+    def get_text_and_segments(self, reproj: Reproj, compact: bool = True) -> List[TranscriptionSegment]:
         """Get the text and segments from the audio file.
 
         Args:
@@ -400,7 +400,8 @@ class Redubber(BaseModel):
             _text, segments = self.transcribe_audio(reproj, audio_file, time_offset)
             time_offset = segments[-1].end
             all_segments.extend(segments)
-        all_segments = postprocess_segments(all_segments)
+        if compact: 
+            all_segments = postprocess_segments(all_segments)
         return all_segments
 
     def generate_subtitles(
