@@ -12,6 +12,12 @@ punctuation = (".", "?", "!", ":", ";", ",", "(", ")", "[", "]", "{", "}", "'", 
 def drop_empty_segments(segments: List[TranscriptionSegment]) -> List[TranscriptionSegment]:
     return [seg for seg in segments if seg.text.strip()]
 
+def word_count(text: str) -> int:
+    words = [s for s in text.split(' ') if len(s) > 0]
+    words = [w for w in words if w not in punctuation]
+    words = [w for w in words if w not in ["", " "] and w.isalpha()]
+    return len(words)
+
 def text_within_cps(start: float, end: float, text: str, cps: int = 10) -> bool:
     """
     Check if the text is within the cps limit.
@@ -45,17 +51,16 @@ def join_segments_without_punctuation(
         return []
     result = []
     current_segment = segments[0]
-    current_added = False
     for seg in segments[1:]:
-        if not seg.text.strip().endswith(punctuation) and \
-        text_within_cps(current_segment.start, seg.end, seg.text.strip() + ' ' + current_segment.text):
-            current_segment.text += ' ' + seg.text.strip()
+        seg_text = seg.text.strip()
+        new_seg_text = current_segment.text + ' ' + seg_text
+        if (not current_segment.text.strip().endswith(punctuation)) and \
+        text_within_cps(current_segment.start, seg.end, new_seg_text) and \
+        word_count(new_seg_text) <= 20:
+            current_segment.text = new_seg_text
             current_segment.end = seg.end
-            current_added = False
         else:
             result.append(current_segment)
-            current_added = True
             current_segment = seg
-    if not current_added:
-        result.append(current_segment)
+    result.append(current_segment)
     return result

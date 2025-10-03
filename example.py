@@ -5,6 +5,7 @@ import logging
 from reproj import Reproj
 import shutil
 from seg_postprocessor import postprocess_segments
+from seg_postprocessor import word_count
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -73,27 +74,33 @@ def compress(interactive: bool = False):
     src_file = find_src_file("62")
     reproj = Reproj(source, src_file)
     redubber = Redubber(openai_token, interactive=interactive)
-    all_segments = redubber.get_text_and_segments(reproj, compact=False)
-    a_len = len(all_segments)
-    print("Before compacting: ", a_len)
+    all_segments_a = redubber.get_text_and_segments(reproj, compact=False)
+    a_len = len(all_segments_a)
+    a_word_count = sum([word_count(seg.text) for seg in all_segments_a])
+    print(f"Before compacting:  segments: {a_len} words: {a_word_count}")
     redubber.write_srt(
-        all_segments,
+        all_segments_a,
         os.path.join(
             source, os.path.splitext(os.path.basename(src_file))[0] + ".en.srt"
         ),
     )
-    all_segments = postprocess_segments(all_segments)
-    b_len = len(all_segments)
-    print("After compacting: ", b_len)
+    all_segments_b = postprocess_segments(all_segments_a)
+    b_len = len(all_segments_b)
+    b_word_count = sum([word_count(seg.text) for seg in all_segments_b])
+    print(f"After compacting:  segments: {b_len} words: {b_word_count}")
     # print(all_segments)
     redubber.write_srt(
-        all_segments,
+        all_segments_b,
         os.path.join(
             source, os.path.splitext(os.path.basename(src_file))[0] + ".compact.en.srt"
         ),
     )
     compression = (a_len - b_len) / a_len * 100
     print("Compression: ", round(compression, 2), "%")
+
+    #compare word count
+    print("Word count difference: ", a_word_count - b_word_count)
+    
 
 
 def join(interactive: bool = False):
