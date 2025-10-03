@@ -434,6 +434,12 @@ class Redubber(BaseModel):
         self.write_srt(segments, target_file)
         return target_file
 
+    def seconds_to_hms(self, seconds: float) -> str:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds = int(seconds % 60)
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+
     def assemble_long_audio(
         self,
         audio_dict: List[TranscriptionSegment],
@@ -471,7 +477,7 @@ class Redubber(BaseModel):
                     log.info(f"Audio already exists for {input_file}")
                 else:
                     self.assemble_audio(
-                        audio_dict[i : i + max_segments], reproj, duration, j
+                        audio_dict, reproj, duration, j, indices=list(range(i, min(i + max_segments, len(audio_dict)-1)))
                     )
                 audio_file_indices.append((i, audio_dict[i].start))
 
@@ -531,6 +537,7 @@ class Redubber(BaseModel):
         reproj: Reproj,
         duration: float,
         output_index: int | None = None,
+        indices: List[int] | None = None,
     ) -> str:
         """
         Create a complex filter command for mixing audio files with delays
@@ -552,11 +559,16 @@ class Redubber(BaseModel):
         log.info(
             f"Assembling audio for {reproj.filename} out of {len(audio_dict)} segments to {output_file}"
         )
+        if indices is None:
+            indices = list(range(len(audio_dict)))
+        log.info(f"indices {indices[0]}..{indices[-1]}: {self.seconds_to_hms(audio_dict[indices[0]].start)} - {self.seconds_to_hms(audio_dict[indices[-1]].end)}")
         if os.path.exists(output_file):
             log.info(f"Audio already exists for {output_file}")
             return output_file
 
-        for i, segment in enumerate(sorted(audio_dict, key=lambda s: s.start)):
+        for j, i in enumerate(indices):
+            segment = audio_dict[i]
+            
             start_time = segment.start
             input_file = f"{i:03d}.en.mp3"
             input_path = os.path.join(tts_dir, input_file)
@@ -564,13 +576,13 @@ class Redubber(BaseModel):
             # Add delay filter for each input
             delay_ms = int(start_time * 1000)
             filter_complex_parts.append(
-                f"[{i}]adelay={delay_ms}|{delay_ms}[delayed{i}]"
+                f"[{j}]adelay={delay_ms}|{delay_ms}[delayed{j}]"
             )
 
         # Mix all delayed inputs
-        mix_inputs = "".join(f"[delayed{i}]" for i in range(len(audio_dict)))
+        mix_inputs = "".join(f"[delayed{i}]" for i in range(len(indices)))
         filter_complex_parts.append(
-            f"{mix_inputs}amix=inputs={len(audio_dict)}:normalize=0[mixed]"
+            f"{mix_inputs}amix=inputs={len(indices)}:normalize=0[mixed]"
         )
 
         # Trim and pad to exact duration
