@@ -255,7 +255,7 @@ class Redubber(BaseModel):
                     file=audio_file_buffer,
                     response_format="verbose_json",
                 )
-                log.info(f"Transcript type: {type(transcript)}")
+                log.debug(f"Transcript type: {type(transcript)}")
             with open(transcript_file, "w") as f:
                 f.write(transcript.model_dump_json())
             log.info(f"Transcript saved to {transcript_file}")
@@ -529,7 +529,7 @@ class Redubber(BaseModel):
             return output_file
 
         else:
-            self.assemble_audio(audio_dict, reproj, duration)
+            return self.assemble_audio(audio_dict, reproj, duration)
 
     def assemble_audio(
         self,
@@ -547,6 +547,10 @@ class Redubber(BaseModel):
             reproj: The reproj object.
             duration: The duration of the final audio file.
             output_index: The index of the output file. If None, the output file will be named like the source file.
+            indices: The indices of the segments to assemble. If None, all segments will be assembled.
+
+        Returns:
+            The path to the output file.
         """
         inputs = []
         filter_complex_parts = []
