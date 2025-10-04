@@ -129,8 +129,7 @@ def main():
         case "join":
             join()
         case "redub":
-            name = int(sys.argv[2])
-            redub(name)
+            redub(sys.argv[2], interactive=True)
 
 if __name__ == "__main__":
     main()
