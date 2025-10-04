@@ -128,7 +128,9 @@ def main():
             compress()
         case "join":
             join()
-
+        case "redub":
+            name = int(sys.argv[2])
+            redub(name)
 
 if __name__ == "__main__":
     main()
