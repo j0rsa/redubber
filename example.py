@@ -36,8 +36,9 @@ def redub(file_filter: str | None = None, interactive: bool = False):
         for file in files:
             src_file = os.path.join(root, file)
             reproj = Reproj(source, src_file)
+            final_video_path = os.path.join(target, reproj.filename + ".mp4")
 
-            if redubber.can_redub(src_file) and file_condition(reproj.filename):
+            if redubber.can_redub(src_file) and file_condition(reproj.filename) and not os.path.exists(final_video_path):
                 log.info(f"Redubbing {reproj.filename}")
                 all_segments = redubber.get_text_and_segments(reproj)
                 sbt_file = redubber.generate_subtitles(reproj, all_segments)
@@ -48,7 +49,6 @@ def redub(file_filter: str | None = None, interactive: bool = False):
                     all_segments, reproj, redubber.get_media_duration(src_file)
                 )
                 # mix audio with video and save to target
-                final_video_path = os.path.join(target, reproj.filename + ".mp4")
                 redubber.mix_audio_with_video(
                     reproj, redubbed_audio_path, final_video_path, ["zho", "eng"]
                 )
