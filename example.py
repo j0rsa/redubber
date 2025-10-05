@@ -120,7 +120,7 @@ def main():
     # print(sys.argv)
     if len(sys.argv) == 1:
         print("Running main function")
-        redub("62", interactive=True)
+        redub(interactive=True)
         return
     case = sys.argv[1]
     match case:
