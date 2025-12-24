@@ -9,7 +9,7 @@ from seg_postprocessor import word_count
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
-source = "CATEPXAN"
+source = "work"
 target = "dest"
 
 
@@ -50,7 +50,7 @@ def redub(file_filter: str | None = None, interactive: bool = False):
                 )
                 # mix audio with video and save to target
                 redubber.mix_audio_with_video(
-                    reproj, redubbed_audio_path, final_video_path, ["zho", "eng"]
+                    reproj, redubbed_audio_path, final_video_path, ["rus", "eng"]
                 )
                 audio_streams = redubber.get_media_audio_streams(src_file)
                 log.info(f"Original audio streams: {audio_streams}")

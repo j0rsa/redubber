@@ -7,6 +7,121 @@ import os
 import time
 from video_analyzer import analyze_project_files
 from utils import get_language_flag
+from pipeline_status import get_pipeline_status, PipelineStatus
+
+
+def display_pipeline_status(status: PipelineStatus, key_prefix: str):
+    """Display a compact pipeline status indicator."""
+    if status.is_complete:
+        st.markdown("✅ **Done**")
+    elif status.progress_percent == 0:
+        st.markdown("⬜ Not started")
+    else:
+        # Show progress with stage indicators
+        stages = []
+        if status.has_audio_chunks:
+            stages.append(f"🔊{status.audio_chunks}")
+        if status.has_transcripts:
+            stages.append(f"📝{status.transcripts}")
+        if status.has_tts:
+            stages.append(f"🗣️{status.tts_segments}")
+        if status.has_target_audio:
+            stages.append(f"🎵{status.target_audio_chunks}")
+
+        progress_text = " ".join(stages) if stages else "..."
+        st.markdown(f"{progress_text}")
+
+
+def run_redub_pipeline(video_data: dict, progress_callback=None):
+    """
+    Run the redub pipeline for a single video.
+
+    Args:
+        video_data: Video data dictionary containing path and other info
+        progress_callback: Optional callback function for progress updates
+    """
+    from redubber import Redubber
+    from reproj import Reproj
+
+    video_path = video_data.get('path', '')
+    if not video_path:
+        raise ValueError("Video path is required")
+
+    project_path = st.session_state.current_project_path
+
+    # Get OpenAI token from session state
+    openai_token = st.session_state.get('openai_token', '')
+    if not openai_token:
+        raise ValueError("OpenAI token is required. Please configure it in the sidebar.")
+
+    # Initialize redubber
+    redubber = Redubber(openai_token=openai_token, interactive=False)
+
+    if not redubber.can_redub(video_path):
+        raise ValueError(f"Cannot redub {video_path}: unsupported format")
+
+    # Create reproj for working directory management
+    reproj = Reproj(source=project_path, file_path=video_path)
+
+    # Run pipeline stages
+    if progress_callback:
+        progress_callback("Extracting audio chunks...")
+
+    # Stage 1: Get text and segments (includes audio extraction and transcription)
+    segments = redubber.get_text_and_segments(reproj, compact=True)
+
+    if progress_callback:
+        progress_callback(f"Transcription complete. {len(segments)} segments.")
+
+    # Stage 2: Generate subtitles
+    if progress_callback:
+        progress_callback("Generating subtitles...")
+    redubber.generate_subtitles(reproj, segments)
+
+    # Stage 3: Generate TTS
+    if progress_callback:
+        progress_callback(f"Generating TTS for {len(segments)} segments...")
+    redubber.tts_segments(reproj, segments)
+
+    # Stage 4: Assemble audio
+    if progress_callback:
+        progress_callback("Assembling audio...")
+    duration = redubber.get_media_duration(video_path)
+    audio_file = redubber.assemble_long_audio(segments, reproj, duration)
+
+    # Stage 5: Mix audio with video
+    if progress_callback:
+        progress_callback("Mixing audio with video...")
+
+    # Determine output file path
+    video_dir = os.path.dirname(video_path)
+    video_filename = os.path.splitext(os.path.basename(video_path))[0]
+    video_ext = os.path.splitext(video_path)[1]
+    output_file = os.path.join(video_dir, f"{video_filename}.en{video_ext}")
+
+    # Get existing audio streams
+    audio_streams = redubber.get_media_audio_streams(video_path)
+
+    # Check for source language override in project settings
+    db_manager = st.session_state.db_manager
+    project_data = db_manager.get_project_by_path(project_path)
+    source_language_override = ''
+    if project_data:
+        source_language_override = db_manager.get_source_language_override(project_data['id'])
+
+    # Apply override if set, otherwise use detected languages
+    if source_language_override:
+        # Replace all detected audio stream languages with the override
+        languages = [source_language_override] * len(audio_streams) + ["eng"]
+    else:
+        languages = audio_streams + ["eng"]
+
+    redubber.mix_audio_with_video(reproj, audio_file, output_file, languages)
+
+    if progress_callback:
+        progress_callback("Complete!")
+
+    return output_file
 
 
 def check_video_readiness(video_data, target_language):
@@ -119,6 +234,34 @@ def display_current_project_page():
     if st.session_state.get('show_delete_confirmation', False):
         display_delete_confirmation_dialog()
 
+    # Project Settings - Source Language Override
+    with st.expander("Project Settings", expanded=False):
+        # Source language override options
+        source_language_options = {
+            '': 'No Override (use detected)',
+            'rus': 'Russian',
+            'zho': 'Chinese',
+            'kor': 'Korean',
+            'jpn': 'Japanese',
+            'ita': 'Italian',
+        }
+
+        # Load current setting from database
+        current_override = db_manager.get_source_language_override(project_id)
+
+        selected_override = st.selectbox(
+            "Source Language Override",
+            options=list(source_language_options.keys()),
+            format_func=lambda x: source_language_options[x],
+            index=list(source_language_options.keys()).index(current_override) if current_override in source_language_options else 0,
+            help="Override the detected source language when setting audio track metadata in the output file"
+        )
+
+        # Save if changed
+        if selected_override != current_override:
+            db_manager.set_source_language_override(project_id, selected_override)
+            st.rerun()
+
     # Display project files if initialized
     if has_scan_data:
         display_project_analysis(project_id)
@@ -126,6 +269,10 @@ def display_current_project_page():
     # Check if video modal should be displayed
     if st.session_state.get('show_video_modal', False):
         display_video_modal()
+
+    # Check if redub modal should be displayed
+    if st.session_state.get('show_redub_modal', False):
+        display_redub_modal()
 
 
 def initialize_project(project_id: int):
@@ -310,12 +457,20 @@ def display_project_analysis(project_id: int):
                 else:
                     duration_str = "0:00"
 
+                # Get pipeline status for this video
+                video_path = video.get('path', '')
+                project_path = st.session_state.current_project_path
+                pipeline_status = None
+                if video_path and project_path:
+                    pipeline_status = get_pipeline_status(video_path, project_path)
+
                 table_data.append({
                     'File': str(video.get('filename', 'Unknown')),
                     'Size': size_formatted,
                     'Duration': duration_str,
-                    'Audio': str(', '.join(audio_langs)) if audio_langs else '❌ No audio detected',
-                    'Subtitles': str(', '.join(sub_langs)) if sub_langs else '❌ No subtitles',
+                    'Audio': str(', '.join(audio_langs)) if audio_langs else '❌ No audio',
+                    'Subtitles': str(', '.join(sub_langs)) if sub_langs else '❌ None',
+                    'Pipeline': pipeline_status,
                     'Status': 'Analyzed',
                     'IsReady': is_ready  # Add readiness flag
                 })
@@ -341,21 +496,23 @@ def display_project_analysis(project_id: int):
         # Display as simple table using native Streamlit components
         if filtered_table_data:
             # Create table headers
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([2.5, 1, 1, 2, 2, 1, 0.5])
+            col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2.5, 0.7, 0.7, 1.2, 1.2, 1.5, 0.6, 0.6])
             with col1:
                 st.write("**📁 File**")
             with col2:
                 st.write("**📊 Size**")
             with col3:
-                st.write("**⏱️ Duration**")
+                st.write("**⏱️ Dur**")
             with col4:
                 st.write("**🎵 Audio**")
             with col5:
-                st.write("**📝 Subtitles**")
+                st.write("**📝 Subs**")
             with col6:
-                st.write("**✅ Status**")
+                st.write("**🔄 Pipeline**")
             with col7:
                 st.write("**▶️**")
+            with col8:
+                st.write("**🎬**")
 
             st.divider()
 
@@ -379,7 +536,7 @@ def display_project_analysis(project_id: int):
                         """, unsafe_allow_html=True)
 
                         st.markdown('<div class="ready-row">', unsafe_allow_html=True)
-                        col1, col2, col3, col4, col5, col6, col7 = st.columns([2.5, 1, 1, 2, 2, 1, 0.5])
+                        col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2.5, 0.7, 0.7, 1.2, 1.2, 1.5, 0.6, 0.6])
                         with col1:
                             st.write(row['File'])
                         with col2:
@@ -391,16 +548,26 @@ def display_project_analysis(project_id: int):
                         with col5:
                             st.write(row['Subtitles'])
                         with col6:
-                            st.write(row['Status'])
+                            # Display pipeline status
+                            pipeline = row.get('Pipeline')
+                            if pipeline:
+                                display_pipeline_status(pipeline, f"ready_{display_index}")
+                            else:
+                                st.write("—")
                         with col7:
-                            if st.button("▶️", key=f"play_filtered_{display_index}", help="Open video"):
+                            if st.button("▶️", key=f"play_filtered_{display_index}", help="Play video"):
                                 st.session_state.video_to_play = analysis_data['videos'][original_video_index]
                                 st.session_state.show_video_modal = True
+                                st.rerun()
+                        with col8:
+                            if st.button("🎬", key=f"redub_{display_index}", help="Redub video"):
+                                st.session_state.video_to_redub = analysis_data['videos'][original_video_index]
+                                st.session_state.show_redub_modal = True
                                 st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
                 else:
                     # Normal row without background
-                    col1, col2, col3, col4, col5, col6, col7 = st.columns([2.5, 1, 1, 2, 2, 1, 0.5])
+                    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2.5, 0.7, 0.7, 1.2, 1.2, 1.5, 0.6, 0.6])
                     with col1:
                         st.write(row['File'])
                     with col2:
@@ -412,11 +579,21 @@ def display_project_analysis(project_id: int):
                     with col5:
                         st.write(row['Subtitles'])
                     with col6:
-                        st.write(row['Status'])
+                        # Display pipeline status
+                        pipeline = row.get('Pipeline')
+                        if pipeline:
+                            display_pipeline_status(pipeline, f"normal_{display_index}")
+                        else:
+                            st.write("—")
                     with col7:
-                        if st.button("▶️", key=f"play_filtered_{display_index}", help="Open video"):
+                        if st.button("▶️", key=f"play_normal_{display_index}", help="Play video"):
                             st.session_state.video_to_play = analysis_data['videos'][original_video_index]
                             st.session_state.show_video_modal = True
+                            st.rerun()
+                    with col8:
+                        if st.button("🎬", key=f"redub_normal_{display_index}", help="Redub video"):
+                            st.session_state.video_to_redub = analysis_data['videos'][original_video_index]
+                            st.session_state.show_redub_modal = True
                             st.rerun()
 
             # Calculate and display summary row
@@ -505,7 +682,7 @@ def display_project_analysis(project_id: int):
                         common_sub_langs = common_sub_langs.intersection(video_sub_langs)
 
                 # Display summary row
-                col1, col2, col3, col4, col5, col6, col7 = st.columns([2.5, 1, 1, 2, 2, 1, 0.5])
+                col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([2.5, 0.7, 0.7, 1.2, 1.2, 1.5, 0.6, 0.6])
                 with col1:
                     st.write("**📊 TOTAL**")
                 with col2:
@@ -513,15 +690,17 @@ def display_project_analysis(project_id: int):
                 with col3:
                     st.write(f"**{total_duration_str}**")
                 with col4:
-                    common_audio_display = ', '.join([f"{get_language_flag(lang)} {lang}" for lang in sorted(common_audio_langs)]) if common_audio_langs else "❌ No common audio"
+                    common_audio_display = ', '.join([f"{get_language_flag(lang)}" for lang in sorted(common_audio_langs)]) if common_audio_langs else "—"
                     st.write(f"**{common_audio_display}**")
                 with col5:
-                    common_sub_display = ', '.join([f"{get_language_flag(lang)} {lang}" for lang in sorted(common_sub_langs)]) if common_sub_langs else "❌ No common subtitles"
+                    common_sub_display = ', '.join([f"{get_language_flag(lang)}" for lang in sorted(common_sub_langs)]) if common_sub_langs else "—"
                     st.write(f"**{common_sub_display}**")
                 with col6:
-                    st.write("**📈 Summary**")
+                    st.write("")  # Empty for pipeline column
                 with col7:
-                    st.write("")  # Empty cell for summary row
+                    st.write("")  # Empty cell
+                with col8:
+                    st.write("")  # Empty cell
         else:
             if table_data:
                 st.info("No videos match the current filter criteria")
@@ -681,3 +860,142 @@ def display_video_modal():
             if 'video_to_play' in st.session_state:
                 del st.session_state.video_to_play
             st.rerun()
+
+
+@st.dialog("Redub Video", width="large")
+def display_redub_modal():
+    """Display redub execution modal with progress."""
+    video_data = st.session_state.get('video_to_redub', {})
+
+    if not video_data:
+        st.error("No video data available")
+        return
+
+    video_path = video_data.get('path', '')
+    video_filename = video_data.get('filename', 'Unknown')
+
+    st.subheader(f"🎬 Redub: {video_filename}")
+
+    # Check OpenAI configuration
+    openai_token = st.session_state.get('openai_token', '')
+    if not openai_token:
+        st.error("OpenAI API token is not configured. Please set it in the sidebar.")
+        if st.button("Close", use_container_width=True):
+            st.session_state.show_redub_modal = False
+            if 'video_to_redub' in st.session_state:
+                del st.session_state.video_to_redub
+            st.rerun()
+        return
+
+    # Get current pipeline status
+    project_path = st.session_state.current_project_path
+    pipeline_status = get_pipeline_status(video_path, project_path)
+
+    # Display current status
+    st.write("**Current Pipeline Status:**")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        if pipeline_status.has_audio_chunks:
+            st.success(f"🔊 Audio\n{pipeline_status.audio_chunks} chunks")
+        else:
+            st.info("🔊 Audio\nPending")
+    with col2:
+        if pipeline_status.has_transcripts:
+            st.success(f"📝 STT\n{pipeline_status.transcripts} files")
+        else:
+            st.info("📝 STT\nPending")
+    with col3:
+        if pipeline_status.has_tts:
+            st.success(f"🗣️ TTS\n{pipeline_status.tts_segments} segs")
+        else:
+            st.info("🗣️ TTS\nPending")
+    with col4:
+        if pipeline_status.has_target_audio:
+            st.success(f"🎵 Mix\n{pipeline_status.target_audio_chunks} files")
+        else:
+            st.info("🎵 Mix\nPending")
+    with col5:
+        if pipeline_status.is_complete:
+            st.success("✅ Done\nComplete")
+        else:
+            st.info("✅ Final\nPending")
+
+    st.divider()
+
+    # Check if already running
+    if st.session_state.get('redub_running', False):
+        st.warning("Redub is currently running...")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        # Show current progress
+        current_stage = st.session_state.get('redub_stage', 'Starting...')
+        status_text.text(f"🔄 {current_stage}")
+
+        if st.button("Cancel", use_container_width=True, type="secondary"):
+            st.session_state.redub_running = False
+            st.session_state.show_redub_modal = False
+            if 'video_to_redub' in st.session_state:
+                del st.session_state.video_to_redub
+            st.rerun()
+        return
+
+    if pipeline_status.is_complete:
+        st.success("This video has already been redubbed!")
+        st.write(f"Output file: `{pipeline_status.final_file_path}`")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Close", use_container_width=True):
+                st.session_state.show_redub_modal = False
+                if 'video_to_redub' in st.session_state:
+                    del st.session_state.video_to_redub
+                st.rerun()
+        with col2:
+            if st.button("Re-run Pipeline", use_container_width=True, type="secondary"):
+                st.session_state.redub_force_rerun = True
+                st.rerun()
+        return
+
+    # Show start button
+    st.write("**Ready to start redubbing?**")
+    st.write(f"Next stage: **{pipeline_status.current_stage}**")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🚀 Start Redub", use_container_width=True, type="primary"):
+            st.session_state.redub_running = True
+            st.session_state.redub_stage = "Initializing..."
+            st.rerun()
+
+    with col2:
+        if st.button("Cancel", use_container_width=True):
+            st.session_state.show_redub_modal = False
+            if 'video_to_redub' in st.session_state:
+                del st.session_state.video_to_redub
+            st.rerun()
+
+
+def execute_redub_in_modal():
+    """Execute the redub pipeline within the modal context."""
+    video_data = st.session_state.get('video_to_redub', {})
+    if not video_data:
+        return
+
+    progress_container = st.empty()
+    status_container = st.empty()
+
+    def update_progress(message):
+        st.session_state.redub_stage = message
+        status_container.text(f"🔄 {message}")
+
+    try:
+        output_file = run_redub_pipeline(video_data, update_progress)
+        st.session_state.redub_running = False
+        st.session_state.redub_complete = True
+        st.session_state.redub_output = output_file
+        st.success(f"Redub complete! Output: {output_file}")
+    except Exception as e:
+        st.session_state.redub_running = False
+        st.session_state.redub_error = str(e)
+        st.error(f"Error during redub: {e}")

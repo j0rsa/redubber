@@ -94,6 +94,13 @@ class DatabaseManager:
                 # Column doesn't exist, add it
                 cursor.execute("ALTER TABLE video_analysis ADD COLUMN duration_seconds REAL DEFAULT 0")
 
+            # Add source_language_override column if it doesn't exist (migration)
+            try:
+                cursor.execute("SELECT source_language_override FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                # Column doesn't exist, add it
+                cursor.execute("ALTER TABLE projects ADD COLUMN source_language_override TEXT DEFAULT ''")
+
             conn.commit()
     
     def add_project(self, path: str, name: str) -> int:
@@ -300,3 +307,29 @@ class DatabaseManager:
                 results.append(row_dict)
 
             return results
+
+    def get_source_language_override(self, project_id: int) -> str:
+        """Get the source language override for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT source_language_override FROM projects
+                WHERE id = ?
+            """, (project_id,))
+
+            result = cursor.fetchone()
+            return result[0] if result and result[0] else ''
+
+    def set_source_language_override(self, project_id: int, language_override: str) -> None:
+        """Set the source language override for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE projects
+                SET source_language_override = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (language_override, project_id))
+
+            conn.commit()
