@@ -6,6 +6,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import os
 import time
+import shutil
 from video_analyzer import analyze_project_files
 from utils import get_language_flag
 from pipeline_status import get_pipeline_status, PipelineStatus, clear_downstream_stages
@@ -115,7 +116,10 @@ def run_redub_pipeline(video_data: dict, progress_callback=None):
     # Stage 2: Generate subtitles
     if progress_callback:
         progress_callback("Generating subtitles...")
-    redubber.generate_subtitles(reproj, segments)
+    srt_file = redubber.generate_subtitles(reproj, segments)
+    # Copy subtitles to video directory
+    video_dir = os.path.dirname(video_path)
+    shutil.copy(srt_file, os.path.join(video_dir, os.path.basename(srt_file)))
 
     # Stage 3: Generate TTS
     if progress_callback:
@@ -163,20 +167,24 @@ def run_redub_pipeline(video_data: dict, progress_callback=None):
     return output_file
 
 
-def run_pipeline_stage(video_data: dict, stage: str, progress_callback=None):
+def run_pipeline_stage(video_data: dict, stage: str, progress_callback=None, stage_complete_callback=None):
     """
     Run a single pipeline stage for a video.
 
     Args:
         video_data: Video data dictionary containing path and other info
-        stage: Stage to run ('audio', 'stt', 'subtitles', 'tts', 'mix')
-        progress_callback: Optional callback function for progress updates
+        stage: Stage to run ('audio', 'stt', 'subtitles', 'tts', 'assemble', 'final')
+        progress_callback: Called with (message: str, progress: int 0-100) for progress updates
+        stage_complete_callback: Called with (stage_name: str, duration_seconds: float) when complete
 
     Returns:
-        True if successful
+        dict with 'success', 'stage_name', 'duration_seconds', and optionally 'output_file'
     """
     from redubber import Redubber
     from reproj import Reproj
+    import time as time_module
+
+    start_time = time_module.time()
 
     video_path = video_data.get('path', '')
     if not video_path:
@@ -206,45 +214,68 @@ def run_pipeline_stage(video_data: dict, stage: str, progress_callback=None):
     # Create reproj for working directory management
     reproj = Reproj(source=project_path, file_path=video_path)
 
+    # Helper to convert 0-1 progress to 0-100 callback
+    def make_progress_callback(stage_label: str):
+        def callback(progress_01: float):
+            if progress_callback:
+                progress_callback(stage_label, int(progress_01 * 100))
+        return callback
+
+    stage_name = stage  # Will be updated per stage
+    output_file = None
+
     if stage == 'audio':
+        stage_name = "Extracting audio"
         if progress_callback:
-            progress_callback("Extracting audio chunks...")
-        redubber.extract_audio_chunks(video_path, reproj)
-        return True
+            progress_callback(stage_name, 0)
+        redubber.extract_audio_chunks(reproj, progress_callback=make_progress_callback(stage_name))
+        if progress_callback:
+            progress_callback(stage_name, 100)
 
     elif stage == 'stt':
+        stage_name = "Transcribing audio"
         if progress_callback:
-            progress_callback("Transcribing audio...")
+            progress_callback(stage_name, 0)
         # Need to get audio chunks first
         from reproj import Reproj as ReprojClass
         audio_dir = reproj.get_file_working_dir(ReprojClass.Section.SOURCE_AUDIO_CHUNKS)
         if not os.path.exists(audio_dir) or not os.listdir(audio_dir):
             raise ValueError("Audio chunks not found. Run audio extraction first.")
         # Run STT on the audio chunks
-        redubber.get_text_and_segments(reproj, compact=True)
-        return True
+        redubber.get_text_and_segments(reproj, compact=True, progress_callback=make_progress_callback(stage_name))
+        if progress_callback:
+            progress_callback(stage_name, 100)
 
     elif stage == 'subtitles':
+        import shutil
+        stage_name = "Generating subtitles"
         if progress_callback:
-            progress_callback("Generating subtitles...")
+            progress_callback(stage_name, 0)
         # Get segments from STT
         segments = redubber.get_text_and_segments(reproj, compact=True)
-        redubber.generate_subtitles(reproj, segments)
-        return True
+        srt_file = redubber.generate_subtitles(reproj, segments)
+        # Copy subtitles to video directory
+        video_dir = os.path.dirname(video_path)
+        shutil.copy(srt_file, os.path.join(video_dir, os.path.basename(srt_file)))
+        if progress_callback:
+            progress_callback(stage_name, 100)
 
     elif stage == 'tts':
+        stage_name = "Generating TTS"
         if progress_callback:
-            progress_callback("Generating TTS...")
+            progress_callback(stage_name, 0)
         # Get segments - either from STT or from external subtitles
         segments = get_segments_for_video(video_path, project_path)
         if not segments:
             raise ValueError("No segments available. Need subtitles or STT results.")
-        redubber.tts_segments(reproj, segments)
-        return True
+        redubber.tts_segments(reproj, segments, progress_callback=make_progress_callback(stage_name))
+        if progress_callback:
+            progress_callback(stage_name, 100)
 
     elif stage == 'assemble':
+        stage_name = "Assembling audio"
         if progress_callback:
-            progress_callback("Assembling audio track...")
+            progress_callback(stage_name, 0)
         # Get segments for duration calculation
         segments = get_segments_for_video(video_path, project_path)
         if not segments:
@@ -252,15 +283,14 @@ def run_pipeline_stage(video_data: dict, stage: str, progress_callback=None):
 
         # Assemble audio
         duration = redubber.get_media_duration(video_path)
-        audio_file = redubber.assemble_long_audio(segments, reproj, duration)
-
+        redubber.assemble_long_audio(segments, reproj, duration, progress_callback=make_progress_callback(stage_name))
         if progress_callback:
-            progress_callback("Audio assembled!")
-        return True
+            progress_callback(stage_name, 100)
 
     elif stage == 'final':
+        stage_name = "Mixing final video"
         if progress_callback:
-            progress_callback("Mixing audio with video...")
+            progress_callback(stage_name, 0)
 
         # Get segments for audio assembly
         segments = get_segments_for_video(video_path, project_path)
@@ -294,12 +324,20 @@ def run_pipeline_stage(video_data: dict, stage: str, progress_callback=None):
             languages = audio_streams + ["eng"]
 
         redubber.mix_audio_with_video(reproj, audio_file, output_file, languages)
-
         if progress_callback:
-            progress_callback("Complete!")
-        return output_file
+            progress_callback(stage_name, 100)
 
-    return False
+    # Calculate duration and call completion callback
+    duration_seconds = time_module.time() - start_time
+    if stage_complete_callback:
+        stage_complete_callback(stage_name, duration_seconds)
+
+    return {
+        'success': True,
+        'stage_name': stage_name,
+        'duration_seconds': duration_seconds,
+        'output_file': output_file
+    }
 
 
 def get_segments_for_video(video_path: str, project_path: str):
@@ -712,6 +750,14 @@ def display_project_analysis(project_id: int):
         video_path = video_data.get('path', '')
         project_path = st.session_state.current_project_path
 
+        # Helper to format duration
+        def format_duration(seconds: float) -> str:
+            if seconds < 60:
+                return f"{seconds:.1f}s"
+            minutes = int(seconds // 60)
+            secs = seconds % 60
+            return f"{minutes}m {secs:.1f}s"
+
         # Show progress UI
         st.info(f"⚡ Auto-redubbing: **{video_filename}**")
         progress_placeholder = st.empty()
@@ -723,12 +769,15 @@ def display_project_analysis(project_id: int):
 
             def update_progress(message, progress=None):
                 if progress is not None:
-                    progress_placeholder.progress(progress / 100, text=f"{progress}% - {message}")
+                    progress_placeholder.progress(progress / 100, text=f"{message}: {progress}%")
                 else:
                     status_placeholder.caption(f"📍 {message}")
 
+            def on_stage_complete(stage_label: str, duration: float):
+                st.toast(f"✅ {stage_label} completed in {format_duration(duration)}")
+
             # Run the redub
-            output_file = run_smart_redub(video_data, pipeline_status, update_progress)
+            output_file = run_smart_redub(video_data, pipeline_status, update_progress, on_stage_complete)
 
             # Clear autoredub state
             del st.session_state.autoredub_video
@@ -1408,26 +1457,48 @@ def display_redub_modal():
     project_path = st.session_state.current_project_path
     pipeline_status = get_pipeline_status(video_path, project_path)
 
+    # Helper to format duration nicely
+    def format_duration(seconds: float) -> str:
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        minutes = int(seconds // 60)
+        secs = seconds % 60
+        return f"{minutes}m {secs:.1f}s"
+
     # Check if a stage is currently running
     if st.session_state.get('stage_running', False):
         running_stage = st.session_state.get('running_stage_name', 'Processing')
-        with st.spinner(f"Running: {running_stage}..."):
-            # Execute the stage
-            stage_to_run = st.session_state.get('stage_to_run')
-            if stage_to_run:
-                try:
-                    result = run_pipeline_stage(video_data, stage_to_run)
-                    st.session_state.stage_running = False
-                    st.session_state.stage_to_run = None
-                    st.session_state.running_stage_name = None
-                    st.success(f"Stage completed!")
-                    time.sleep(0.5)
-                    st.rerun()
-                except Exception as e:
-                    st.session_state.stage_running = False
-                    st.session_state.stage_to_run = None
-                    st.session_state.running_stage_name = None
-                    st.error(f"Error: {e}")
+        stage_to_run = st.session_state.get('stage_to_run')
+
+        # Create progress UI
+        progress_placeholder = st.empty()
+        status_placeholder = st.empty()
+
+        def update_stage_progress(stage_label: str, progress: int):
+            progress_placeholder.progress(progress / 100, text=f"{stage_label}: {progress}%")
+
+        def on_stage_complete(stage_label: str, duration: float):
+            st.toast(f"✅ {stage_label} completed in {format_duration(duration)}")
+
+        if stage_to_run:
+            try:
+                result = run_pipeline_stage(
+                    video_data,
+                    stage_to_run,
+                    progress_callback=update_stage_progress,
+                    stage_complete_callback=on_stage_complete
+                )
+                st.session_state.stage_running = False
+                st.session_state.stage_to_run = None
+                st.session_state.running_stage_name = None
+                st.success(f"✅ {result['stage_name']} completed in {format_duration(result['duration_seconds'])}")
+                time.sleep(0.5)
+                st.rerun()
+            except Exception as e:
+                st.session_state.stage_running = False
+                st.session_state.stage_to_run = None
+                st.session_state.running_stage_name = None
+                st.error(f"Error: {e}")
         return
 
     # Check if full pipeline is running
@@ -1445,12 +1516,15 @@ def display_redub_modal():
                 def update_progress(message, progress=None):
                     status.update(label=f"🔄 {message}", state="running")
                     if progress is not None:
-                        progress_placeholder.progress(progress / 100, text=message)
+                        progress_placeholder.progress(progress / 100, text=f"{message}: {progress}%")
                     else:
                         progress_placeholder.empty()
                     status_placeholder.caption(f"📍 {message}")
 
-                output_file = run_smart_redub(video_data, pipeline_status, update_progress)
+                def on_stage_complete(stage_label: str, duration: float):
+                    st.toast(f"✅ {stage_label} completed in {format_duration(duration)}")
+
+                output_file = run_smart_redub(video_data, pipeline_status, update_progress, on_stage_complete)
                 progress_placeholder.progress(1.0, text="Complete!")
                 status.update(label="✅ Redub complete!", state="complete")
                 st.session_state.redub_running = False
@@ -1574,10 +1648,16 @@ def display_redub_modal():
             st.rerun()
 
 
-def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_callback=None):
+def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_callback=None, stage_complete_callback=None):
     """
     Run redub pipeline smartly, starting from current stage.
     Handles both normal flow and external subtitle flow.
+
+    Args:
+        video_data: Video data dictionary containing path and other info
+        pipeline_status: Current pipeline status for the video
+        progress_callback: Called with (message: str, progress: int 0-100) for progress updates
+        stage_complete_callback: Called with (stage_name: str, duration_seconds: float) when each stage completes
 
     Progress stages (external subs path):
     - TTS: 0-70%
@@ -1594,6 +1674,7 @@ def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_
     from redubber import Redubber
     from reproj import Reproj
     import logging
+    import time as time_module
     log = logging.getLogger(__name__)
 
     video_path = video_data.get('path', '')
@@ -1631,25 +1712,37 @@ def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_
 
         # Run TTS if not done (0-70%)
         if not pipeline_status.has_tts:
+            stage_start = time_module.time()
+            stage_name = f"TTS ({len(segments)} segments)"
             log.info(f"run_smart_redub: Starting TTS generation for {len(segments)} segments with voice={redubber.voice}")
-            tts_callback = make_stage_callback(0, 70, f"TTS ({len(segments)} segments)")
+            tts_callback = make_stage_callback(0, 70, stage_name)
             tts_callback(0)  # Initial progress
             redubber.tts_segments(reproj, segments, progress_callback=tts_callback)
-            log.info(f"run_smart_redub: TTS generation complete")
+            stage_duration = time_module.time() - stage_start
+            log.info(f"run_smart_redub: TTS generation complete in {stage_duration:.1f}s")
+            if stage_complete_callback:
+                stage_complete_callback(stage_name, stage_duration)
         else:
             log.info(f"run_smart_redub: Skipping TTS (already done)")
             if progress_callback:
                 progress_callback("TTS already done", 70)
 
         # Assemble (70-90%)
-        assemble_callback = make_stage_callback(70, 90, "Assembling audio")
+        stage_start = time_module.time()
+        stage_name = "Assembling audio"
+        assemble_callback = make_stage_callback(70, 90, stage_name)
         assemble_callback(0)
         duration = redubber.get_media_duration(video_path)
         audio_file = redubber.assemble_long_audio(segments, reproj, duration, progress_callback=assemble_callback)
+        stage_duration = time_module.time() - stage_start
+        if stage_complete_callback:
+            stage_complete_callback(stage_name, stage_duration)
 
         # Mix (90-100%)
+        stage_start = time_module.time()
+        stage_name = "Mixing final video"
         if progress_callback:
-            progress_callback("Mixing audio with video...", 90)
+            progress_callback(stage_name, 90)
 
         # Output path
         video_dir = os.path.dirname(video_path)
@@ -1671,6 +1764,9 @@ def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_
             languages = audio_streams + ["eng"]
 
         redubber.mix_audio_with_video(reproj, audio_file, output_file, languages)
+        stage_duration = time_module.time() - stage_start
+        if stage_complete_callback:
+            stage_complete_callback(stage_name, stage_duration)
 
         if progress_callback:
             progress_callback("Complete!", 100)
@@ -1678,42 +1774,68 @@ def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_
 
     # Normal flow - run from current stage
     # Stage 1: Audio + STT (0-30%)
-    stt_callback = make_stage_callback(0, 30, "Audio extraction & transcription")
+    stage_start = time_module.time()
+    stage_name = "Audio extraction & transcription"
+    stt_callback = make_stage_callback(0, 30, stage_name)
     stt_callback(0)
     segments = redubber.get_text_and_segments(reproj, compact=True, progress_callback=stt_callback)
+    stage_duration = time_module.time() - stage_start
+    if stage_complete_callback:
+        stage_complete_callback(stage_name, stage_duration)
 
     if progress_callback:
         progress_callback(f"Transcription complete ({len(segments)} segments)", 30)
 
     # Stage 2: Subtitles (30-35%)
     if not pipeline_status.subtitles_generated:
+        import shutil
+        stage_start = time_module.time()
+        stage_name = "Generating subtitles"
         if progress_callback:
-            progress_callback("Generating subtitles...", 32)
-        redubber.generate_subtitles(reproj, segments)
+            progress_callback(stage_name, 32)
+        srt_file = redubber.generate_subtitles(reproj, segments)
+        # Copy subtitles to video directory
+        video_dir = os.path.dirname(video_path)
+        shutil.copy(srt_file, os.path.join(video_dir, os.path.basename(srt_file)))
+        stage_duration = time_module.time() - stage_start
+        if stage_complete_callback:
+            stage_complete_callback(stage_name, stage_duration)
         if progress_callback:
             progress_callback("Subtitles generated", 35)
 
     # Stage 3: TTS (35-80%)
     if not pipeline_status.has_tts:
+        stage_start = time_module.time()
+        stage_name = f"TTS ({len(segments)} segments)"
         log.info(f"run_smart_redub: Starting TTS generation for {len(segments)} segments with voice={redubber.voice}")
-        tts_callback = make_stage_callback(35, 80, f"TTS ({len(segments)} segments)")
+        tts_callback = make_stage_callback(35, 80, stage_name)
         tts_callback(0)
         redubber.tts_segments(reproj, segments, progress_callback=tts_callback)
-        log.info(f"run_smart_redub: TTS generation complete")
+        stage_duration = time_module.time() - stage_start
+        log.info(f"run_smart_redub: TTS generation complete in {stage_duration:.1f}s")
+        if stage_complete_callback:
+            stage_complete_callback(stage_name, stage_duration)
     else:
         log.info(f"run_smart_redub: Skipping TTS (already done)")
         if progress_callback:
             progress_callback("TTS already done", 80)
 
     # Stage 4: Assemble (80-92%)
-    assemble_callback = make_stage_callback(80, 92, "Assembling audio")
+    stage_start = time_module.time()
+    stage_name = "Assembling audio"
+    assemble_callback = make_stage_callback(80, 92, stage_name)
     assemble_callback(0)
     duration = redubber.get_media_duration(video_path)
     audio_file = redubber.assemble_long_audio(segments, reproj, duration, progress_callback=assemble_callback)
+    stage_duration = time_module.time() - stage_start
+    if stage_complete_callback:
+        stage_complete_callback(stage_name, stage_duration)
 
     # Stage 5: Mix (92-100%)
+    stage_start = time_module.time()
+    stage_name = "Mixing final video"
     if progress_callback:
-        progress_callback("Mixing audio with video...", 92)
+        progress_callback(stage_name, 92)
 
     video_dir = os.path.dirname(video_path)
     video_filename = os.path.splitext(os.path.basename(video_path))[0]
@@ -1733,6 +1855,9 @@ def run_smart_redub(video_data: dict, pipeline_status: PipelineStatus, progress_
         languages = audio_streams + ["eng"]
 
     redubber.mix_audio_with_video(reproj, audio_file, output_file, languages)
+    stage_duration = time_module.time() - stage_start
+    if stage_complete_callback:
+        stage_complete_callback(stage_name, stage_duration)
 
     if progress_callback:
         progress_callback("Complete!", 100)

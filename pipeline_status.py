@@ -188,8 +188,8 @@ def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "red
     # Check source audio chunks (01_source_audio_chunks)
     audio_chunks_dir = os.path.join(working_dir, "01_source_audio_chunks")
     if os.path.exists(audio_chunks_dir):
-        mp3_files = [f for f in os.listdir(audio_chunks_dir) if f.endswith('.mp3')]
-        status.audio_chunks = len(mp3_files)
+        audio_files = [f for f in os.listdir(audio_chunks_dir) if f.endswith(('.mp3', '.m4a'))]
+        status.audio_chunks = len(audio_files)
 
     # Check STT/transcripts (02_stt)
     stt_dir = os.path.join(working_dir, "02_stt")
@@ -207,13 +207,13 @@ def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "red
     # Check TTS segments (04_tts)
     tts_dir = os.path.join(working_dir, "04_tts")
     if os.path.exists(tts_dir):
-        tts_files = [f for f in os.listdir(tts_dir) if f.endswith('.mp3')]
+        tts_files = [f for f in os.listdir(tts_dir) if f.endswith(('.mp3', '.m4a'))]
         status.tts_segments = len(tts_files)
 
     # Check target audio chunks (05_target_audio_chunks)
     target_audio_dir = os.path.join(working_dir, "05_target_audio_chunks")
     if os.path.exists(target_audio_dir):
-        target_files = [f for f in os.listdir(target_audio_dir) if f.endswith('.mp3')]
+        target_files = [f for f in os.listdir(target_audio_dir) if f.endswith(('.mp3', '.m4a'))]
         status.target_audio_chunks = len(target_files)
 
     # Check for final output file (look for .en.mp4 or similar in the project directory)

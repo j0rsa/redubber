@@ -2,6 +2,7 @@ import os
 import math
 import subprocess
 import json
+import platform
 from openai import OpenAI
 from openai.types.audio.translation_verbose import TranslationVerbose
 from openai.types.audio.transcription_segment import TranscriptionSegment
@@ -18,6 +19,14 @@ from seg_postprocessor import postprocess_segments
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
+
+
+def get_aac_encoder() -> str:
+    """Get the best available AAC encoder for current platform."""
+    if platform.system() == "Darwin":
+        return "aac_at"  # Apple AudioToolbox (hardware accelerated)
+    else:
+        return "aac"  # Native FFmpeg AAC encoder
 
 
 class Redubber(BaseModel):
@@ -58,10 +67,10 @@ class Redubber(BaseModel):
         ".m2v",
     ]
 
-    audio_ext: str = ".mp3"
+    audio_ext: str = ".m4a"  # AAC in M4A container for hardware acceleration
     model: str = "gpt-4o"
     openai_token: str = ""
-    default_audio_chunk_duration: int = 20 * 60  # 20 minutes
+    default_audio_chunk_duration: int = 15 * 60  # 15 minutes (keeps under Whisper's 25MB limit)
     interactive: bool = False
     voice: str = "nova"
     voice_instructions: str = ""
@@ -134,7 +143,10 @@ class Redubber(BaseModel):
         replace: bool = False,
         progress_callback=None,
     ) -> list[str]:
-        """Extract audio chunks from a video file.
+        """Extract audio chunks from a video file using single-pass segmentation.
+
+        Uses ffmpeg's segment muxer to extract all chunks in one pass, which is
+        much faster than seeking and extracting each chunk separately.
 
         Args:
             reproj: The reproj object.
@@ -145,9 +157,9 @@ class Redubber(BaseModel):
         Returns:
             A list of paths to the audio chunks that are extracted and saved in SOURCE_AUDIO_CHUNKS section.
         """
+        import re
+
         log.info(f"Extracting audio from {reproj.file_path}")
-        # keep all audio files in the directory, that is constructed out of rel_file
-        # E.g. if rel_file is "test.mp4" then target_rel_dir is "redubber_tmp/test.mp4/"
         target_rel_dir = reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS)
         total_duration = self.get_media_duration(reproj.file_path)
         log.info(f"Video duration {self.seconds_to_hms(total_duration)}")
@@ -156,70 +168,105 @@ class Redubber(BaseModel):
             f"Extracting {num_chunks} chunks of {self.seconds_to_hms(chunk_duration)} each"
         )
 
-        audio_file_template = (
-            os.path.splitext(os.path.basename(reproj.file_path))[0]
-            + "_{:03d}"
-            + self.audio_ext
-        )
-        # delete all mp3 files in the directory
-        if replace:
-            for source, _dirs, files in os.walk(target_rel_dir):
-                for file in files:
-                    if file.endswith(self.audio_ext):
-                        os.remove(os.path.join(source, file))
+        base_name = os.path.splitext(os.path.basename(reproj.file_path))[0]
 
-        total_audio_duration = 0.0
+        # Delete existing chunks if replace is set
+        if replace and os.path.exists(target_rel_dir):
+            for file in os.listdir(target_rel_dir):
+                if file.endswith(self.audio_ext):
+                    os.remove(os.path.join(target_rel_dir, file))
+
+        # Build list of expected output files (1-indexed)
         result = []
+        for i in range(num_chunks):
+            chunk_filename = f"{base_name}_{i+1:03d}{self.audio_ext}"
+            result.append(os.path.join(target_rel_dir, chunk_filename))
 
-        # Create progress bar if interactive mode is enabled
-        chunk_range = range(num_chunks)
-        if self.interactive:
-            chunk_range = tqdm(
-                chunk_range, desc="Extracting audio chunks", unit="chunk"
-            )
-
-        for i in chunk_range:
-            start_time = i * chunk_duration
-            output_audio_path = audio_file_template.format(i + 1)  # Naming each chunk
-            audio_path = os.path.join(target_rel_dir, output_audio_path)
-
-            # Check if the audio file already exists
-            if os.path.exists(audio_path):
-                log.info(f"Audio file {audio_path} already exists")
-                result.append(audio_path)
-                total_audio_duration += self.get_media_duration(audio_path)
-                if progress_callback:
-                    progress_callback((i + 1) / num_chunks)
-                continue
-
-            os.makedirs(target_rel_dir, exist_ok=True)
-            # Use subprocess to call ffmpeg directly
-            cmd = [
-                "ffmpeg",
-                "-i",
-                reproj.file_path,
-                "-ss",
-                str(start_time),
-                "-t",
-                str(chunk_duration),
-                "-vn",
-                "-acodec",
-                "libmp3lame",
-                "-y",
-                audio_path,
-            ]
-            subprocess.run(cmd, check=True, capture_output=True)
-
-            log.info(f"Extracted chunk {i + 1}: {output_audio_path}")
-            result.append(audio_path)
-            total_audio_duration += self.get_media_duration(audio_path)
-
+        # Check if all chunks already exist
+        all_exist = all(os.path.exists(p) for p in result)
+        if all_exist and not replace:
+            log.info("All audio chunks already exist, skipping extraction")
             if progress_callback:
-                progress_callback((i + 1) / num_chunks)
+                progress_callback(1.0)
+            return result
 
-        log.info(f"Audio duration {self.seconds_to_hms(total_audio_duration)}")
+        # Create output directory
+        os.makedirs(target_rel_dir, exist_ok=True)
 
-        return result
+        # Use ffmpeg segment muxer for single-pass extraction
+        # segment_start_number=1 makes it 1-indexed to match our naming convention
+        segment_template = os.path.join(target_rel_dir, f"{base_name}_%03d{self.audio_ext}")
+
+        cmd = [
+            "ffmpeg",
+            "-i", reproj.file_path,
+            "-vn",  # No video
+            "-acodec", get_aac_encoder(),
+            "-b:a", "128k",  # 128kbps is plenty for speech, keeps 15min chunks ~14MB (under 25MB Whisper limit)
+            "-f", "segment",
+            "-segment_time", str(chunk_duration),
+            "-segment_start_number", "1",  # 1-indexed to match existing naming
+            "-reset_timestamps", "1",
+            "-y",
+            segment_template,
+        ]
+
+        log.info(f"Running single-pass audio extraction")
+
+        # Run ffmpeg with progress monitoring
+        process = subprocess.Popen(
+            cmd,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+
+        # Parse ffmpeg progress from stderr (time=HH:MM:SS.xx)
+        time_pattern = re.compile(r'time=(\d+):(\d+):(\d+\.\d+)')
+
+        if self.interactive:
+            pbar = tqdm(total=100, desc="Extracting audio", unit="%")
+            last_progress = 0
+
+        for line in process.stderr:
+            match = time_pattern.search(line)
+            if match:
+                hours, minutes, seconds = match.groups()
+                current_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                progress = min(current_time / total_duration, 1.0)
+
+                if progress_callback:
+                    progress_callback(progress)
+
+                if self.interactive:
+                    new_progress = int(progress * 100)
+                    if new_progress > last_progress:
+                        pbar.update(new_progress - last_progress)
+                        last_progress = new_progress
+
+        if self.interactive:
+            pbar.close()
+
+        process.wait()
+        if process.returncode != 0:
+            raise RuntimeError(f"ffmpeg audio extraction failed with return code {process.returncode}")
+
+        # Verify all chunks were created
+        missing = [p for p in result if not os.path.exists(p)]
+        if missing:
+            log.warning(f"Some expected chunks not created: {missing[:3]}...")
+
+        # Get actual files created (in case count differs slightly)
+        actual_files = sorted([
+            os.path.join(target_rel_dir, f)
+            for f in os.listdir(target_rel_dir)
+            if f.endswith(self.audio_ext) and f.startswith(base_name)
+        ])
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        log.info(f"Extracted {len(actual_files)} audio chunks in single pass")
+        return actual_files
 
     def transcribe_audio(
         self, reproj: Reproj, audio_file: str, time_offset: float = 0.0
@@ -323,7 +370,7 @@ class Redubber(BaseModel):
                         voice=self.voice,
                         input=text,
                         instructions=self.voice_instructions,
-                        response_format="mp3",
+                        response_format="aac",  # AAC for hardware acceleration
                     )
                     response.stream_to_file(output_file)
                 else:
@@ -334,6 +381,7 @@ class Redubber(BaseModel):
                             voice=self.voice,
                             input=text,
                             speed=1.25,
+                            response_format="aac",  # AAC for hardware acceleration
                         ) as response
                     ):
                         response.stream_to_file(output_file)
@@ -398,12 +446,12 @@ class Redubber(BaseModel):
         Returns:
             The path to the audio file.
         """
-        output_file = os.path.join(output_dir, f"{i:03d}.en.mp3")
-        temp_file = os.path.join(output_dir, f"{i:03d}.en.temp.mp3")
+        output_file = os.path.join(output_dir, f"{i:03d}.en{self.audio_ext}")
+        temp_file = os.path.join(output_dir, f"{i:03d}.en.temp{self.audio_ext}")
 
         if os.path.exists(output_file):
-            log.debug(f"TTS already exists for {i:03d}.en.mp3")
-            return f"{i:03d}.en.mp3"
+            log.debug(f"TTS already exists for {i:03d}.en{self.audio_ext}")
+            return f"{i:03d}.en{self.audio_ext}"
 
         # Generate TTS
         self.tts(segment.text, temp_file)
@@ -424,7 +472,7 @@ class Redubber(BaseModel):
             # Audio fits - just rename
             os.rename(temp_file, output_file)
 
-        return f"{i:03d}.en.mp3"
+        return f"{i:03d}.en{self.audio_ext}"
 
     def tts_segments(self, reproj: Reproj, segments, progress_callback=None) -> set[str]:
         """
@@ -552,7 +600,7 @@ class Redubber(BaseModel):
         audio_dict: List[TranscriptionSegment],
         reproj: Reproj,
         duration,
-        max_segments=600,
+        max_segments=50,  # Reduced from 600 - amix with many inputs is very slow
         progress_callback=None,
     ):
         """
@@ -571,28 +619,58 @@ class Redubber(BaseModel):
             log.warning(
                 f"Assembling long audio for {reproj.file_path} with {len(audio_dict)} segments"
             )
-            audio_file_indices = []
             working_dir = reproj.get_file_working_dir(
                 Reproj.Section.TARGET_AUDIO_CHUNKS
             )
-            output_file = os.path.join(working_dir, reproj.filename + ".en.mp3")
+            output_file = os.path.join(working_dir, reproj.filename + ".en" + self.audio_ext)
             num_chunks = math.ceil(len(audio_dict) / max_segments)
-            for chunk_idx, i in enumerate(range(0, len(audio_dict), max_segments)):
+
+            # Prepare chunk tasks
+            chunk_tasks = []
+            for i in range(0, len(audio_dict), max_segments):
                 j = i // max_segments + 1
                 index_suffix = f"_{j:03d}"
                 input_file = os.path.join(
-                    working_dir, reproj.filename + index_suffix + ".en.mp3"
+                    working_dir, reproj.filename + index_suffix + ".en" + self.audio_ext
                 )
-                if os.path.exists(input_file):
-                    log.info(f"Audio already exists for {input_file}")
-                else:
-                    self.assemble_audio(
-                        audio_dict, reproj, duration, j, indices=list(range(i, min(i + max_segments, len(audio_dict)-1)))
-                    )
-                audio_file_indices.append((i, audio_dict[i].start))
-                # Progress: chunk assembly is 0-80%, final mix is 80-100%
-                if progress_callback:
-                    progress_callback((chunk_idx + 1) / num_chunks * 0.8)
+                indices = list(range(i, min(i + max_segments, len(audio_dict))))
+                chunk_tasks.append((i, j, input_file, indices))
+
+            # Process chunks in parallel
+            from concurrent.futures import as_completed
+            audio_file_indices = []
+            max_workers = min(10, num_chunks)  # Limit to 10 parallel ffmpeg processes
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all chunk tasks
+                future_to_chunk = {}
+                for i, j, input_file, indices in chunk_tasks:
+                    if os.path.exists(input_file):
+                        log.info(f"Audio already exists for {input_file}")
+                        audio_file_indices.append((i, audio_dict[i].start))
+                    else:
+                        future = executor.submit(
+                            self.assemble_audio,
+                            audio_dict, reproj, duration, j, indices
+                        )
+                        future_to_chunk[future] = (i, input_file)
+
+                # Wait for completion and track progress
+                completed = 0
+                for future in as_completed(future_to_chunk):
+                    i, input_file = future_to_chunk[future]
+                    try:
+                        future.result()  # Raise any exceptions
+                        audio_file_indices.append((i, audio_dict[i].start))
+                    except Exception as e:
+                        log.error(f"Error assembling chunk {input_file}: {e}")
+                        raise
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed / num_chunks * 0.8)
+
+            # Sort by original index to maintain order
+            audio_file_indices.sort(key=lambda x: x[0])
 
             log.info(f"Mixing {len(audio_file_indices)} audio files to {output_file}")
             if os.path.exists(output_file):
@@ -604,7 +682,7 @@ class Redubber(BaseModel):
                 j = i // max_segments + 1
                 index_suffix = f"_{j:03d}"
                 input_file = os.path.join(
-                    working_dir, reproj.filename + index_suffix + ".en.mp3"
+                    working_dir, reproj.filename + index_suffix + ".en" + self.audio_ext
                 )
                 input_args.extend(["-i", input_file])
 
@@ -630,9 +708,8 @@ class Redubber(BaseModel):
                 "-map",
                 "[final]",
                 "-acodec",
-                "libmp3lame", # CPU intensive codec
-                "-q:a", "5",  # Faster MP3 encoding
-                "-b:a", "320k",
+                get_aac_encoder(),  # Hardware accelerated on macOS
+                "-b:a", "256k",  # AAC is more efficient
                 "-ar", "44100",
                 "-y",
                 output_file,
@@ -676,7 +753,7 @@ class Redubber(BaseModel):
         tts_dir = reproj.get_file_working_dir(Reproj.Section.TTS)
         target_dir = reproj.get_file_working_dir(Reproj.Section.TARGET_AUDIO_CHUNKS)
         output_file = os.path.join(
-            target_dir, reproj.filename + index_suffix + ".en.mp3"
+            target_dir, reproj.filename + index_suffix + ".en" + self.audio_ext
         )
         log.info(
             f"Assembling audio for {reproj.filename} out of {len(audio_dict)} segments to {output_file}"
@@ -690,9 +767,9 @@ class Redubber(BaseModel):
 
         for j, i in enumerate(indices):
             segment = audio_dict[i]
-            
+
             start_time = segment.start
-            input_file = f"{i:03d}.en.mp3"
+            input_file = f"{i:03d}.en{self.audio_ext}"
             input_path = os.path.join(tts_dir, input_file)
             inputs.extend(["-i", input_path])
             # Add delay filter for each input
@@ -723,9 +800,8 @@ class Redubber(BaseModel):
             "-map",
             "[final]",
             "-acodec",
-            "libmp3lame", # CPU intensive codec
-            "-q:a", "5",  # Faster MP3 encoding
-            "-b:a", "320k",
+            get_aac_encoder(),  # Hardware accelerated on macOS
+            "-b:a", "256k",  # AAC is more efficient
             "-ar", "44100",
             "-y",
             output_file,
@@ -832,8 +908,8 @@ def extract_audio_sample(video_path: str, start_time: float, end_time: float, ou
         "-i", video_path,
         "-t", str(duration),  # Duration (not -to when -ss is before -i)
         "-vn",  # No video
-        "-acodec", "libmp3lame",
-        "-q:a", "2",  # Good quality
+        "-acodec", get_aac_encoder(),  # Hardware accelerated on macOS
+        "-b:a", "192k",  # AAC bitrate
         output_path
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -894,7 +970,7 @@ Return ONLY the JSON object, no additional text."""
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "Analyze this voice sample:"},
-                    {"type": "input_audio", "input_audio": {"data": audio_content, "format": "mp3"}}
+                    {"type": "input_audio", "input_audio": {"data": audio_content, "format": "m4a"}}
                 ]
             },
         ],
@@ -952,7 +1028,7 @@ def generate_tts_sample(text: str, voice: str, voice_instructions: str, output_p
         voice=voice,
         instructions=voice_instructions,
         input=text,
-        response_format="mp3"
+        response_format="aac"  # AAC for hardware acceleration
     )
 
     with open(output_path, 'wb') as f:

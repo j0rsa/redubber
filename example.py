@@ -110,7 +110,7 @@ def join(interactive: bool = False):
     redubber = Redubber(openai_token, interactive=interactive)
     redubber.mix_audio_with_video(
         reproj,
-        "dest/62 Stone Stairs Production.en.mp3",
+        "dest/62 Stone Stairs Production.en.m4a",
         "dest/62 Stone Stairs Production.mp4",
         ["zho", "eng"],
     )

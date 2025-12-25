@@ -461,7 +461,7 @@ def display_voice_refinement_modal():
                     samples_dir = os.path.join("redubber_tmp", rel_path, "voice_samples")
                     os.makedirs(samples_dir, exist_ok=True)
 
-                    original_sample_path = os.path.join(samples_dir, "original_sample.mp3")
+                    original_sample_path = os.path.join(samples_dir, "original_sample.m4a")
 
                     # Extract audio sample
                     extract_audio_sample(selected_video_path, seg.start, seg.end, original_sample_path)
@@ -490,7 +490,7 @@ def display_voice_refinement_modal():
                     rel_path = os.path.relpath(selected_video_path, project_path)
                     samples_dir = os.path.join("redubber_tmp", rel_path, "voice_samples")
 
-                    generated_sample_path = os.path.join(samples_dir, "generated_sample.mp3")
+                    generated_sample_path = os.path.join(samples_dir, "generated_sample.m4a")
 
                     # Generate TTS sample
                     text_to_speak = st.session_state.vr_segment_text or seg.text
