@@ -53,42 +53,47 @@ def detect_video_language(video_path: Path) -> Optional[str]:
 
 def detect_subtitle_language(subtitle_path: Path) -> Optional[str]:
     """
-    Detect the language of a subtitle file.
-    First tries filename patterns, then content-based detection if available.
-    
+    Detect the language of a subtitle file from filename suffix.
+
+    Supports patterns like:
+    - video.en.srt -> 'eng'
+    - video.eng.srt -> 'eng'
+    - video.srt -> None (no language suffix, treat as target language)
+
     Args:
         subtitle_path: Path to the subtitle file
-        
-    Returns:
-        Language code if detected, None otherwise
-    """
-    # First try filename pattern detection
-    filename = subtitle_path.name.lower()
-    
-    # Common subtitle language patterns
-    language_patterns = {
-        r'\.en\.|_en\.|english|eng': 'en',
-        r'\.es\.|_es\.|spanish|esp': 'es',
-        r'\.fr\.|_fr\.|french|fra': 'fr',
-        r'\.de\.|_de\.|german|ger': 'de',
-        r'\.it\.|_it\.|italian|ita': 'it',
-        r'\.pt\.|_pt\.|portuguese|por': 'pt',
-        r'\.ru\.|_ru\.|russian|rus': 'ru',
-        r'\.ja\.|_ja\.|japanese|jpn': 'ja',
-        r'\.ko\.|_ko\.|korean|kor': 'ko',
-        r'\.zh\.|_zh\.|chinese|chi': 'zh',
-        r'\.ar\.|_ar\.|arabic|ara': 'ar',
-        r'\.hi\.|_hi\.|hindi|hin': 'hi',
-    }
-    
-    for pattern, lang_code in language_patterns.items():
-        if re.search(pattern, filename):
-            return convert_to_three_char_lang_code(lang_code)
 
-    # If filename pattern detection fails, try content-based detection
-    if LANGDETECT_AVAILABLE:
-        return detect_subtitle_content_language(subtitle_path)
-    
+    Returns:
+        Language code if detected from suffix, None otherwise
+    """
+    # Get the stem without the subtitle extension
+    # e.g., "video.en.srt" -> stem is "video.en"
+    stem = subtitle_path.stem
+
+    # Check if stem has a language suffix (after the last dot)
+    if '.' in stem:
+        potential_lang = stem.rsplit('.', 1)[-1].lower()
+
+        # Known language codes (2 and 3 letter)
+        known_langs = {
+            'en', 'eng', 'english',
+            'es', 'esp', 'spa', 'spanish',
+            'fr', 'fre', 'fra', 'french',
+            'de', 'ger', 'deu', 'german',
+            'it', 'ita', 'italian',
+            'pt', 'por', 'portuguese',
+            'ru', 'rus', 'russian',
+            'ja', 'jpn', 'japanese',
+            'ko', 'kor', 'korean',
+            'zh', 'zho', 'chi', 'chinese',
+            'ar', 'ara', 'arabic',
+            'hi', 'hin', 'hindi',
+        }
+
+        if potential_lang in known_langs:
+            return convert_to_three_char_lang_code(potential_lang)
+
+    # No language suffix found - return None (will be treated as target language)
     return None
 
 
@@ -125,29 +130,39 @@ def detect_subtitle_content_language(subtitle_path: Path) -> Optional[str]:
 def extract_subtitle_text(content: str) -> str:
     """
     Extract plain text from subtitle content, removing timestamps and formatting.
-    
+
     Args:
         content: Raw subtitle file content
-        
+
     Returns:
         Extracted text content
     """
     # Remove SRT timestamps and numbering
     content = re.sub(r'\d+\n\d{2}:\d{2}:\d{2},\d{3} --> \d{2}:\d{2}:\d{2},\d{3}\n', '', content)
-    
+
     # Remove VTT timestamps
     content = re.sub(r'\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}', '', content)
-    
+
     # Remove HTML tags
     content = re.sub(r'<[^>]+>', '', content)
-    
+
     # Remove ASS/SSA formatting
     content = re.sub(r'\{[^}]*\}', '', content)
-    
+
+    # Normalize non-ASCII punctuation to ASCII equivalents
+    # This prevents Chinese/Japanese punctuation from skewing language detection
+    punctuation_map = {
+        '，': ',', '。': '.', '！': '!', '？': '?', '：': ':', '；': ';',
+        '"': '"', '"': '"', ''': "'", ''': "'", '【': '[', '】': ']',
+        '（': '(', '）': ')', '、': ',', '…': '...', '—': '-', '～': '~',
+    }
+    for chinese, ascii_char in punctuation_map.items():
+        content = content.replace(chinese, ascii_char)
+
     # Remove extra whitespace and line breaks
     content = re.sub(r'\n+', ' ', content)
     content = re.sub(r'\s+', ' ', content)
-    
+
     return content.strip()
 
 

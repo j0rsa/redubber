@@ -11,10 +11,10 @@ from typing import List, Dict, Optional
 
 def get_video_info_with_duration(video_path: Path) -> Dict:
     """
-    Extract video file information including duration and audio streams using ffprobe.
+    Extract video file information including duration, audio streams, and embedded subtitles using ffprobe.
 
     Returns:
-        Dictionary containing video info with duration and audio streams
+        Dictionary containing video info with duration, audio streams, and embedded subtitles
     """
     try:
         cmd = [
@@ -29,7 +29,7 @@ def get_video_info_with_duration(video_path: Path) -> Dict:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
         if result.returncode != 0:
-            return {'duration_seconds': 0, 'audio_streams': []}
+            return {'duration_seconds': 0, 'audio_streams': [], 'embedded_subtitles': []}
 
         data = json.loads(result.stdout)
 
@@ -44,10 +44,14 @@ def get_video_info_with_duration(video_path: Path) -> Dict:
 
         # Extract audio streams
         audio_streams = []
+        embedded_subtitles = []
+
         for i, stream in enumerate(data.get('streams', [])):
-            if stream.get('codec_type') == 'audio':
+            codec_type = stream.get('codec_type')
+            tags = stream.get('tags', {})
+
+            if codec_type == 'audio':
                 # Extract language from tags
-                tags = stream.get('tags', {})
                 language = None
 
                 # Try different tag formats for language
@@ -68,13 +72,35 @@ def get_video_info_with_duration(video_path: Path) -> Dict:
                     'sample_rate': stream.get('sample_rate', 'unknown')
                 })
 
+            elif codec_type == 'subtitle':
+                # Extract embedded subtitle stream
+                language = None
+
+                # Try different tag formats for language
+                for lang_key in ['language', 'lang', 'Language', 'LANGUAGE']:
+                    if lang_key in tags:
+                        language = tags[lang_key]
+                        break
+
+                # Get title/name if available
+                title = tags.get('title', tags.get('name', ''))
+
+                embedded_subtitles.append({
+                    'index': i,
+                    'language': language or 'unknown',
+                    'codec': stream.get('codec_name', 'unknown'),
+                    'title': title,
+                    'embedded': True
+                })
+
         return {
             'duration_seconds': duration_seconds,
-            'audio_streams': audio_streams
+            'audio_streams': audio_streams,
+            'embedded_subtitles': embedded_subtitles
         }
 
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError):
-        return {'duration_seconds': 0, 'audio_streams': []}
+        return {'duration_seconds': 0, 'audio_streams': [], 'embedded_subtitles': []}
 
 
 def detect_language_from_filename(video_path: Path) -> Optional[str]:
@@ -106,13 +132,14 @@ def detect_language_from_filename(video_path: Path) -> Optional[str]:
     return None
 
 
-def analyze_project_files(project_path: str, progress_callback=None) -> Dict:
+def analyze_project_files(project_path: str, progress_callback=None, target_language: str = 'eng') -> Dict:
     """
     Analyze all video and subtitle files in a project.
 
     Args:
         project_path: Path to project directory
         progress_callback: Function to call with progress updates
+        target_language: Target language code (used for subtitles without language suffix)
 
     Returns:
         Dictionary with analysis results
@@ -143,22 +170,49 @@ def analyze_project_files(project_path: str, progress_callback=None) -> Dict:
         if progress_callback:
             progress_callback(f"Analyzing video {i+1}/{len(video_files)}: {video_file.name}")
 
-        # Get video info including duration and audio streams
+        # Get video info including duration, audio streams, and embedded subtitles
         video_info = get_video_info_with_duration(video_file)
         audio_streams = video_info['audio_streams']
         duration_seconds = video_info['duration_seconds']
+        embedded_subtitles = video_info.get('embedded_subtitles', [])
 
-        # Find matching subtitles
+        # Find matching external subtitles
         base_name = video_file.stem
         matching_subtitles = []
 
+        # Add embedded subtitles first
+        for emb_sub in embedded_subtitles:
+            matching_subtitles.append({
+                'filename': f"[embedded] {emb_sub.get('title') or emb_sub['language']}",
+                'path': '',  # No external path for embedded
+                'language': emb_sub['language'],
+                'embedded': True,
+                'stream_index': emb_sub['index'],
+                'codec': emb_sub['codec']
+            })
+
+        # Add external subtitle files (must be in same directory)
+        video_dir = video_file.parent
         for sub_file in subtitle_files:
-            if sub_file.name.startswith(base_name):
+            # Check if subtitle is in the same directory as video
+            if sub_file.parent != video_dir:
+                continue
+
+            # Match if subtitle stem equals video stem, or subtitle name starts with "videoname."
+            # e.g., "video.srt" or "video.en.srt" for "video.mp4"
+            sub_stem = sub_file.stem
+            # Handle multi-part extensions like .en.srt -> stem would be "video.en"
+            # So we check if sub_stem starts with base_name
+            if sub_stem == base_name or sub_stem.startswith(base_name + '.') or sub_file.name.startswith(base_name + '.'):
                 sub_language = detect_subtitle_language(sub_file)
+                # If no language detected from filename, use target language
+                if sub_language is None:
+                    sub_language = target_language
                 matching_subtitles.append({
                     'filename': sub_file.name,
                     'path': str(sub_file),
-                    'language': sub_language
+                    'language': sub_language,
+                    'embedded': False
                 })
 
         results['videos'].append({

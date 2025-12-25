@@ -63,18 +63,22 @@ class Redubber(BaseModel):
     openai_token: str = ""
     default_audio_chunk_duration: int = 20 * 60  # 20 minutes
     interactive: bool = False
+    voice: str = "nova"
+    voice_instructions: str = ""
 
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, openai_token: str, interactive: bool = False):
+    def __init__(self, openai_token: str, interactive: bool = False, voice: str = "nova", voice_instructions: str = ""):
         """Initialize the Redubber class.
 
         Args:
             openai_token: The OpenAI API token.
             interactive: Whether to show progress bars for long-running operations.
+            voice: The TTS voice to use (alloy, echo, fable, onyx, nova, shimmer).
+            voice_instructions: Instructions for voice style/tone.
         """
-        super().__init__(openai_token=openai_token, interactive=interactive)
+        super().__init__(openai_token=openai_token, interactive=interactive, voice=voice, voice_instructions=voice_instructions)
 
     def can_redub(self, source):
         result = os.path.splitext(source)[1] in self.supported_video_formats
@@ -128,6 +132,7 @@ class Redubber(BaseModel):
         reproj: Reproj,
         chunk_duration: int = default_audio_chunk_duration,
         replace: bool = False,
+        progress_callback=None,
     ) -> list[str]:
         """Extract audio chunks from a video file.
 
@@ -135,6 +140,7 @@ class Redubber(BaseModel):
             reproj: The reproj object.
             chunk_duration: The duration of each audio chunk in seconds.
             replace: Whether to replace the existing audio chunks.
+            progress_callback: Optional callback(progress: float) where progress is 0.0-1.0.
 
         Returns:
             A list of paths to the audio chunks that are extracted and saved in SOURCE_AUDIO_CHUNKS section.
@@ -182,6 +188,8 @@ class Redubber(BaseModel):
                 log.info(f"Audio file {audio_path} already exists")
                 result.append(audio_path)
                 total_audio_duration += self.get_media_duration(audio_path)
+                if progress_callback:
+                    progress_callback((i + 1) / num_chunks)
                 continue
 
             os.makedirs(target_rel_dir, exist_ok=True)
@@ -205,6 +213,9 @@ class Redubber(BaseModel):
             log.info(f"Extracted chunk {i + 1}: {output_audio_path}")
             result.append(audio_path)
             total_audio_duration += self.get_media_duration(audio_path)
+
+            if progress_callback:
+                progress_callback((i + 1) / num_chunks)
 
         log.info(f"Audio duration {self.seconds_to_hms(total_audio_duration)}")
 
@@ -302,18 +313,30 @@ class Redubber(BaseModel):
 
     def tts(self, text, output_file):
         client = OpenAI(api_key=self.openai_token)
+        log.info(f"TTS using voice={self.voice}, has_instructions={bool(self.voice_instructions)}")
         for _ in range(3):
             try:
-                # the speed is from 0.25 to 4.0 wtih the 1.0 being the default
-                with (
-                    client.audio.speech.with_streaming_response.create(
-                        model="tts-1",
-                        voice="nova",
+                # Use gpt-4o-mini-tts if we have voice instructions, otherwise use tts-1
+                if self.voice_instructions:
+                    response = client.audio.speech.create(
+                        model="gpt-4o-mini-tts",
+                        voice=self.voice,
                         input=text,
-                        speed=1.25,  # todo: calculate speed based on the number of words and the desired duration
-                    ) as response
-                ):
+                        instructions=self.voice_instructions,
+                        response_format="mp3",
+                    )
                     response.stream_to_file(output_file)
+                else:
+                    # Fallback to tts-1 without instructions
+                    with (
+                        client.audio.speech.with_streaming_response.create(
+                            model="tts-1",
+                            voice=self.voice,
+                            input=text,
+                            speed=1.25,
+                        ) as response
+                    ):
+                        response.stream_to_file(output_file)
                 return
             except Exception as e:
                 log.error(f"Error generating TTS for {text}: {e}")
@@ -321,9 +344,51 @@ class Redubber(BaseModel):
         log.error(f"Failed to generate TTS for {text}")
         raise Exception(f"Failed to generate TTS for {text}")
 
+    def get_audio_duration(self, audio_path: str) -> float:
+        """Get duration of an audio file in seconds using ffprobe."""
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            audio_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            return float(result.stdout.strip())
+        except (ValueError, AttributeError):
+            return 0.0
+
+    def adjust_audio_speed(self, input_path: str, output_path: str, speed_factor: float) -> str:
+        """
+        Adjust audio speed using ffmpeg atempo filter.
+        Speed factor > 1.0 speeds up, < 1.0 slows down.
+        """
+        # atempo filter only supports 0.5 to 2.0, chain multiple for larger changes
+        filters = []
+        remaining = speed_factor
+        while remaining > 2.0:
+            filters.append("atempo=2.0")
+            remaining /= 2.0
+        while remaining < 0.5:
+            filters.append("atempo=0.5")
+            remaining /= 0.5
+        filters.append(f"atempo={remaining}")
+
+        filter_str = ",".join(filters)
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-filter:a", filter_str,
+            "-vn",
+            output_path
+        ]
+        subprocess.run(cmd, capture_output=True, check=True)
+        return output_path
+
     def process_tts_segment(self, segment, output_dir, i) -> str:
         """
         Process a TTS segment and return the path to the audio file.
+        Adjusts speed if generated audio is longer than segment duration.
 
         Args:
             segment: The transcription segment.
@@ -333,27 +398,53 @@ class Redubber(BaseModel):
         Returns:
             The path to the audio file.
         """
-        if os.path.exists(os.path.join(output_dir, f"{i:03d}.en.mp3")):
+        output_file = os.path.join(output_dir, f"{i:03d}.en.mp3")
+        temp_file = os.path.join(output_dir, f"{i:03d}.en.temp.mp3")
+
+        if os.path.exists(output_file):
             log.debug(f"TTS already exists for {i:03d}.en.mp3")
+            return f"{i:03d}.en.mp3"
+
+        # Generate TTS
+        self.tts(segment.text, temp_file)
+
+        # Calculate target duration from segment
+        target_duration = segment.end - segment.start
+        actual_duration = self.get_audio_duration(temp_file)
+
+        if actual_duration > 0 and actual_duration > target_duration:
+            # Audio is too long - speed it up to fit
+            speed_factor = actual_duration / target_duration
+            # Cap speed factor to avoid making audio too fast (max 2x speed)
+            speed_factor = min(speed_factor, 2.0)
+            log.info(f"Segment {i}: adjusting speed {speed_factor:.2f}x ({actual_duration:.1f}s -> {target_duration:.1f}s)")
+            self.adjust_audio_speed(temp_file, output_file, speed_factor)
+            os.remove(temp_file)
         else:
-            self.tts(segment.text, os.path.join(output_dir, f"{i:03d}.en.mp3"))
+            # Audio fits - just rename
+            os.rename(temp_file, output_file)
+
         return f"{i:03d}.en.mp3"
 
-    def tts_segments(self, reproj: Reproj, segments) -> set[str]:
+    def tts_segments(self, reproj: Reproj, segments, progress_callback=None) -> set[str]:
         """
         Process a list of TTS segments and return a dictionary of the paths to the audio files.
 
         Args:
             reproj: The reproj object.
             segments: The list of transcription segments.
+            progress_callback: Optional callback(progress: float) where progress is 0.0-1.0.
 
         Returns:
             A list of the audio files.
         """
-        log.info(f"TTS segments({len(segments)}) for {reproj.file_path}")
+        from concurrent.futures import as_completed
+
+        log.info(f"TTS segments({len(segments)}) for {reproj.file_path} using voice={self.voice}, has_instructions={bool(self.voice_instructions)}")
         result = {}
         output_dir = reproj.get_file_working_dir(Reproj.Section.TTS)
         n_threads = 20
+        total_segments = len(segments)
 
         with ThreadPoolExecutor(max_workers=n_threads) as executor:
             futures = [
@@ -366,26 +457,37 @@ class Redubber(BaseModel):
                 with tqdm(
                     total=len(futures), desc="Processing TTS segments", unit="segment"
                 ) as pbar:
-                    for future in futures:
+                    for i, future in enumerate(as_completed(futures)):
                         result[future.result()] = future.result()
                         pbar.update(1)
+                        if progress_callback:
+                            progress_callback((i + 1) / total_segments)
             else:
-                # Original behavior without progress bar
-                for future in futures:
+                # Track progress as futures complete
+                for i, future in enumerate(as_completed(futures)):
                     result[future.result()] = future.result()
+                    if progress_callback:
+                        progress_callback((i + 1) / total_segments)
 
         return set(result.values())
 
-    def get_text_and_segments(self, reproj: Reproj, compact: bool = True) -> List[TranscriptionSegment]:
+    def get_text_and_segments(self, reproj: Reproj, compact: bool = True, progress_callback=None) -> List[TranscriptionSegment]:
         """Get the text and segments from the audio file.
 
         Args:
             reproj: The reproj object.
+            compact: Whether to postprocess segments.
+            progress_callback: Optional callback(progress: float) where progress is 0.0-1.0.
 
         Returns:
             A list of transcription segments.
         """
-        audio_files = self.extract_audio_chunks(reproj)
+        # Audio extraction is 0-50% of this stage
+        def audio_progress(p):
+            if progress_callback:
+                progress_callback(p * 0.5)
+
+        audio_files = self.extract_audio_chunks(reproj, progress_callback=audio_progress)
         all_segments = []
         time_offset = 0.0
 
@@ -396,11 +498,16 @@ class Redubber(BaseModel):
                 audio_files, desc="Transcribing audio files", unit="file"
             )
 
-        for audio_file in audio_file_iter:
+        # Transcription is 50-100% of this stage
+        total_files = len(audio_files)
+        for i, audio_file in enumerate(audio_file_iter):
             _text, segments = self.transcribe_audio(reproj, audio_file, time_offset)
             time_offset = segments[-1].end
             all_segments.extend(segments)
-        if compact: 
+            if progress_callback:
+                progress_callback(0.5 + ((i + 1) / total_files) * 0.5)
+
+        if compact:
             all_segments = postprocess_segments(all_segments)
         return all_segments
 
@@ -446,6 +553,7 @@ class Redubber(BaseModel):
         reproj: Reproj,
         duration,
         max_segments=600,
+        progress_callback=None,
     ):
         """
         Assemble a long audio file from a list of transcription segments.
@@ -457,6 +565,7 @@ class Redubber(BaseModel):
             reproj: The reproj object.
             duration: The duration of the audio file.
             max_segments: The maximum number of segments to assemble.
+            progress_callback: Optional callback(progress: float) where progress is 0.0-1.0.
         """
         if len(audio_dict) > max_segments:
             log.warning(
@@ -467,7 +576,8 @@ class Redubber(BaseModel):
                 Reproj.Section.TARGET_AUDIO_CHUNKS
             )
             output_file = os.path.join(working_dir, reproj.filename + ".en.mp3")
-            for i in range(0, len(audio_dict), max_segments):
+            num_chunks = math.ceil(len(audio_dict) / max_segments)
+            for chunk_idx, i in enumerate(range(0, len(audio_dict), max_segments)):
                 j = i // max_segments + 1
                 index_suffix = f"_{j:03d}"
                 input_file = os.path.join(
@@ -480,6 +590,9 @@ class Redubber(BaseModel):
                         audio_dict, reproj, duration, j, indices=list(range(i, min(i + max_segments, len(audio_dict)-1)))
                     )
                 audio_file_indices.append((i, audio_dict[i].start))
+                # Progress: chunk assembly is 0-80%, final mix is 80-100%
+                if progress_callback:
+                    progress_callback((chunk_idx + 1) / num_chunks * 0.8)
 
             log.info(f"Mixing {len(audio_file_indices)} audio files to {output_file}")
             if os.path.exists(output_file):
@@ -510,26 +623,31 @@ class Redubber(BaseModel):
 
             cmd = [
                 "ffmpeg",
+                "-threads", "0", # use all available threads
                 *input_args,
                 "-filter_complex",
                 filter_complex,
                 "-map",
                 "[final]",
                 "-acodec",
-                "libmp3lame",
-                "-b:a",
-                "320k",
-                "-ar",
-                "44100",
+                "libmp3lame", # CPU intensive codec
+                "-q:a", "5",  # Faster MP3 encoding
+                "-b:a", "320k",
+                "-ar", "44100",
                 "-y",
                 output_file,
             ]
             log.debug(f"Running command: {cmd}")
             subprocess.run(cmd, check=True, capture_output=True)
+            if progress_callback:
+                progress_callback(1.0)
             return output_file
 
         else:
-            return self.assemble_audio(audio_dict, reproj, duration)
+            result = self.assemble_audio(audio_dict, reproj, duration)
+            if progress_callback:
+                progress_callback(1.0)
+            return result
 
     def assemble_audio(
         self,
@@ -598,17 +716,17 @@ class Redubber(BaseModel):
 
         cmd = [
             "ffmpeg",
+            "-threads", "0", # use all available threads
             *inputs,
             "-filter_complex",
             filter_complex,
             "-map",
             "[final]",
             "-acodec",
-            "libmp3lame",
-            "-b:a",
-            "320k",
-            "-ar",
-            "44100",
+            "libmp3lame", # CPU intensive codec
+            "-q:a", "5",  # Faster MP3 encoding
+            "-b:a", "320k",
+            "-ar", "44100",
             "-y",
             output_file,
         ]
@@ -657,20 +775,188 @@ class Redubber(BaseModel):
 
         cmd = [
             "ffmpeg",
-            "-i",
-            reproj.file_path,
-            "-i",
-            audio_file,
-            "-c:v",
-            "copy",
+            "-i", reproj.file_path,
+            "-i", audio_file,
+            "-threads", "0", # use all available threads
+            "-c:v", "copy",
             "-c:a",
-            "copy",
-            "-map",
-            "0",
-            "-map",
-            "1",
+            #"aac", # re-encodes the audio to AAC codec
+            #"aac_at" # Use Apple hardware AAC encoder
+            "copy", # keeps the original audio codec
+            "-b:a", "192k",
+            "-map", "0",
+            "-map", "1",
             *args,
             "-y",
             output_file,
         ]
         subprocess.run(cmd, check=True, capture_output=True)
+
+
+# Standalone functions for voice refinement feature
+
+def extract_audio_sample(video_path: str, start_time: float, end_time: float, output_path: str) -> str:
+    """
+    Extract an audio sample from a video file.
+
+    Args:
+        video_path: Path to the source video file.
+        start_time: Start time in seconds.
+        end_time: End time in seconds.
+        output_path: Path to save the extracted audio sample.
+
+    Returns:
+        Path to the extracted audio file.
+
+    Raises:
+        RuntimeError: If video has no audio stream or ffmpeg fails.
+    """
+    # First check if video has audio streams
+    probe_cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=index",
+        "-of", "csv=p=0",
+        video_path
+    ]
+    probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+    if not probe_result.stdout.strip():
+        raise RuntimeError("Video file has no audio stream. Cannot extract audio sample.")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    duration = end_time - start_time
+    cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite output file (must come early)
+        "-ss", str(start_time),  # Seek before input for faster extraction
+        "-i", video_path,
+        "-t", str(duration),  # Duration (not -to when -ss is before -i)
+        "-vn",  # No video
+        "-acodec", "libmp3lame",
+        "-q:a", "2",  # Good quality
+        output_path
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {result.stderr}")
+    log.info(f"Extracted audio sample from {video_path} ({start_time}s - {end_time}s) to {output_path}")
+    return output_path
+
+
+def analyze_voice_with_gpt4o(audio_path: str, openai_token: str) -> dict:
+    """
+    Analyze voice characteristics using GPT audio model.
+
+    Args:
+        audio_path: Path to the audio file to analyze.
+        openai_token: OpenAI API token.
+
+    Returns:
+        Dictionary with 'recommended_voice' and 'voice_instructions' keys.
+    """
+    import base64
+
+    client = OpenAI(api_key=openai_token)
+
+    with open(audio_path, 'rb') as audio_file:
+        audio_content = base64.b64encode(audio_file.read()).decode('utf-8')
+
+    system_prompt = """Analyze the voice in this audio sample. Return a JSON object with these fields:
+
+1. "detected_gender": "male" or "female" - the gender of the speaker based on voice characteristics
+2. "recommended_voice": one of [alloy, echo, fable, onyx, nova, shimmer] - the OpenAI TTS voice that best matches
+3. "voice_instructions": detailed description for TTS generation (tone, pace, emotion, emphasis, pronunciation style)
+
+OpenAI TTS Voice Characteristics:
+- alloy: Neutral, balanced, versatile (works for any gender)
+- echo: Warm, conversational male voice
+- fable: British accent, expressive, storytelling (works for any gender)
+- onyx: Deep, authoritative male voice
+- nova: Friendly, upbeat female voice
+- shimmer: Warm, gentle female voice
+
+IMPORTANT: First determine the speaker's gender from pitch and vocal characteristics, then select a voice that matches that gender:
+- For male speakers: prefer echo, onyx, or alloy
+- For female speakers: prefer nova, shimmer, or alloy
+
+Also consider: pitch, energy level, speaking pace, accent, emotional quality.
+Return ONLY the JSON object, no additional text."""
+
+    response = client.chat.completions.create(
+        model='gpt-4o-audio-preview',
+        modalities=["text"],
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Analyze this voice sample:"},
+                    {"type": "input_audio", "input_audio": {"data": audio_content, "format": "mp3"}}
+                ]
+            },
+        ],
+        temperature=0,
+    )
+
+    # Parse the JSON response
+    response_text = response.choices[0].message.content
+    log.info(f"GPT-4o voice analysis response: {response_text}")
+
+    try:
+        # Try to parse as JSON directly
+        result = json.loads(response_text)
+    except json.JSONDecodeError:
+        # If parsing fails, try to extract JSON from the response
+        import re
+        json_match = re.search(r'\{[^}]+\}', response_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            # Fallback to defaults
+            log.warning(f"Could not parse GPT-4o response as JSON: {response_text}")
+            result = {
+                'recommended_voice': 'nova',
+                'voice_instructions': 'Speak in a natural, conversational tone.'
+            }
+
+    return {
+        'recommended_voice': result.get('recommended_voice', 'nova'),
+        'voice_instructions': result.get('voice_instructions', '')
+    }
+
+
+def generate_tts_sample(text: str, voice: str, voice_instructions: str, output_path: str, openai_token: str) -> str:
+    """
+    Generate a TTS sample with voice instructions.
+
+    Args:
+        text: Text to convert to speech.
+        voice: OpenAI TTS voice name (alloy, echo, fable, onyx, nova, shimmer).
+        voice_instructions: Instructions for voice style/tone.
+        output_path: Path to save the generated audio.
+        openai_token: OpenAI API token.
+
+    Returns:
+        Path to the generated audio file.
+    """
+    client = OpenAI(api_key=openai_token)
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # Use gpt-4o-mini-tts which supports instructions
+    response = client.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice=voice,
+        instructions=voice_instructions,
+        input=text,
+        response_format="mp3"
+    )
+
+    with open(output_path, 'wb') as f:
+        f.write(response.content)
+
+    log.info(f"Generated TTS sample to {output_path}")
+    return output_path

@@ -101,6 +101,18 @@ class DatabaseManager:
                 # Column doesn't exist, add it
                 cursor.execute("ALTER TABLE projects ADD COLUMN source_language_override TEXT DEFAULT ''")
 
+            # Add voice column if it doesn't exist (migration)
+            try:
+                cursor.execute("SELECT voice FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE projects ADD COLUMN voice TEXT DEFAULT ''")
+
+            # Add voice_instructions column if it doesn't exist (migration)
+            try:
+                cursor.execute("SELECT voice_instructions FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE projects ADD COLUMN voice_instructions TEXT DEFAULT ''")
+
             conn.commit()
     
     def add_project(self, path: str, name: str) -> int:
@@ -331,5 +343,36 @@ class DatabaseManager:
                 SET source_language_override = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (language_override, project_id))
+
+            conn.commit()
+
+    def get_voice_settings(self, project_id: int) -> Dict[str, str]:
+        """Get the voice settings for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT voice, voice_instructions FROM projects
+                WHERE id = ?
+            """, (project_id,))
+
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'voice': result[0] if result[0] else '',
+                    'voice_instructions': result[1] if result[1] else ''
+                }
+            return {'voice': '', 'voice_instructions': ''}
+
+    def set_voice_settings(self, project_id: int, voice: str, voice_instructions: str) -> None:
+        """Set the voice settings for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE projects
+                SET voice = ?, voice_instructions = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (voice, voice_instructions, project_id))
 
             conn.commit()
