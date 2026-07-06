@@ -163,9 +163,21 @@ class Redubber(BaseModel):
         target_rel_dir = reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS)
         total_duration = self.get_media_duration(reproj.file_path)
         log.info(f"Video duration {self.seconds_to_hms(total_duration)}")
+
+        # Calculate number of chunks, but ensure last chunk is at least 2 seconds
+        # If the last chunk would be < 2 seconds, reduce num_chunks by 1
+        MIN_CHUNK_DURATION = 2.0
         num_chunks = math.ceil(total_duration / chunk_duration)
+        last_chunk_duration = total_duration - (num_chunks - 1) * chunk_duration
+
+        if last_chunk_duration < MIN_CHUNK_DURATION and num_chunks > 1:
+            # Last chunk is too short, merge it with the previous chunk
+            num_chunks -= 1
+            last_chunk_duration = total_duration - (num_chunks - 1) * chunk_duration
+            log.info(f"Last chunk would be {last_chunk_duration:.2f}s, merging with previous chunk")
+
         log.info(
-            f"Extracting {num_chunks} chunks of {self.seconds_to_hms(chunk_duration)} each"
+            f"Extracting {num_chunks} chunks of {self.seconds_to_hms(chunk_duration)} each (last: {self.seconds_to_hms(last_chunk_duration)})"
         )
 
         base_name = os.path.splitext(os.path.basename(reproj.file_path))[0]
@@ -195,11 +207,14 @@ class Redubber(BaseModel):
 
         # Use ffmpeg segment muxer for single-pass extraction
         # segment_start_number=1 makes it 1-indexed to match our naming convention
+        # Calculate the exact duration to extract (to avoid creating a tiny last chunk)
+        extract_duration = (num_chunks - 1) * chunk_duration + last_chunk_duration
         segment_template = os.path.join(target_rel_dir, f"{base_name}_%03d{self.audio_ext}")
 
         cmd = [
             "ffmpeg",
             "-i", reproj.file_path,
+            "-t", str(extract_duration),  # Limit total extraction duration
             "-vn",  # No video
             "-acodec", get_aac_encoder(),
             "-b:a", "128k",  # 128kbps is plenty for speech, keeps 15min chunks ~14MB (under 25MB Whisper limit)
@@ -250,23 +265,35 @@ class Redubber(BaseModel):
         if process.returncode != 0:
             raise RuntimeError(f"ffmpeg audio extraction failed with return code {process.returncode}")
 
-        # Verify all chunks were created
-        missing = [p for p in result if not os.path.exists(p)]
-        if missing:
-            log.warning(f"Some expected chunks not created: {missing[:3]}...")
-
-        # Get actual files created (in case count differs slightly)
+        # Get actual files created
         actual_files = sorted([
             os.path.join(target_rel_dir, f)
             for f in os.listdir(target_rel_dir)
             if f.endswith(self.audio_ext) and f.startswith(base_name)
         ])
 
+        # Filter out chunks that are too short (< MIN_CHUNK_DURATION seconds)
+        # These cause Whisper API errors and typically contain no useful content
+        valid_files = []
+        removed_files = []
+
+        for file_path in actual_files:
+            duration = self.get_audio_duration(file_path)
+            if duration < MIN_CHUNK_DURATION:
+                log.warning(f"Removing short audio chunk: {os.path.basename(file_path)} (duration={duration:.2f}s < {MIN_CHUNK_DURATION}s)")
+                os.remove(file_path)
+                removed_files.append(os.path.basename(file_path))
+            else:
+                valid_files.append(file_path)
+
+        if removed_files:
+            log.info(f"Removed {len(removed_files)} short audio chunks: {removed_files}")
+
         if progress_callback:
             progress_callback(1.0)
 
-        log.info(f"Extracted {len(actual_files)} audio chunks in single pass")
-        return actual_files
+        log.info(f"Extracted {len(valid_files)} valid audio chunks (removed {len(removed_files)} too short)")
+        return valid_files
 
     def transcribe_audio(
         self, reproj: Reproj, audio_file: str, time_offset: float = 0.0
@@ -303,17 +330,40 @@ class Redubber(BaseModel):
             with open(transcript_file, "r") as f:
                 transcript = TranslationVerbose.model_validate_json(f.read())
         else:
+            # Get audio file info for logging
+            audio_duration = self.get_audio_duration(audio_file)
+            audio_size = os.path.getsize(audio_file)
+
             log.info(f"Transcribing {audio_filename}")
+            log.debug(f"  Audio file: {audio_file}")
+            log.debug(f"  Duration: {audio_duration:.2f}s")
+            log.debug(f"  File size: {audio_size:,} bytes ({audio_size/1024/1024:.2f} MB)")
+
+            # Check if audio is too short
+            if audio_duration < 0.1:
+                log.error(f"❌ Audio file is too short: {audio_duration:.3f}s (minimum 0.1s)")
+                log.error(f"  File: {audio_file}")
+                raise ValueError(f"Audio file {audio_filename} is too short ({audio_duration:.3f}s), minimum is 0.1s")
+
             client = OpenAI(api_key=self.openai_token)
             # https://platform.openai.com/docs/api-reference/audio/verbose-json-object
-            with open(audio_file, "rb") as audio_file_buffer:
-                # Transcribe the audio using the OpenAI API transcribe model
-                transcript = client.audio.translations.create(
-                    model="whisper-1",
-                    file=audio_file_buffer,
-                    response_format="verbose_json",
-                )
-                log.debug(f"Transcript type: {type(transcript)}")
+            try:
+                with open(audio_file, "rb") as audio_file_buffer:
+                    # Transcribe the audio using the OpenAI API transcribe model
+                    transcript = client.audio.translations.create(
+                        model="whisper-1",
+                        file=audio_file_buffer,
+                        response_format="verbose_json",
+                    )
+                    log.debug(f"Transcript type: {type(transcript)}")
+            except Exception as e:
+                log.error(f"❌ Transcription failed for {audio_filename}")
+                log.error(f"  File: {audio_file}")
+                log.error(f"  Duration: {audio_duration:.2f}s")
+                log.error(f"  Size: {audio_size:,} bytes")
+                log.error(f"  Error: {e}")
+                raise
+
             with open(transcript_file, "w") as f:
                 f.write(transcript.model_dump_json())
             log.info(f"Transcript saved to {transcript_file}")
@@ -360,8 +410,14 @@ class Redubber(BaseModel):
 
     def tts(self, text, output_file):
         client = OpenAI(api_key=self.openai_token)
-        log.info(f"TTS using voice={self.voice}, has_instructions={bool(self.voice_instructions)}")
-        for _ in range(3):
+        log.debug(f"TTS request: voice={self.voice}, has_instructions={bool(self.voice_instructions)}, text_len={len(text)}")
+
+        # Validate text is not empty or too short
+        if not text or len(text.strip()) == 0:
+            log.error(f"❌ TTS text is empty!")
+            raise ValueError("Cannot generate TTS for empty text")
+
+        for attempt in range(3):
             try:
                 # Use gpt-4o-mini-tts if we have voice instructions, otherwise use tts-1
                 if self.voice_instructions:
@@ -387,10 +443,14 @@ class Redubber(BaseModel):
                         response.stream_to_file(output_file)
                 return
             except Exception as e:
-                log.error(f"Error generating TTS for {text}: {e}")
-                time.sleep(1)
-        log.error(f"Failed to generate TTS for {text}")
-        raise Exception(f"Failed to generate TTS for {text}")
+                log.error(f"❌ TTS attempt {attempt + 1}/3 failed")
+                log.error(f"  Text length: {len(text)} chars")
+                log.error(f"  Text: '{text[:200]}'")
+                log.error(f"  Error: {e}")
+                if attempt < 2:  # Don't sleep on last attempt
+                    time.sleep(1)
+        log.error(f"❌ Failed to generate TTS after 3 attempts")
+        raise Exception(f"Failed to generate TTS for text: '{text[:100]}...'")
 
     def get_audio_duration(self, audio_path: str) -> float:
         """Get duration of an audio file in seconds using ffprobe."""
@@ -453,8 +513,22 @@ class Redubber(BaseModel):
             log.debug(f"TTS already exists for {i:03d}.en{self.audio_ext}")
             return f"{i:03d}.en{self.audio_ext}"
 
-        # Generate TTS
-        self.tts(segment.text, temp_file)
+        # Calculate segment duration
+        segment_duration = segment.end - segment.start
+
+        # Log segment details
+        log.debug(f"Segment {i:03d}: duration={segment_duration:.2f}s, start={segment.start:.2f}s, end={segment.end:.2f}s, text_len={len(segment.text)}")
+
+        # Generate TTS with error handling
+        try:
+            self.tts(segment.text, temp_file)
+        except Exception as e:
+            log.error(f"❌ TTS failed for segment {i:03d}")
+            log.error(f"  Duration: {segment_duration:.3f}s (start={segment.start:.2f}s, end={segment.end:.2f}s)")
+            log.error(f"  Text length: {len(segment.text)} chars")
+            log.error(f"  Text preview: {segment.text[:100]}")
+            log.error(f"  Error: {e}")
+            raise
 
         # Calculate target duration from segment
         target_duration = segment.end - segment.start
@@ -490,15 +564,16 @@ class Redubber(BaseModel):
 
         log.info(f"TTS segments({len(segments)}) for {reproj.file_path} using voice={self.voice}, has_instructions={bool(self.voice_instructions)}")
         result = {}
+        failed_segments = []
         output_dir = reproj.get_file_working_dir(Reproj.Section.TTS)
         n_threads = 20
         total_segments = len(segments)
 
         with ThreadPoolExecutor(max_workers=n_threads) as executor:
-            futures = [
-                executor.submit(self.process_tts_segment, segment, output_dir, i)
+            futures = {
+                executor.submit(self.process_tts_segment, segment, output_dir, i): i
                 for i, segment in enumerate(segments)
-            ]
+            }
 
             if self.interactive:
                 # Show progress bar when interactive mode is enabled
@@ -506,16 +581,31 @@ class Redubber(BaseModel):
                     total=len(futures), desc="Processing TTS segments", unit="segment"
                 ) as pbar:
                     for i, future in enumerate(as_completed(futures)):
-                        result[future.result()] = future.result()
+                        try:
+                            filename = future.result()
+                            result[filename] = filename
+                        except Exception as e:
+                            segment_idx = futures[future]
+                            log.error(f"Failed to generate TTS for segment {segment_idx}: {e}")
+                            failed_segments.append(segment_idx)
                         pbar.update(1)
                         if progress_callback:
                             progress_callback((i + 1) / total_segments)
             else:
                 # Track progress as futures complete
                 for i, future in enumerate(as_completed(futures)):
-                    result[future.result()] = future.result()
+                    try:
+                        filename = future.result()
+                        result[filename] = filename
+                    except Exception as e:
+                        segment_idx = futures[future]
+                        log.error(f"Failed to generate TTS for segment {segment_idx}: {e}")
+                        failed_segments.append(segment_idx)
                     if progress_callback:
                         progress_callback((i + 1) / total_segments)
+
+        if failed_segments:
+            log.warning(f"Failed to generate TTS for {len(failed_segments)} segments: {failed_segments}")
 
         return set(result.values())
 
@@ -769,6 +859,21 @@ class Redubber(BaseModel):
             log.info(f"Audio already exists for {output_file}")
             return output_file
 
+        # Validate that all required TTS files exist
+        missing_files = []
+        for i in indices:
+            input_file = f"{i:03d}.en{self.audio_ext}"
+            input_path = os.path.join(tts_dir, input_file)
+            if not os.path.exists(input_path):
+                missing_files.append(input_file)
+
+        if missing_files:
+            error_msg = f"Cannot assemble audio - missing {len(missing_files)} TTS files: {missing_files[:10]}"
+            if len(missing_files) > 10:
+                error_msg += f" (and {len(missing_files) - 10} more)"
+            log.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
         # adelay has a max delay limit (~8388 seconds), so use aevalsrc for silence + concat instead
         MAX_ADELAY_MS = 8000000  # ~8000 seconds to be safe
         
@@ -842,52 +947,49 @@ class Redubber(BaseModel):
         languages: List[str],
     ):
         """
-        Mix audio with video.
+        Mix audio with video, with dubbed audio as first track and original audio as second track.
 
         Args:
             reproj: The reproj object.
-            audio_file: The path to the audio file.
+            audio_file: The path to the dubbed audio file.
             output_file: The path to the output file.
-            languages: The list of languages.
+            languages: List of language codes [original_language, dubbed_language].
+                      First element is the original audio language.
+                      Second element is the dubbed audio language.
         """
         log.info(
-            f"Mixing video `{reproj.file_path}` with audio `{audio_file}` out of {len(languages)} languages"
+            f"Mixing video `{reproj.file_path}` with dubbed audio `{audio_file}` - languages: {languages}"
         )
         if os.path.exists(output_file):
             log.info(f"Audio with video already exists for {output_file}")
             return
 
-        audio_streams = self.get_media_audio_streams(reproj.file_path)
-        if len(audio_streams) != len(languages) - 1:
-            log.error(
-                f"Number of audio streams ({len(audio_streams)}) does not match number of languages ({len(languages)})"
-            )
-            raise Exception(
-                f"Number of audio streams ({len(audio_streams)}) does not match number of languages ({len(languages)})"
-            )
+        if len(languages) != 2:
+            log.error(f"Expected 2 languages (original + dubbed), got {len(languages)}: {languages}")
+            raise ValueError(f"Expected 2 languages [original_lang, dubbed_lang], got {len(languages)}")
 
-        args = []
-        for i, language in enumerate(languages):
-            args.append(f"-metadata:s:a:{i}")
-            args.append(f"language={language}")
+        # Metadata for audio tracks - swapped to match the new track order
+        metadata_args = [
+            "-metadata:s:a:0", f"language={languages[1]}",  # Track 0: Dubbed audio (languages[1])
+            "-metadata:s:a:1", f"language={languages[0]}",  # Track 1: Original audio (languages[0])
+        ]
 
         cmd = [
             "ffmpeg",
-            "-i", reproj.file_path,
-            "-i", audio_file,
-            "-threads", "0", # use all available threads
-            "-c:v", "copy",
-            "-c:a",
-            #"aac", # re-encodes the audio to AAC codec
-            #"aac_at" # Use Apple hardware AAC encoder
-            "copy", # keeps the original audio codec
-            "-b:a", "192k",
-            "-map", "0",
-            "-map", "1",
-            *args,
+            "-i", reproj.file_path,    # Input 0: original video with audio
+            "-i", audio_file,           # Input 1: dubbed audio track
+            "-threads", "0",            # Use all available threads
+            "-c:v", "copy",             # Copy video stream without re-encoding
+            "-c:a", "copy",             # Copy audio streams without re-encoding
+            "-map", "0:v",              # Map video from input 0
+            "-map", "1:a:0",            # Map dubbed audio from input 1 (becomes track a:0)
+            "-map", "0:a:0",            # Map original audio from input 0 (becomes track a:1)
+            *metadata_args,
             "-y",
             output_file,
         ]
+
+        log.debug(f"Running ffmpeg command: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             log.error(f"ffmpeg stderr: {result.stderr}")
