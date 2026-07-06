@@ -715,7 +715,11 @@ class Redubber(BaseModel):
                 output_file,
             ]
             log.debug(f"Running command: {cmd}")
-            subprocess.run(cmd, check=True, capture_output=True)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                log.error(f"ffmpeg stderr: {result.stderr}")
+                log.error(f"ffmpeg stdout: {result.stdout}")
+                raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
             if progress_callback:
                 progress_callback(1.0)
             return output_file
@@ -765,18 +769,32 @@ class Redubber(BaseModel):
             log.info(f"Audio already exists for {output_file}")
             return output_file
 
+        # adelay has a max delay limit (~8388 seconds), so use aevalsrc for silence + concat instead
+        MAX_ADELAY_MS = 8000000  # ~8000 seconds to be safe
+        
         for j, i in enumerate(indices):
             segment = audio_dict[i]
-
             start_time = segment.start
             input_file = f"{i:03d}.en{self.audio_ext}"
             input_path = os.path.join(tts_dir, input_file)
             inputs.extend(["-i", input_path])
-            # Add delay filter for each input
+            
             delay_ms = int(start_time * 1000)
-            filter_complex_parts.append(
-                f"[{j}]adelay={delay_ms}|{delay_ms}[delayed{j}]"
-            )
+            
+            if delay_ms > MAX_ADELAY_MS:
+                # Use anullsrc (null audio source) for silence - more efficient than aevalsrc
+                silence_duration = start_time
+                filter_complex_parts.append(
+                    f"anullsrc=r=44100:cl=stereo:d={silence_duration}[silence{j}]"
+                )
+                filter_complex_parts.append(
+                    f"[silence{j}][{j}]concat=n=2:v=0:a=1[delayed{j}]"
+                )
+            else:
+                # Use adelay for smaller delays (faster)
+                filter_complex_parts.append(
+                    f"[{j}]adelay={delay_ms}|{delay_ms}[delayed{j}]"
+                )
 
         # Mix all delayed inputs
         mix_inputs = "".join(f"[delayed{i}]" for i in range(len(indices)))
@@ -807,7 +825,11 @@ class Redubber(BaseModel):
             output_file,
         ]
         log.debug(f"Running command: {cmd}")
-        subprocess.run(cmd, check=True, capture_output=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            log.error(f"ffmpeg stderr: {result.stderr}")
+            log.error(f"ffmpeg stdout: {result.stdout}")
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
         return output_file
 
     def mix_audio_with_video(
@@ -866,7 +888,11 @@ class Redubber(BaseModel):
             "-y",
             output_file,
         ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            log.error(f"ffmpeg stderr: {result.stderr}")
+            log.error(f"ffmpeg stdout: {result.stdout}")
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
 
 
 # Standalone functions for voice refinement feature
@@ -959,7 +985,7 @@ Also consider: pitch, energy level, speaking pace, accent, emotional quality.
 Return ONLY the JSON object, no additional text."""
 
     response = client.chat.completions.create(
-        model='gpt-4o-audio-preview',
+        model='gpt-audio-mini',
         modalities=["text"],
         messages=[
             {
