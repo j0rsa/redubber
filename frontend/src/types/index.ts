@@ -13,7 +13,7 @@ export interface Project {
   source_language_override: string;
   /** ISO 639-3 language code for the dubbing target language (e.g. "eng", "spa"). */
   target_language: string;
-  working_directory: string;
+  working_directory?: string;
 }
 
 export interface ProjectCreate {
