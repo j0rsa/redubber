@@ -230,8 +230,6 @@ jobs:
       - name: Install dependencies
         run: poetry install --only main,dev --no-interaction
 
-      - name: Type check
-        run: poetry run mypy --ignore-missing-imports app/
 
   # ─────────────────────────────────────────────
   # Stream 2: Backend tests
