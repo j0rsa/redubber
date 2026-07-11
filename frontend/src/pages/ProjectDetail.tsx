@@ -36,30 +36,27 @@ export const ProjectDetail = () => {
     }
   }
 
-  // Cache counters from completed tasks so they persist after the task leaves activeTasks
-  const completedCounters = useRef<Map<string, Partial<TaskStatus>>>(new Map());
+  const prevActiveTaskIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    for (const task of activeTasks) {
-      if (task.status === 'completed') {
-        completedCounters.current.set(task.video_path, {
-          audio_chunks: task.audio_chunks,
-          transcripts: task.transcripts,
-          tts_segments: task.tts_segments,
-          tts_total: task.tts_total,
-          subtitles: task.subtitles,
-          audio_assembled: task.audio_assembled,
-          audio_assembled_total: task.audio_assembled_total,
-          video_mixed: task.video_mixed,
-          progress: task.progress,
-          stage: task.stage,
-        });
+    const currentIds = new Set(activeTasks.map((t) => t.task_id));
+    let anyCompleted = false;
+
+    // Detect tasks that just dropped out of activeTasks (they completed or failed)
+    for (const id of prevActiveTaskIds.current) {
+      if (!currentIds.has(id)) {
+        anyCompleted = true;
       }
     }
-  }, [activeTasks]);
+
+    if (anyCompleted) {
+      queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+    }
+
+    prevActiveTaskIds.current = currentIds;
+  }, [activeTasks, projectId, queryClient]);
 
   // Build videoId → TaskStatus for live progress overlay
-  // Also inject cached completed counters for videos whose task just finished
   const taskStatusByVideoId = new Map<number, TaskStatus>();
   if (videos) {
     for (const video of videos) {
@@ -67,20 +64,6 @@ export const ProjectDetail = () => {
       if (runningTaskId) {
         const ts = activeTasks.find((t) => t.task_id === runningTaskId);
         if (ts) taskStatusByVideoId.set(video.id, ts);
-      } else {
-        // No active task — check if we have cached completed counters
-        const cached = completedCounters.current.get(video.path);
-        if (cached && !video.pipeline_status?.replaced) {
-          taskStatusByVideoId.set(video.id, {
-            task_id: '',
-            video_path: video.path,
-            status: 'completed',
-            stage: cached.stage ?? 'Completed',
-            progress: cached.progress ?? 100,
-            created_at: '',
-            ...cached,
-          });
-        }
       }
     }
   }
