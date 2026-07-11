@@ -77,8 +77,8 @@ class TestGetSettings:
         body = response.json()
 
         assert body["openai_api_key"] == ""
-        assert body["tts_model"] == "tts-1"
-        assert body["voice_analysis_model"] == "gpt-4o"
+        assert body["tts_model"] == "gpt-4o-mini-tts"
+        assert body["voice_analysis_model"] == "o4-mini"
         assert body["default_voice"] == "nova"
         assert body["working_directory"] == ""
         assert body["auto_process"] is False
@@ -94,6 +94,7 @@ class TestGetSettings:
             "stt_model",
             "tts_model",
             "voice_analysis_model",
+            "voice_analysis_audio_model",
             "default_voice",
             "projects_root_path",
             "working_directory",
@@ -130,7 +131,7 @@ class TestPutSettings:
         assert body["tts_model"] == "tts-1-hd"
         # Untouched fields still have their defaults
         assert body["default_voice"] == "nova"
-        assert body["voice_analysis_model"] == "gpt-4o"
+        assert body["voice_analysis_model"] == "o4-mini"
         assert body["auto_process"] is False
 
     def test_put_then_get_returns_updated_values(self, client: TestClient) -> None:

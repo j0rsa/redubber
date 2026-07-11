@@ -269,7 +269,6 @@ async def finalize_video(
         HTTPException: 422 if dubbed file not found or validation fails.
         HTTPException: 500 if replacement fails.
     """
-    import subprocess
     from pathlib import Path as _Path
 
     from app.core.project_paths import get_project_working_dir
@@ -352,7 +351,6 @@ async def generate_subtitles_for_video(
         HTTPException: 404 if project or video not found.
         HTTPException: 422 if no .seg files exist yet.
     """
-    import json
     from pathlib import Path as _Path
 
     from app.core.project_paths import get_project_working_dir
@@ -371,7 +369,7 @@ async def generate_subtitles_for_video(
 
     video_path = record["file_path"]
     working_dir = get_project_working_dir(project["path"], project["name"])
-    video_filename = _Path(video_path).name
+    _Path(video_path).name
 
     reproj = Reproj(
         source=str(_Path(video_path).parent),

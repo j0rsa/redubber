@@ -64,14 +64,14 @@ class TestApplicationSetup:
         assert "/api/projects/{project_id}/voice-settings" in paths
 
         # Check task routes
-        assert "/api/tasks/redub" in paths
+        assert "/api/redub" in paths
         assert "/api/tasks/{task_id}" in paths
         assert "/api/tasks/{task_id}/cancel" in paths
-        assert "/api/tasks/" in paths
+        assert "/api/tasks" in paths
 
         # Check video routes
-        assert "/api/videos/projects/{project_id}/scan" in paths
-        assert "/api/videos/projects/{project_id}/videos" in paths
+        assert "/api/projects/{project_id}/scan" in paths
+        assert "/api/projects/{project_id}/videos" in paths
 
     def test_openapi_schema_includes_tags(self, client: TestClient) -> None:
         """OpenAPI schema includes route tags for organization."""
@@ -86,11 +86,11 @@ class TestApplicationSetup:
         assert "projects" in projects_path["tags"]
 
         # Tasks endpoints should be tagged
-        tasks_path = paths["/api/tasks/"]["get"]
+        tasks_path = paths["/api/tasks"]["get"]
         assert "tasks" in tasks_path["tags"]
 
         # Videos endpoints should be tagged
-        videos_path = paths["/api/videos/projects/{project_id}/videos"]["get"]
+        videos_path = paths["/api/projects/{project_id}/videos"]["get"]
         assert "videos" in videos_path["tags"]
 
     def test_openapi_schema_includes_response_models(self, client: TestClient) -> None:
@@ -139,18 +139,18 @@ class TestApplicationRouting:
         """All task management routes are accessible."""
         # Submit task
         assert client.post(
-            "/api/tasks/redub",
+            "/api/redub",
             json={"video_path": "/test", "project_id": 1},
-        ).status_code in [202, 501, 422]
+        ).status_code in [202, 400, 422]
 
         # Get task status
-        assert client.get("/api/tasks/task-123").status_code in [200, 404, 501]
+        assert client.get("/api/tasks/task-123").status_code in [200, 404]
 
         # Cancel task
-        assert client.post("/api/tasks/task-123/cancel").status_code in [200, 404, 501]
+        assert client.post("/api/tasks/task-123/cancel").status_code in [200, 404]
 
         # List tasks
-        assert client.get("/api/tasks/").status_code in [200, 501]
+        assert client.get("/api/tasks").status_code in [200]
 
     def test_all_video_routes_registered(self, client: TestClient) -> None:
         """All video analysis routes are accessible."""

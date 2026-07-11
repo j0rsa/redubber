@@ -555,7 +555,8 @@ async def analyze_voice_instructions(
         # speaker directly — this gives much more accurate gender / pitch detection.
         audio_bytes: bytes | None = None
         try:
-            import io, json as _json, subprocess
+            import json as _json
+            import subprocess
             from app.core.project_paths import get_project_working_dir
 
             project_rec = db.get_project_by_id(project_id)

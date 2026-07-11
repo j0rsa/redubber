@@ -1690,7 +1690,7 @@ def display_redub_modal():
 
     # Check if a stage is currently running
     if st.session_state.get("stage_running", False):
-        running_stage = st.session_state.get("running_stage_name", "Processing")
+        st.session_state.get("running_stage_name", "Processing")
         stage_to_run = st.session_state.get("stage_to_run")
 
         # Create progress UI
@@ -1839,7 +1839,7 @@ def display_redub_modal():
                     help="Rerun this stage (clears downstream)",
                 ):
                     # Clear downstream stages
-                    cleared = clear_downstream_stages(
+                    clear_downstream_stages(
                         video_path, project_path, stage_id
                     )
                     st.session_state.stage_to_run = stage_id
@@ -2152,7 +2152,7 @@ def execute_redub_in_modal():
     if not video_data:
         return
 
-    progress_container = st.empty()
+    st.empty()
     status_container = st.empty()
 
     def update_progress(message):

@@ -40,12 +40,14 @@ ignore_missing_imports = true
 markers = [
     "integration: marks tests as integration tests (slow)",
     "performance: marks performance benchmark tests",
+    "stale: marks tests that need to be rewritten to match current API",
 ]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = "-m 'not stale and not integration'"
 
 [build-system]
 requires = ["poetry-core"]

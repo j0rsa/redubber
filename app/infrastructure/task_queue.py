@@ -767,7 +767,7 @@ class TaskQueueManager:
             self._tasks[task_id] = initial_status
 
         # Run directly in the executor — don't go through the redub queue
-        loop = asyncio.get_event_loop()
+        asyncio.get_event_loop()
         asyncio.ensure_future(self._process_transcription_task(task_id))
 
         logger.info(
