@@ -10,14 +10,14 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-pytestmark = pytest.mark.stale  # needs rewrite to match current generate_audio signature
-
 from app.services.tts_preview_generator import (
     TTSPreviewGenerator,
     TTS_MODEL,
     get_tts_preview_generator,
 )
 from database import DatabaseManager
+
+pytestmark = pytest.mark.stale  # needs rewrite to match current generate_audio signature
 
 
 class TestTTSPreviewGeneratorInit:

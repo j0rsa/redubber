@@ -9,10 +9,10 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-pytestmark = pytest.mark.stale  # needs rewrite: seg file mocks, preview cache mocks
-
 from app.main import create_app
 from database import DatabaseManager
+
+pytestmark = pytest.mark.stale  # needs rewrite: seg file mocks, preview cache mocks
 
 
 class TestTranscriptionSegmentsEndpoint:

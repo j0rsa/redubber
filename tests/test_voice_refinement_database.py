@@ -8,9 +8,9 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.stale  # needs rewrite to match current DatabaseManager API
-
 from database import DatabaseManager
+
+pytestmark = pytest.mark.stale  # needs rewrite to match current DatabaseManager API
 
 
 class TestVoiceInstructionGenerations:
