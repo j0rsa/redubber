@@ -1,0 +1,280 @@
+.page {
+  min-height: 100vh;
+  background: var(--color-bg-secondary);
+}
+
+.inner {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-xl);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+  padding-bottom: var(--spacing-xl);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headerLeft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-width: 0;
+  text-align: left;
+}
+
+.backButton {
+  align-self: flex-start;
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.backButton:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-tertiary);
+}
+
+.projectName {
+  margin: 0;
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  letter-spacing: -0.5px;
+  text-align: left;
+}
+
+.projectPath {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.scanButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-success);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.scanButton:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: var(--shadow-sm);
+}
+
+.scanButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Error banners ────────────────────────────────────────────────────────── */
+
+.errorBanner {
+  padding: var(--spacing-md);
+  background: var(--color-error-light);
+  color: var(--color-error);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+/* ── Settings row (target language + feedback) ───────────────────────────── */
+
+.settingsRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-md);
+}
+
+.feedbackText {
+  font-size: var(--font-size-xs);
+}
+
+.feedbackSuccess { color: var(--color-success); }
+.feedbackError   { color: var(--color-error); }
+
+/* ── Videos section ──────────────────────────────────────────────────────── */
+
+.videosSection {
+  margin-top: var(--spacing-xl);
+}
+
+.videosSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-md);
+}
+
+.videosSectionTitle {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+/* ── Bulk action bar ─────────────────────────────────────────────────────── */
+
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.bulkBarInfo {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-right: var(--spacing-sm);
+  flex: 1;
+  min-width: 80px;
+}
+
+.bulkButtonPrimary {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.bulkButtonPrimary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-primary);
+}
+
+.bulkButtonPrimary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bulkButtonOutline {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.bulkButtonOutline:hover:not(:disabled) {
+  background: var(--color-primary-light);
+}
+
+.bulkButtonOutline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── Empty / loading states ──────────────────────────────────────────────── */
+
+.emptyText {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-base);
+  padding: var(--spacing-xl) 0;
+}
+
+.loadingText {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+/* ── Full-page loading / not-found ───────────────────────────────────────── */
+
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: var(--spacing-md);
+  color: var(--color-text-secondary);
+}
+
+.notFoundText {
+  color: var(--color-error);
+  font-size: var(--font-size-lg);
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .inner {
+    padding: var(--spacing-md);
+  }
+
+  .header {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .headerActions {
+    width: 100%;
+  }
+
+  .scanButton {
+    width: 100%;
+    text-align: center;
+  }
+
+  .projectName {
+    font-size: var(--font-size-2xl);
+  }
+
+  .bulkBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .bulkButtonPrimary,
+  .bulkButtonOutline {
+    width: 100%;
+    text-align: center;
+  }
+}

@@ -4,7 +4,6 @@ Checks the redubber_tmp directory to determine which pipeline stages are complet
 """
 
 import os
-from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
@@ -12,6 +11,7 @@ from typing import Optional
 @dataclass
 class PipelineStatus:
     """Status of the redubbing pipeline for a video file."""
+
     video_path: str
     video_filename: str
 
@@ -21,8 +21,9 @@ class PipelineStatus:
     tts_segments: int = 0
     target_audio_chunks: int = 0
     subtitles_generated: bool = False
-    final_file_exists: bool = False
+    final_file_exists: bool = False   # dubbed file exists — ready for replacement
     final_file_path: Optional[str] = None
+    replaced: bool = False            # original has been atomically replaced (finalization done)
 
     # External subtitle support - allows skipping early stages
     has_external_subs: bool = False
@@ -55,6 +56,11 @@ class PipelineStatus:
     @property
     def progress_percent(self) -> int:
         """Calculate rough progress percentage based on completed stages."""
+        # If the pipeline is complete, always return 100 regardless of which
+        # intermediate files have been cleaned up.
+        if self.final_file_exists:
+            return 100
+
         stages_complete = 0
         total_stages = 5
 
@@ -69,10 +75,7 @@ class PipelineStatus:
             if self.subtitles_generated:
                 stages_complete += 1
 
-        # Remaining stages
         if self.has_tts:
-            stages_complete += 1
-        if self.final_file_exists:
             stages_complete += 1
 
         return int((stages_complete / total_stages) * 100)
@@ -108,45 +111,47 @@ class PipelineStatus:
 
         Stages: 'audio', 'stt', 'subtitles', 'tts', 'assemble', 'final'
         """
-        if stage == 'audio':
+        if stage == "audio":
             if self.has_external_subs:
-                return 'skipped'
-            return 'done' if self.has_audio_chunks else 'pending'
-        elif stage == 'stt':
+                return "skipped"
+            return "done" if self.has_audio_chunks else "pending"
+        elif stage == "stt":
             if self.has_external_subs:
-                return 'skipped'
-            return 'done' if self.has_transcripts else 'pending'
-        elif stage == 'subtitles':
+                return "skipped"
+            return "done" if self.has_transcripts else "pending"
+        elif stage == "subtitles":
             if self.has_external_subs:
-                return 'skipped'
-            return 'done' if self.subtitles_generated else 'pending'
-        elif stage == 'tts':
-            return 'done' if self.has_tts else 'pending'
-        elif stage == 'assemble':
-            return 'done' if self.has_target_audio else 'pending'
-        elif stage == 'final':
-            return 'done' if self.final_file_exists else 'pending'
-        return 'pending'
+                return "skipped"
+            return "done" if self.subtitles_generated else "pending"
+        elif stage == "tts":
+            return "done" if self.has_tts else "pending"
+        elif stage == "assemble":
+            return "done" if self.has_target_audio else "pending"
+        elif stage == "final":
+            return "done" if self.final_file_exists else "pending"
+        return "pending"
 
     def can_run_stage(self, stage: str) -> bool:
         """Check if a stage can be run (dependencies are met)."""
-        if stage == 'audio':
+        if stage == "audio":
             return not self.has_external_subs
-        elif stage == 'stt':
+        elif stage == "stt":
             return not self.has_external_subs and self.has_audio_chunks
-        elif stage == 'subtitles':
+        elif stage == "subtitles":
             return not self.has_external_subs and self.has_transcripts
-        elif stage == 'tts':
+        elif stage == "tts":
             # Can run if we have external subs OR generated subtitles
             return self.has_external_subs or self.subtitles_generated
-        elif stage == 'assemble':
+        elif stage == "assemble":
             return self.has_tts
-        elif stage == 'final':
+        elif stage == "final":
             return self.has_target_audio
         return False
 
 
-def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "redubber_tmp") -> PipelineStatus:
+def get_pipeline_status(
+    video_path: str, project_path: str, tmp_root: str = "redubber_tmp"
+) -> PipelineStatus:
     """
     Check the pipeline status for a video file.
 
@@ -165,13 +170,10 @@ def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "red
     rel_path = os.path.relpath(video_path, project_path)
     working_dir = os.path.join(tmp_root, rel_path)
 
-    status = PipelineStatus(
-        video_path=video_path,
-        video_filename=video_filename
-    )
+    status = PipelineStatus(video_path=video_path, video_filename=video_filename)
 
     # Check for external subtitle files (e.g., video.srt, video.en.srt)
-    subtitle_extensions = ['.srt', '.vtt', '.ass', '.ssa']
+    subtitle_extensions = [".srt", ".vtt", ".ass", ".ssa"]
     for ext in subtitle_extensions:
         # Check for exact match (video.srt)
         if os.path.exists(os.path.join(video_dir, video_filename + ext)):
@@ -179,7 +181,7 @@ def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "red
             break
         # Check for language-suffixed (video.en.srt, video.eng.srt)
         for f in os.listdir(video_dir):
-            if f.startswith(video_filename + '.') and f.endswith(ext):
+            if f.startswith(video_filename + ".") and f.endswith(ext):
                 status.has_external_subs = True
                 break
         if status.has_external_subs:
@@ -188,47 +190,69 @@ def get_pipeline_status(video_path: str, project_path: str, tmp_root: str = "red
     # Check source audio chunks (01_source_audio_chunks)
     audio_chunks_dir = os.path.join(working_dir, "01_source_audio_chunks")
     if os.path.exists(audio_chunks_dir):
-        audio_files = [f for f in os.listdir(audio_chunks_dir) if f.endswith(('.mp3', '.m4a'))]
+        audio_files = [
+            f for f in os.listdir(audio_chunks_dir) if f.endswith((".mp3", ".m4a"))
+        ]
         status.audio_chunks = len(audio_files)
 
     # Check STT/transcripts (02_stt)
     stt_dir = os.path.join(working_dir, "02_stt")
     if os.path.exists(stt_dir):
         # Count .seg files as they represent completed transcriptions
-        seg_files = [f for f in os.listdir(stt_dir) if f.endswith('.seg')]
+        seg_files = [f for f in os.listdir(stt_dir) if f.endswith(".seg")]
         status.transcripts = len(seg_files)
 
     # Check subtitles (03_subtitles)
     subtitles_dir = os.path.join(working_dir, "03_subtitles")
     if os.path.exists(subtitles_dir):
-        srt_files = [f for f in os.listdir(subtitles_dir) if f.endswith('.srt')]
+        srt_files = [f for f in os.listdir(subtitles_dir) if f.endswith(".srt")]
         status.subtitles_generated = len(srt_files) > 0
 
     # Check TTS segments (04_tts)
     tts_dir = os.path.join(working_dir, "04_tts")
     if os.path.exists(tts_dir):
-        tts_files = [f for f in os.listdir(tts_dir) if f.endswith(('.mp3', '.m4a'))]
+        tts_files = [f for f in os.listdir(tts_dir) if f.endswith((".mp3", ".m4a"))]
         status.tts_segments = len(tts_files)
 
     # Check target audio chunks (05_target_audio_chunks)
     target_audio_dir = os.path.join(working_dir, "05_target_audio_chunks")
     if os.path.exists(target_audio_dir):
-        target_files = [f for f in os.listdir(target_audio_dir) if f.endswith(('.mp3', '.m4a'))]
+        target_files = [
+            f for f in os.listdir(target_audio_dir) if f.endswith((".mp3", ".m4a"))
+        ]
         status.target_audio_chunks = len(target_files)
 
-    # Check for final output file (look for .en.mp4 or similar in the project directory)
+    # Check for final output file. Three locations checked in priority order:
+    # 1. <working_dir>/<name>.dubbed.<ext>  — mixed but not yet finalized
+    # 2. <working_dir>/backups/  — backup exists → original was atomically replaced
+    # 3. Video file itself has ≥2 audio streams + a matching .srt alongside it
+    #    → finalization completed and working dir was cleaned up
     video_ext = os.path.splitext(video_path)[1]
-    final_filename = f"{video_filename}.en{video_ext}"
-    final_path = os.path.join(video_dir, final_filename)
 
-    if os.path.exists(final_path):
+    dubbed_in_workdir = os.path.join(working_dir, f"{video_filename}.dubbed{video_ext}")
+    backup_dir = os.path.join(tmp_root, "backups")  # <working_dir_root>/backups/
+
+    if os.path.exists(dubbed_in_workdir):
+        # Dubbed file present — pipeline finished, awaiting user's "Replace Original"
         status.final_file_exists = True
-        status.final_file_path = final_path
+        status.final_file_path = dubbed_in_workdir
+    elif os.path.exists(backup_dir) and any(
+        f.startswith(video_filename + ".") for f in os.listdir(backup_dir)
+    ):
+        # Backup present → original was atomically replaced; finalization fully done
+        status.final_file_exists = True
+        status.replaced = True
+        status.final_file_path = video_path
+    # Note: we intentionally do NOT infer `replaced` from the video file's audio tracks
+    # or subtitle presence — those conditions can be true before finalization.
+    # The backup directory is the only reliable signal that replacement happened.
 
     return status
 
 
-def clear_downstream_stages(video_path: str, project_path: str, from_stage: str, tmp_root: str = "redubber_tmp") -> list[str]:
+def clear_downstream_stages(
+    video_path: str, project_path: str, from_stage: str, tmp_root: str = "redubber_tmp"
+) -> list[str]:
     """
     Clear all pipeline stages downstream from (and including) the specified stage.
 
@@ -243,20 +267,23 @@ def clear_downstream_stages(video_path: str, project_path: str, from_stage: str,
     """
     import shutil
     import logging
+
     log = logging.getLogger(__name__)
-    log.info(f"clear_downstream_stages: from_stage={from_stage}, video_path={video_path}, project_path={project_path}")
+    log.info(
+        f"clear_downstream_stages: from_stage={from_stage}, video_path={video_path}, project_path={project_path}"
+    )
 
     # Define stage order and their directories
     stage_dirs = {
-        'audio': '01_source_audio_chunks',
-        'stt': '02_stt',
-        'subtitles': '03_subtitles',
-        'tts': '04_tts',
-        'assemble': '05_target_audio_chunks',
-        'final': None,  # Final stage creates output file, no tmp directory
+        "audio": "01_source_audio_chunks",
+        "stt": "02_stt",
+        "subtitles": "03_subtitles",
+        "tts": "04_tts",
+        "assemble": "05_target_audio_chunks",
+        "final": None,  # Final stage creates output file, no tmp directory
     }
 
-    stage_order = ['audio', 'stt', 'subtitles', 'tts', 'assemble', 'final']
+    stage_order = ["audio", "stt", "subtitles", "tts", "assemble", "final"]
 
     # Calculate working directory
     rel_path = os.path.relpath(video_path, project_path)
@@ -298,7 +325,9 @@ def clear_downstream_stages(video_path: str, project_path: str, from_stage: str,
     return cleared
 
 
-def get_all_pipeline_statuses(project_path: str, video_paths: list[str], tmp_root: str = "redubber_tmp") -> dict[str, PipelineStatus]:
+def get_all_pipeline_statuses(
+    project_path: str, video_paths: list[str], tmp_root: str = "redubber_tmp"
+) -> dict[str, PipelineStatus]:
     """
     Get pipeline status for all videos in a project.
 

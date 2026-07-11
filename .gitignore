@@ -216,3 +216,19 @@ redubber_tmp/
 .DS_Store
 
 CATEPXAN
+
+# Docker volumes and runtime data
+storage/
+tmp/
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/storybook-static/
+
+# Runtime settings and secrets
+settings.json
+
+# uv lockfile (poetry.lock is already tracked)
+uv.lock

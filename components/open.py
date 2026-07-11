@@ -40,7 +40,7 @@ def display_folder_tree():
             folders = []
             for item in os.listdir(current_path):
                 item_path = os.path.join(current_path, item)
-                if os.path.isdir(item_path) and not item.startswith('.'):
+                if os.path.isdir(item_path) and not item.startswith("."):
                     folders.append((item, item_path))
 
             folders.sort(key=lambda x: x[0].lower())
@@ -48,13 +48,19 @@ def display_folder_tree():
             if folders:
                 st.write("**Folders:**")
                 for folder_name, folder_path in folders:
-                    display_name = folder_name if len(folder_name) <= 20 else folder_name[:17] + "..."
+                    display_name = (
+                        folder_name
+                        if len(folder_name) <= 20
+                        else folder_name[:17] + "..."
+                    )
 
                     # Create clickable folder link
-                    if st.button(f"📁 {display_name}",
-                               key=f"folder_{folder_path}",
-                               help=f"Open {folder_name}",
-                               use_container_width=True):
+                    if st.button(
+                        f"📁 {display_name}",
+                        key=f"folder_{folder_path}",
+                        help=f"Open {folder_name}",
+                        use_container_width=True,
+                    ):
                         st.session_state.temp_browse_path = folder_path
                         st.rerun()
             else:
@@ -95,8 +101,10 @@ def display_open_page():
         parent_path = os.path.dirname(st.session_state.temp_browse_path)
 
         # Disable Up button at home directory - don't allow going to /Users or above
-        can_go_up = (parent_path != st.session_state.temp_browse_path and
-                     st.session_state.temp_browse_path != home_path)
+        can_go_up = (
+            parent_path != st.session_state.temp_browse_path
+            and st.session_state.temp_browse_path != home_path
+        )
 
         # Create three separate buttons in a row
         nav_col1, nav_col2, nav_col3 = st.columns(3)
@@ -107,25 +115,39 @@ def display_open_page():
                 st.rerun()
 
         with nav_col2:
-            if st.button("⬆️", help="Up", disabled=not can_go_up, use_container_width=True, key="nav_up"):
+            if st.button(
+                "⬆️",
+                help="Up",
+                disabled=not can_go_up,
+                use_container_width=True,
+                key="nav_up",
+            ):
                 st.session_state.temp_browse_path = parent_path
                 st.rerun()
 
         with nav_col3:
-            if st.button("🔄", help="Refresh", use_container_width=True, key="nav_refresh"):
+            if st.button(
+                "🔄", help="Refresh", use_container_width=True, key="nav_refresh"
+            ):
                 st.rerun()
 
     with col2:
         # Check if current folder has video files
         has_videos = video_count > 0
 
-        button_help = f"Open this folder as a project ({video_count} video{'s' if video_count != 1 else ''})" if has_videos else "No video files found in this folder"
+        button_help = (
+            f"Open this folder as a project ({video_count} video{'s' if video_count != 1 else ''})"
+            if has_videos
+            else "No video files found in this folder"
+        )
 
-        if st.button("📁 Open as Project",
-                    type="primary" if has_videos else "secondary",
-                    disabled=not has_videos,
-                    use_container_width=True,
-                    help=button_help):
+        if st.button(
+            "📁 Open as Project",
+            type="primary" if has_videos else "secondary",
+            disabled=not has_videos,
+            use_container_width=True,
+            help=button_help,
+        ):
             st.session_state.current_project_path = st.session_state.temp_browse_path
             load_project(st.session_state.temp_browse_path)
             st.session_state.current_page = st.session_state.temp_browse_path
@@ -139,6 +161,8 @@ def display_open_page():
 
     # Show video count summary
     if video_count > 0:
-        st.info(f"📹 Found {video_count} video file{'s' if video_count != 1 else ''} in this folder")
+        st.info(
+            f"📹 Found {video_count} video file{'s' if video_count != 1 else ''} in this folder"
+        )
     else:
         st.warning("⚠️ No video files detected in this folder")

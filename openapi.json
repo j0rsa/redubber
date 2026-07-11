@@ -1,0 +1,2189 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Redubber API",
+    "description": "# Redubber API - AI-Powered Video Redubbing Platform\n\nThe Redubber API provides comprehensive video redubbing capabilities powered by OpenAI's\nWhisper, GPT-4, and TTS technologies. Transform videos into different languages while\npreserving the original speaker's tone, emotion, and delivery style.\n\n## Key Features\n\n- **Intelligent Voice Refinement**: AI-powered voice instruction generation for natural-sounding TTS\n- **Multi-Voice Testing**: Generate previews for all available voices simultaneously\n- **Smart Caching**: Avoid redundant TTS generations with intelligent caching\n- **Async Processing**: High-performance async TTS with 5x throughput improvement\n- **Project Management**: Organize videos, track progress, and manage redubbing workflows\n\n## Workflow\n\n1. Create a project and upload videos\n2. Start redubbing task (transcribe, translate, generate audio)\n3. Use voice refinement to test different voices and instructions\n4. Select the best voice and apply to all segments\n5. Download the final redubbed video\n\n## Rate Limits\n\n- OpenAI API limits apply to transcription, translation, and TTS operations\n- Recommended: 1-3 concurrent redubbing tasks per instance\n- TTS generation: Up to 100 concurrent requests (configurable)",
+    "contact": {
+      "name": "Redubber Development Team",
+      "url": "https://github.com/yourusername/redubber",
+      "email": "support@redubber.io"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "2.0.0"
+  },
+  "paths": {
+    "/api/projects/": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "description": "List all projects ordered by last update.\n\nArgs:\n    db: DatabaseManager dependency.\n\nReturns:\n    List of all projects, most recently updated first.",
+        "operationId": "list_projects_api_projects__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Projects Api Projects  Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "description": "Create or open a project and trigger file scan.\n\nCreates a new project entry in the database if it doesn't exist,\nor updates the timestamp if it already exists. Automatically triggers\nan asynchronous file scan to index video and subtitle files.\n\nArgs:\n    project: Project creation request with directory path.\n    background_tasks: FastAPI background tasks manager.\n    db: DatabaseManager dependency.\n    scanner: FileScanner dependency.\n\nReturns:\n    Complete project information including generated ID.\n\nRaises:\n    HTTPException: 400 if path is invalid or inaccessible.\n    HTTPException: 422 if path validation fails.",
+        "operationId": "create_project_api_projects__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "description": "Get detailed project information by ID.\n\nArgs:\n    project_id: Unique project identifier.\n    db: DatabaseManager dependency.\n\nReturns:\n    Complete project information.\n\nRaises:\n    HTTPException: 404 if project not found.",
+        "operationId": "get_project_api_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete Project",
+        "description": "Delete project and all associated metadata.\n\nRemoves project entry, video analysis records, and subtitle references.\nDoes not delete actual video files on disk.\n\nArgs:\n    project_id: Project to delete.\n    db: DatabaseManager dependency.\n\nRaises:\n    HTTPException: 404 if project not found.",
+        "operationId": "delete_project_api_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/voice-settings": {
+      "put": {
+        "tags": [
+          "voice-refinement",
+          "voice-refinement"
+        ],
+        "summary": "Save selected voice settings to project",
+        "description": "Update the project's voice configuration with the selected voice and instructions.\n\nAfter testing multiple voices with previews, use this endpoint to:\n1. Save the selected voice (e.g., \"nova\", \"shimmer\")\n2. Save the finalized voice instructions\n3. Record which segment was used for testing (for audit trail)\n\n**Effects**:\n- Updates project's default voice and instructions\n- All future TTS generations in this project will use these settings\n- Saves selection history in database for tracking\n- Returns updated project object with new voice settings\n\n**Workflow integration**:\n1. Analyze transcription → Generate voice instructions\n2. (Optional) Regenerate with feedback to refine instructions\n3. Generate previews for all voices\n4. User listens and selects best voice\n5. **Call this endpoint** to save selection\n6. All subsequent redubbing tasks use the saved settings\n\n**Use case**: Once voice selection is complete, this persists the choice\nso the entire project uses consistent voice settings across all videos.",
+        "operationId": "save_voice_settings_api_projects__project_id__voice_settings_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Voice settings saved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                },
+                "example": {
+                  "id": 42,
+                  "name": "My Video Project",
+                  "path": "/storage/projects/my_video_project",
+                  "created_at": "2026-07-01T10:30:00Z",
+                  "updated_at": "2026-07-10T14:22:00Z",
+                  "voice": "nova",
+                  "voice_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project 42 not found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "voice"
+                      ],
+                      "msg": "field required",
+                      "type": "value_error.missing"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to save voice settings (database error)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Failed to save voice settings: Database connection error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/source-language": {
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Update Source Language",
+        "description": "Update source language override for a project.\n\nSets or clears the source language override. When set, all audio streams\nwill be treated as this language during processing. This overrides the\nauto-detected language from audio stream metadata.\n\nArgs:\n    project_id: Target project identifier.\n    language_update: New source language setting.\n    db: DatabaseManager dependency.\n\nReturns:\n    Updated project information.\n\nRaises:\n    HTTPException: 404 if project not found.",
+        "operationId": "update_source_language_api_projects__project_id__source_language_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceLanguageUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/redub": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Submit Redub Task",
+        "description": "Submit a video redubbing job to the task queue.\n\nValidates the video file exists and is accessible, then enqueues\na redubbing task for asynchronous processing. Returns immediately\nwith a task ID for status polling.\n\nArgs:\n    task: Task creation request with video path and project ID.\n    task_manager: TaskQueueManager injected from app state.\n\nReturns:\n    Dictionary with task_id and initial status \"queued\".\n\nRaises:\n    HTTPException: 400 if video path is invalid.\n    HTTPException: 503 if task queue is full.",
+        "operationId": "submit_redub_task_api_tasks_redub_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Submit Redub Task Api Tasks Redub Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Get Task Status",
+        "description": "Get current status of a redubbing task.\n\nFrontend should poll this endpoint every 2-5 seconds to track\ntask progress. Returns detailed stage information and progress\npercentage.\n\nArgs:\n    task_id: Unique task identifier returned from submission.\n    task_manager: TaskQueueManager injected from app state.\n\nReturns:\n    Complete task status with progress and current stage.\n\nRaises:\n    HTTPException: 404 if task_id not found.",
+        "operationId": "get_task_status_api_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Cancel Task",
+        "description": "Cancel a running or queued redubbing task.\n\nAttempts graceful cancellation of the task. Queued tasks are\nremoved immediately. Running tasks complete their current stage\nbefore terminating.\n\nArgs:\n    task_id: Task identifier to cancel.\n    task_manager: TaskQueueManager injected from app state.\n\nReturns:\n    Cancellation confirmation with updated status.\n\nRaises:\n    HTTPException: 404 if task_id not found.\n    HTTPException: 409 if task is already completed or failed.",
+        "operationId": "cancel_task_api_tasks__task_id__cancel_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCancelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List Tasks",
+        "description": "List all tasks with optional filtering.\n\nUseful for displaying task history or monitoring all active jobs.\nResults are ordered by creation time, most recent first.\n\nArgs:\n    status_filter: Optional filter by status (queued/running/completed/failed).\n    project_id: Optional filter by project ID.\n    task_manager: TaskQueueManager injected from app state.\n\nReturns:\n    List of matching tasks.",
+        "operationId": "list_tasks_api_tasks__get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskStatusResponse"
+                  },
+                  "title": "Response List Tasks Api Tasks  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/videos/projects/{project_id}/scan": {
+      "post": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "Trigger Scan",
+        "description": "Trigger asynchronous file scan for a project.\n\nInitiates background scanning of the project directory to detect\nand analyze video and subtitle files. Returns immediately while\nscan runs in background.\n\nArgs:\n    project_id: Project to scan.\n    background_tasks: FastAPI background tasks manager.\n    db: DatabaseManager dependency.\n    scanner: FileScanner dependency.\n\nReturns:\n    Scan trigger confirmation with status.\n\nRaises:\n    HTTPException: 404 if project not found.\n    HTTPException: 409 if scan is already running for this project.",
+        "operationId": "trigger_scan_api_videos_projects__project_id__scan_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanTriggerResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/videos/projects/{project_id}/videos": {
+      "get": {
+        "tags": [
+          "videos"
+        ],
+        "summary": "List Videos",
+        "description": "List all analyzed videos for a project with pipeline status.\n\nReturns comprehensive video metadata including audio streams,\nsubtitles, and current pipeline processing status from the\nredubber_tmp directory.\n\nArgs:\n    project_id: Project identifier.\n    db: DatabaseManager dependency.\n\nReturns:\n    List of video analysis records with pipeline status.\n\nRaises:\n    HTTPException: 404 if project not found.",
+        "operationId": "list_videos_api_videos_projects__project_id__videos_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VideoAnalysis"
+                  },
+                  "title": "Response List Videos Api Videos Projects  Project Id  Videos Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/transcription-segments": {
+      "get": {
+        "tags": [
+          "voice-refinement",
+          "voice-refinement"
+        ],
+        "summary": "List transcription segments",
+        "description": "Retrieve all available transcription segments from a project for voice refinement.\n\nEach segment contains:\n- Original transcribed text from Whisper API\n- Translated text in target language\n- Audio file URL for the original segment\n- Timing information (start, end, duration)\n\nThese segments can be used to:\n1. Generate voice instructions by analyzing the original speaker's style\n2. Test different TTS voices with preview generation\n3. Select the best voice for the entire project\n\n**Note**: Currently returns mock data for development. In production, this will query\nthe database for segments from completed transcription tasks.",
+        "operationId": "get_transcription_segments_api_projects__project_id__transcription_segments_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transcription segments retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TranscriptionSegment"
+                  },
+                  "title": "Response Get Transcription Segments Api Projects  Project Id  Transcription Segments Get"
+                },
+                "example": [
+                  {
+                    "id": "project_42_segment_0",
+                    "video_filename": "intro_video.mp4",
+                    "start_time": 0.0,
+                    "end_time": 10.5,
+                    "duration": 10.5,
+                    "original_text": "Welcome to this demonstration. Today we'll explore the main features.",
+                    "translated_text": "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+                    "audio_url": "/api/audio/segments/project_42_segment_0_original.mp3"
+                  }
+                ]
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project 42 not found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/voice-instructions/analyze": {
+      "post": {
+        "tags": [
+          "voice-refinement",
+          "voice-refinement"
+        ],
+        "summary": "Generate voice instructions from transcription",
+        "description": "Analyze a transcription segment using GPT-4o and generate detailed voice instructions for TTS.\n\nThe LLM analyzes:\n- **Original text**: Speaker's style, tone, and delivery in source language\n- **Translated text**: Content and context in target language\n- **Optional context**: Content type, speaker demographics for better accuracy\n\nGenerated instructions describe:\n- Tone (warm, professional, casual, etc.)\n- Pace (fast, moderate, slow, deliberate)\n- Emotion (enthusiastic, calm, serious, playful)\n- Style (conversational, authoritative, storytelling)\n- Delivery details (emphasis, pauses, intonation)\n\nThese instructions are then used with OpenAI TTS to generate natural-sounding audio\nthat preserves the original speaker's characteristics in the target language.\n\n**Performance**: Typical response time 2-4 seconds (GPT-4o inference time)",
+        "operationId": "analyze_voice_instructions_api_projects__project_id__voice_instructions_analyze_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceInstructionAnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Voice instructions generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceInstructionResponse"
+                },
+                "example": {
+                  "voice_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation. Convey enthusiasm and engagement while keeping an authoritative, conversational style. Emphasize key words naturally and use slight pauses for emphasis.",
+                  "detected_characteristics": {
+                    "tone": "warm, professional",
+                    "pace": "moderate",
+                    "emotion": "enthusiastic, engaged",
+                    "style": "conversational, authoritative"
+                  },
+                  "llm_model": "gpt-4o",
+                  "generation_id": 42
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project 42 not found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "original_text"
+                      ],
+                      "msg": "field required",
+                      "type": "value_error.missing"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Voice instruction generation failed (LLM API error)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Voice instruction generation failed: OpenAI API rate limit exceeded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/voice-instructions/regenerate": {
+      "post": {
+        "tags": [
+          "voice-refinement",
+          "voice-refinement"
+        ],
+        "summary": "Regenerate voice instructions with user feedback",
+        "description": "Improve previously generated voice instructions based on user feedback using GPT-4o.\n\nThis endpoint enables iterative refinement of voice characteristics:\n1. Takes previously generated instructions as baseline\n2. Incorporates specific user feedback (e.g., \"Make it more energetic\", \"Slower pace\")\n3. Regenerates improved instructions while maintaining the original context\n\n**Common feedback examples**:\n- \"Make it more energetic and enthusiastic\"\n- \"Slow down the pace, it's too fast\"\n- \"Less formal, more conversational\"\n- \"Add more emotion and warmth\"\n- \"Make it sound more authoritative\"\n\nThe LLM understands natural language feedback and adjusts the instructions accordingly\nwhile preserving the original speaker's overall style.\n\n**Use case**: After testing initial voice previews, users can refine instructions\nwithout re-analyzing the entire segment from scratch.\n\n**Performance**: Typical response time 2-4 seconds (GPT-4o inference time)",
+        "operationId": "regenerate_voice_instructions_api_projects__project_id__voice_instructions_regenerate_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceInstructionRegenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Voice instructions regenerated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceInstructionResponse"
+                },
+                "example": {
+                  "voice_instructions": "Deliver with high energy and enthusiasm! Use a fast, dynamic pace with vibrant intonation. Express excitement and passion throughout. Maintain a conversational, engaging style with natural emphasis on key points.",
+                  "detected_characteristics": {
+                    "tone": "vibrant, energetic",
+                    "pace": "fast, dynamic",
+                    "emotion": "excited, passionate",
+                    "style": "conversational, engaging"
+                  },
+                  "llm_model": "gpt-4o",
+                  "generation_id": 43
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project 42 not found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "user_feedback"
+                      ],
+                      "msg": "field required",
+                      "type": "value_error.missing"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Voice instruction regeneration failed (LLM API error)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Voice instruction regeneration failed: OpenAI API timeout"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/voice-previews/generate": {
+      "post": {
+        "tags": [
+          "voice-refinement",
+          "voice-refinement"
+        ],
+        "summary": "Generate TTS previews for multiple voices",
+        "description": "Generate audio previews for all specified voices using OpenAI TTS API with intelligent caching.\n\n**Key features**:\n- **Parallel generation**: All voices generated concurrently (up to 100 concurrent requests)\n- **Smart caching**: Hash-based caching avoids regenerating identical text+instructions\n- **Cache transparency**: Response indicates which previews were cached vs newly generated\n- **Performance**: ~2-5 seconds for 6 voices (5x faster than sequential generation)\n\n**Available voices** (OpenAI TTS):\n- `alloy` - Neutral, balanced\n- `echo` - Male, clear\n- `fable` - British accent, expressive\n- `onyx` - Deep male voice\n- `nova` - Female, warm (default)\n- `shimmer` - Female, bright\n\n**Cache behavior**:\n- Cache key: SHA256 hash of `translated_text + voice_instructions`\n- Same text + instructions = instant cache hit\n- Different instructions = cache miss, new generation\n- Cache hits return existing audio URL and duration\n\n**Use case**: Generate previews for all voices, let user listen and select the best one.\nThe selected voice and instructions are then saved to the project for all future TTS.\n\n**Note**: Currently returns mock data. In production, this calls OpenAI TTS API.",
+        "operationId": "generate_voice_previews_api_projects__project_id__voice_previews_generate_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoicePreviewGenerateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Voice previews generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoicePreviewResponse"
+                },
+                "example": {
+                  "previews": [
+                    {
+                      "voice": "nova",
+                      "audio_url": "/api/audio/previews/a1b2c3d4e5f6_nova.mp3",
+                      "duration_ms": 5000,
+                      "cached": false
+                    },
+                    {
+                      "voice": "shimmer",
+                      "audio_url": "/api/audio/previews/a1b2c3d4e5f6_shimmer.mp3",
+                      "duration_ms": 5100,
+                      "cached": true
+                    },
+                    {
+                      "voice": "alloy",
+                      "audio_url": "/api/audio/previews/a1b2c3d4e5f6_alloy.mp3",
+                      "duration_ms": 4950,
+                      "cached": false
+                    }
+                  ],
+                  "instructions_hash": "a1b2c3d4e5f6",
+                  "cache_hits": 1,
+                  "cache_misses": 2
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Project 42 not found"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request parameters",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "translated_text"
+                      ],
+                      "msg": "field required",
+                      "type": "value_error.missing"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "TTS generation failed (OpenAI API error)",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Voice preview generation failed: OpenAI TTS API rate limit exceeded"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health check",
+        "description": "Returns service health status and version information",
+        "operationId": "health_check_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Service health status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AudioStream": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index",
+            "description": "Stream index in video container"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "description": "Language code (e.g., 'en', 'de')"
+          },
+          "codec": {
+            "type": "string",
+            "title": "Codec",
+            "description": "Audio codec name (e.g., 'aac', 'mp3')"
+          },
+          "channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Channels",
+            "description": "Number of audio channels or descriptive string"
+          },
+          "sample_rate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Sample Rate",
+            "description": "Audio sample rate in Hz or descriptive string"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "language",
+          "codec",
+          "channels",
+          "sample_rate"
+        ],
+        "title": "AudioStream",
+        "description": "Audio stream metadata from video file."
+      },
+      "DetectedCharacteristics": {
+        "properties": {
+          "tone": {
+            "type": "string",
+            "title": "Tone",
+            "description": "Detected tone (e.g., 'warm, professional')",
+            "examples": [
+              "warm, professional",
+              "friendly, casual",
+              "authoritative, serious"
+            ]
+          },
+          "pace": {
+            "type": "string",
+            "title": "Pace",
+            "description": "Detected pace (e.g., 'moderate')",
+            "examples": [
+              "moderate",
+              "fast",
+              "slow",
+              "deliberate",
+              "energetic"
+            ]
+          },
+          "emotion": {
+            "type": "string",
+            "title": "Emotion",
+            "description": "Detected emotion (e.g., 'enthusiastic, engaged')",
+            "examples": [
+              "enthusiastic, engaged",
+              "calm, measured",
+              "excited, passionate",
+              "neutral, informative"
+            ]
+          },
+          "style": {
+            "type": "string",
+            "title": "Style",
+            "description": "Detected style (e.g., 'conversational, authoritative')",
+            "examples": [
+              "conversational, authoritative",
+              "formal, academic",
+              "casual, friendly",
+              "storytelling, narrative"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "tone",
+          "pace",
+          "emotion",
+          "style"
+        ],
+        "title": "DetectedCharacteristics",
+        "description": "Detected voice characteristics from LLM analysis.",
+        "examples": [
+          {
+            "emotion": "enthusiastic, engaged",
+            "pace": "moderate",
+            "style": "conversational, authoritative",
+            "tone": "warm, professional"
+          }
+        ]
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PipelineStatusResponse": {
+        "properties": {
+          "progress": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "description": "Progress percentage (0-100)"
+          },
+          "current_stage": {
+            "type": "string",
+            "title": "Current Stage",
+            "description": "Current pipeline stage name"
+          },
+          "is_complete": {
+            "type": "boolean",
+            "title": "Is Complete",
+            "description": "True if all pipeline stages complete"
+          }
+        },
+        "type": "object",
+        "required": [
+          "progress",
+          "current_stage",
+          "is_complete"
+        ],
+        "title": "PipelineStatusResponse",
+        "description": "Pipeline processing status for a video."
+      },
+      "ProjectCreate": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Absolute path to project directory"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "title": "ProjectCreate",
+        "description": "Request schema for creating/opening a project."
+      },
+      "ProjectResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Unique project identifier"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Absolute path to project directory"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Project display name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Project creation timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last update timestamp"
+          },
+          "voice": {
+            "type": "string",
+            "title": "Voice",
+            "description": "TTS voice identifier (e.g., 'nova', 'alloy')",
+            "default": ""
+          },
+          "voice_instructions": {
+            "type": "string",
+            "title": "Voice Instructions",
+            "description": "Custom instructions for TTS voice",
+            "default": ""
+          },
+          "source_language_override": {
+            "type": "string",
+            "title": "Source Language Override",
+            "description": "Auto-detected or user-overridden source language (e.g., 'rus', 'eng')",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProjectResponse",
+        "description": "Response schema for project information."
+      },
+      "ScanTriggerResponse": {
+        "properties": {
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "Project ID being scanned"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "already_running"
+            ],
+            "title": "Status",
+            "description": "Scan operation status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable status message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "status",
+          "message"
+        ],
+        "title": "ScanTriggerResponse",
+        "description": "Response schema for triggering project scan."
+      },
+      "SourceLanguageUpdate": {
+        "properties": {
+          "source_language": {
+            "type": "string",
+            "maxLength": 10,
+            "title": "Source Language",
+            "description": "Source language code (e.g., 'eng', 'rus', 'zho'). Empty string to clear override."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_language"
+        ],
+        "title": "SourceLanguageUpdate",
+        "description": "Request schema for updating project source language."
+      },
+      "SubtitleInfo": {
+        "properties": {
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "description": "Detected language code"
+          },
+          "embedded": {
+            "type": "boolean",
+            "title": "Embedded",
+            "description": "True if subtitle is embedded in video container"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "File path for external subtitles",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "language",
+          "embedded"
+        ],
+        "title": "SubtitleInfo",
+        "description": "Subtitle file metadata."
+      },
+      "TaskCancelResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "description": "Cancelled task identifier"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Updated task status after cancellation"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable confirmation message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "message"
+        ],
+        "title": "TaskCancelResponse",
+        "description": "Response schema for task cancellation."
+      },
+      "TaskCreate": {
+        "properties": {
+          "video_path": {
+            "type": "string",
+            "title": "Video Path",
+            "description": "Absolute path to video file"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "Associated project ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "video_path",
+          "project_id"
+        ],
+        "title": "TaskCreate",
+        "description": "Request schema for submitting a redubbing task."
+      },
+      "TaskStatusResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "description": "Unique task identifier (UUID)"
+          },
+          "video_path": {
+            "type": "string",
+            "title": "Video Path",
+            "description": "Target video file path"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "Current task status"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "description": "Current processing stage description"
+          },
+          "progress": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "description": "Progress percentage (0-100)"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Error message if status is 'failed'"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Task creation timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "video_path",
+          "status",
+          "stage",
+          "progress",
+          "created_at"
+        ],
+        "title": "TaskStatusResponse",
+        "description": "Response schema for task status polling."
+      },
+      "TranscriptionSegment": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Unique segment identifier (e.g., 'video1_segment_0')",
+            "examples": [
+              "project_42_segment_0",
+              "intro_video_segment_1"
+            ]
+          },
+          "video_filename": {
+            "type": "string",
+            "title": "Video Filename",
+            "description": "Source video filename",
+            "examples": [
+              "intro_video.mp4",
+              "tutorial_part1.mov"
+            ]
+          },
+          "start_time": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Start Time",
+            "description": "Segment start time in seconds",
+            "examples": [
+              0.0,
+              15.5,
+              120.75
+            ]
+          },
+          "end_time": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "End Time",
+            "description": "Segment end time in seconds",
+            "examples": [
+              10.5,
+              30.2,
+              145.8
+            ]
+          },
+          "duration": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration",
+            "description": "Segment duration in seconds",
+            "examples": [
+              10.5,
+              14.7,
+              25.05
+            ]
+          },
+          "original_text": {
+            "type": "string",
+            "title": "Original Text",
+            "description": "Original transcribed text",
+            "examples": [
+              "Welcome to this demonstration. Today we'll explore the main features.",
+              "In this tutorial, we'll learn how to build a web application."
+            ]
+          },
+          "translated_text": {
+            "type": "string",
+            "title": "Translated Text",
+            "description": "Translated text in target language",
+            "examples": [
+              "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+              "En este tutorial, aprenderemos cómo construir una aplicación web."
+            ]
+          },
+          "audio_url": {
+            "type": "string",
+            "title": "Audio Url",
+            "description": "URL to original audio segment",
+            "examples": [
+              "/api/audio/segments/project_42_segment_0_original.mp3",
+              "/api/audio/segments/intro_video_segment_1_original.wav"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "video_filename",
+          "start_time",
+          "end_time",
+          "duration",
+          "original_text",
+          "translated_text",
+          "audio_url"
+        ],
+        "title": "TranscriptionSegment",
+        "description": "Transcription segment from video processing.",
+        "examples": [
+          {
+            "audio_url": "/api/audio/segments/project_42_segment_0_original.mp3",
+            "duration": 10.5,
+            "end_time": 10.5,
+            "id": "project_42_segment_0",
+            "original_text": "Welcome to this demonstration. Today we'll explore the main features.",
+            "start_time": 0.0,
+            "translated_text": "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+            "video_filename": "intro_video.mp4"
+          }
+        ]
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VideoAnalysis": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Unique video analysis record ID"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Video filename without path"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Absolute path to video file"
+          },
+          "size_mb": {
+            "type": "number",
+            "title": "Size Mb",
+            "description": "File size in megabytes"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds",
+            "description": "Video duration in seconds"
+          },
+          "audio_streams": {
+            "items": {
+              "$ref": "#/components/schemas/AudioStream"
+            },
+            "type": "array",
+            "title": "Audio Streams",
+            "description": "List of detected audio streams"
+          },
+          "subtitles": {
+            "items": {
+              "$ref": "#/components/schemas/SubtitleInfo"
+            },
+            "type": "array",
+            "title": "Subtitles",
+            "description": "List of available subtitles"
+          },
+          "pipeline_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PipelineStatusResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline processing status (null if not started)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "path",
+          "size_mb",
+          "duration_seconds",
+          "audio_streams",
+          "subtitles"
+        ],
+        "title": "VideoAnalysis",
+        "description": "Comprehensive video file analysis with pipeline status."
+      },
+      "VoiceInstructionAnalyzeRequest": {
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "title": "Segment Id",
+            "description": "ID of the transcription segment to analyze",
+            "examples": [
+              "project_42_segment_0",
+              "intro_video_segment_1"
+            ]
+          },
+          "original_text": {
+            "type": "string",
+            "title": "Original Text",
+            "description": "Original transcribed text",
+            "examples": [
+              "Welcome to this demonstration. Today we'll explore the main features.",
+              "In this tutorial, we'll learn step by step."
+            ]
+          },
+          "translated_text": {
+            "type": "string",
+            "title": "Translated Text",
+            "description": "Translated text in target language",
+            "examples": [
+              "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+              "En este tutorial, aprenderemos paso a paso."
+            ]
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VoiceInstructionContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context for better voice analysis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_id",
+          "original_text",
+          "translated_text"
+        ],
+        "title": "VoiceInstructionAnalyzeRequest",
+        "description": "Request schema for analyzing voice and generating instructions.",
+        "examples": [
+          {
+            "context": {
+              "content_type": "educational",
+              "speaker_age": "adult",
+              "speaker_gender": "male"
+            },
+            "original_text": "Welcome to this demonstration. Today we'll explore the main features.",
+            "segment_id": "project_42_segment_0",
+            "translated_text": "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции."
+          }
+        ]
+      },
+      "VoiceInstructionContext": {
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "description": "Content type (e.g., 'educational', 'entertainment', 'news')",
+            "default": "general",
+            "examples": [
+              "educational",
+              "entertainment",
+              "news",
+              "documentary",
+              "tutorial"
+            ]
+          },
+          "speaker_gender": {
+            "type": "string",
+            "title": "Speaker Gender",
+            "description": "Speaker gender ('male', 'female', 'unknown')",
+            "default": "unknown",
+            "examples": [
+              "male",
+              "female",
+              "unknown"
+            ]
+          },
+          "speaker_age": {
+            "type": "string",
+            "title": "Speaker Age",
+            "description": "Speaker age ('child', 'young_adult', 'adult', 'senior')",
+            "default": "adult",
+            "examples": [
+              "child",
+              "young_adult",
+              "adult",
+              "senior"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "VoiceInstructionContext",
+        "description": "Optional context for voice instruction generation.",
+        "examples": [
+          {
+            "content_type": "educational",
+            "speaker_age": "adult",
+            "speaker_gender": "male"
+          }
+        ]
+      },
+      "VoiceInstructionRegenerateRequest": {
+        "properties": {
+          "segment_id": {
+            "type": "string",
+            "title": "Segment Id",
+            "description": "ID of the transcription segment",
+            "examples": [
+              "project_42_segment_0"
+            ]
+          },
+          "original_text": {
+            "type": "string",
+            "title": "Original Text",
+            "description": "Original transcribed text",
+            "examples": [
+              "Welcome to this demonstration. Today we'll explore the main features."
+            ]
+          },
+          "translated_text": {
+            "type": "string",
+            "title": "Translated Text",
+            "description": "Translated text",
+            "examples": [
+              "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции."
+            ]
+          },
+          "previous_instructions": {
+            "type": "string",
+            "title": "Previous Instructions",
+            "description": "Previously generated instructions",
+            "examples": [
+              "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation."
+            ]
+          },
+          "user_feedback": {
+            "type": "string",
+            "title": "User Feedback",
+            "description": "User feedback on what to improve (e.g., 'Make it more energetic')",
+            "examples": [
+              "Make it more energetic and enthusiastic",
+              "Slow down the pace slightly",
+              "Less formal, more conversational",
+              "Add more emotion and excitement"
+            ]
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VoiceInstructionContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional context information"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segment_id",
+          "original_text",
+          "translated_text",
+          "previous_instructions",
+          "user_feedback"
+        ],
+        "title": "VoiceInstructionRegenerateRequest",
+        "description": "Request schema for regenerating instructions with user feedback.",
+        "examples": [
+          {
+            "context": {
+              "content_type": "educational",
+              "speaker_age": "adult",
+              "speaker_gender": "male"
+            },
+            "original_text": "Welcome to this demonstration. Today we'll explore the main features.",
+            "previous_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation.",
+            "segment_id": "project_42_segment_0",
+            "translated_text": "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+            "user_feedback": "Make it more energetic and enthusiastic"
+          }
+        ]
+      },
+      "VoiceInstructionResponse": {
+        "properties": {
+          "voice_instructions": {
+            "type": "string",
+            "title": "Voice Instructions",
+            "description": "Generated voice instructions for TTS",
+            "examples": [
+              "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation. Convey enthusiasm and engagement while keeping an authoritative, conversational style. Emphasize key words naturally and use slight pauses for emphasis."
+            ]
+          },
+          "detected_characteristics": {
+            "$ref": "#/components/schemas/DetectedCharacteristics",
+            "description": "Extracted voice characteristics"
+          },
+          "llm_model": {
+            "type": "string",
+            "title": "Llm Model",
+            "description": "LLM model used for generation",
+            "examples": [
+              "gpt-4o",
+              "gpt-4o-mini"
+            ]
+          },
+          "generation_id": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Generation Id",
+            "description": "Database ID of generation record",
+            "examples": [
+              1,
+              42,
+              123
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Error message if generation partially failed",
+            "examples": [
+              null,
+              "LLM rate limit exceeded, using fallback instructions"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "voice_instructions",
+          "detected_characteristics",
+          "llm_model",
+          "generation_id"
+        ],
+        "title": "VoiceInstructionResponse",
+        "description": "Response schema for voice instruction generation.",
+        "examples": [
+          {
+            "detected_characteristics": {
+              "emotion": "enthusiastic, engaged",
+              "pace": "moderate",
+              "style": "conversational, authoritative",
+              "tone": "warm, professional"
+            },
+            "generation_id": 42,
+            "llm_model": "gpt-4o",
+            "voice_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation. Convey enthusiasm and engagement while keeping an authoritative, conversational style. Emphasize key words naturally and use slight pauses for emphasis."
+          }
+        ]
+      },
+      "VoicePreviewGenerateRequest": {
+        "properties": {
+          "translated_text": {
+            "type": "string",
+            "title": "Translated Text",
+            "description": "Text to generate audio for",
+            "examples": [
+              "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+              "En este tutorial, aprenderemos paso a paso."
+            ]
+          },
+          "voice_instructions": {
+            "type": "string",
+            "title": "Voice Instructions",
+            "description": "Voice instructions to apply",
+            "examples": [
+              "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation.",
+              "Deliver with high energy and enthusiasm. Use a fast pace with dynamic intonation."
+            ]
+          },
+          "voices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Voices",
+            "description": "List of voice names to generate previews for",
+            "default": [
+              "alloy",
+              "echo",
+              "fable",
+              "onyx",
+              "nova",
+              "shimmer"
+            ],
+            "examples": [
+              [
+                "alloy",
+                "echo",
+                "fable",
+                "onyx",
+                "nova",
+                "shimmer"
+              ],
+              [
+                "nova",
+                "shimmer"
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "translated_text",
+          "voice_instructions"
+        ],
+        "title": "VoicePreviewGenerateRequest",
+        "description": "Request schema for generating TTS previews for all voices.",
+        "examples": [
+          {
+            "translated_text": "Добро пожаловать на эту демонстрацию. Сегодня мы рассмотрим основные функции.",
+            "voice_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation.",
+            "voices": [
+              "alloy",
+              "echo",
+              "fable",
+              "onyx",
+              "nova",
+              "shimmer"
+            ]
+          }
+        ]
+      },
+      "VoicePreviewItem": {
+        "properties": {
+          "voice": {
+            "type": "string",
+            "title": "Voice",
+            "description": "Voice name",
+            "examples": [
+              "alloy",
+              "echo",
+              "fable",
+              "onyx",
+              "nova",
+              "shimmer"
+            ]
+          },
+          "audio_url": {
+            "type": "string",
+            "title": "Audio Url",
+            "description": "URL to generated audio file",
+            "examples": [
+              "/api/audio/previews/a1b2c3d4e5f6_nova.mp3",
+              "/api/audio/previews/f6e5d4c3b2a1_shimmer.mp3"
+            ]
+          },
+          "duration_ms": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Duration Ms",
+            "description": "Audio duration in milliseconds",
+            "examples": [
+              5000,
+              12500,
+              8750
+            ]
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "True if result was retrieved from cache",
+            "examples": [
+              true,
+              false
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "voice",
+          "audio_url",
+          "duration_ms",
+          "cached"
+        ],
+        "title": "VoicePreviewItem",
+        "description": "Single voice preview result.",
+        "examples": [
+          {
+            "audio_url": "/api/audio/previews/a1b2c3d4e5f6_nova.mp3",
+            "cached": false,
+            "duration_ms": 5000,
+            "voice": "nova"
+          }
+        ]
+      },
+      "VoicePreviewResponse": {
+        "properties": {
+          "previews": {
+            "items": {
+              "$ref": "#/components/schemas/VoicePreviewItem"
+            },
+            "type": "array",
+            "title": "Previews",
+            "description": "List of generated previews"
+          },
+          "instructions_hash": {
+            "type": "string",
+            "title": "Instructions Hash",
+            "description": "Hash of instructions+text for caching",
+            "examples": [
+              "a1b2c3d4e5f6",
+              "f6e5d4c3b2a1"
+            ]
+          },
+          "cache_hits": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Hits",
+            "description": "Number of cache hits",
+            "examples": [
+              0,
+              2,
+              6
+            ]
+          },
+          "cache_misses": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cache Misses",
+            "description": "Number of cache misses (new generations)",
+            "examples": [
+              6,
+              4,
+              0
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "previews",
+          "instructions_hash",
+          "cache_hits",
+          "cache_misses"
+        ],
+        "title": "VoicePreviewResponse",
+        "description": "Response schema for voice preview generation.",
+        "examples": [
+          {
+            "cache_hits": 1,
+            "cache_misses": 1,
+            "instructions_hash": "a1b2c3d4e5f6",
+            "previews": [
+              {
+                "audio_url": "/api/audio/previews/a1b2c3d4e5f6_nova.mp3",
+                "cached": false,
+                "duration_ms": 5000,
+                "voice": "nova"
+              },
+              {
+                "audio_url": "/api/audio/previews/a1b2c3d4e5f6_shimmer.mp3",
+                "cached": true,
+                "duration_ms": 5100,
+                "voice": "shimmer"
+              }
+            ]
+          }
+        ]
+      },
+      "VoiceSaveRequest": {
+        "properties": {
+          "voice": {
+            "type": "string",
+            "title": "Voice",
+            "description": "Selected voice name (e.g., 'nova')",
+            "examples": [
+              "nova",
+              "shimmer",
+              "alloy",
+              "echo",
+              "fable",
+              "onyx"
+            ]
+          },
+          "voice_instructions": {
+            "type": "string",
+            "title": "Voice Instructions",
+            "description": "Voice instructions to use",
+            "examples": [
+              "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation.",
+              "Deliver with high energy and enthusiasm. Use a fast pace with dynamic intonation."
+            ]
+          },
+          "segment_used": {
+            "type": "string",
+            "title": "Segment Used",
+            "description": "Segment ID that was used for voice testing",
+            "examples": [
+              "project_42_segment_0",
+              "intro_video_segment_1"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "voice",
+          "voice_instructions",
+          "segment_used"
+        ],
+        "title": "VoiceSaveRequest",
+        "description": "Request schema for saving selected voice settings.",
+        "examples": [
+          {
+            "segment_used": "project_42_segment_0",
+            "voice": "nova",
+            "voice_instructions": "Speak with a warm, professional tone. Maintain a moderate pace with clear enunciation."
+          }
+        ]
+      },
+      "VoiceSettingsUpdate": {
+        "properties": {
+          "voice": {
+            "type": "string",
+            "title": "Voice",
+            "description": "TTS voice identifier"
+          },
+          "instructions": {
+            "type": "string",
+            "title": "Instructions",
+            "description": "Custom instructions for TTS voice",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "voice"
+        ],
+        "title": "VoiceSettingsUpdate",
+        "description": "Request schema for updating project voice settings."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "projects",
+      "description": "Project management operations - create, list, update, and delete projects"
+    },
+    {
+      "name": "videos",
+      "description": "Video file operations - upload, analyze, and manage video files within projects"
+    },
+    {
+      "name": "tasks",
+      "description": "Redubbing task operations - start, monitor, and manage video redubbing tasks"
+    },
+    {
+      "name": "voice-refinement",
+      "description": "Voice refinement operations - generate AI-powered voice instructions, test multiple TTS voices, and select optimal voice settings for projects"
+    },
+    {
+      "name": "health",
+      "description": "Service health and status monitoring"
+    }
+  ]
+}

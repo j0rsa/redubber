@@ -1,0 +1,371 @@
+.container {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.refineButton {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.refineButton:hover {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-primary);
+}
+
+.refineButton:active {
+  transform: translateY(0);
+}
+
+.buttonIcon {
+  font-size: var(--font-size-lg);
+  line-height: 1;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.labelRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.actionButtons {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.textButton {
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.textButton:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-text-tertiary);
+}
+
+.voiceDisplay {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.voiceIcon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.voiceName {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.instructionsDisplay {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.instructionsText {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.expandButton {
+  margin-top: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.expandButton:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.emptyState {
+  padding: var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.emptyText {
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+.editMode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.textarea {
+  padding: var(--spacing-md);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  resize: vertical;
+  transition: all var(--transition-base);
+  min-height: 120px;
+}
+
+.textarea:hover {
+  border-color: var(--color-text-tertiary);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+}
+
+.cancelButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.cancelButton:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-text-tertiary);
+}
+
+.saveButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.saveButton:hover {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-primary);
+}
+
+.saveButton:active {
+  transform: scale(0.98);
+}
+
+/* Tablet Responsive */
+@media (max-width: 1024px) {
+  .container {
+    padding: var(--spacing-md);
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+  }
+
+  .refineButton {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm);
+  }
+
+  .title {
+    font-size: var(--font-size-lg);
+  }
+
+  .refineButton {
+    width: 100%;
+    justify-content: center;
+    padding: var(--spacing-md);
+  }
+
+  .voiceDisplay {
+    padding: var(--spacing-md);
+  }
+
+  .voiceIcon {
+    font-size: 24px;
+  }
+
+  .voiceName {
+    font-size: var(--font-size-md);
+  }
+
+  .instructionsDisplay {
+    padding: var(--spacing-md);
+  }
+
+  .instructionsText {
+    font-size: var(--font-size-sm);
+  }
+
+  .emptyState {
+    padding: var(--spacing-md);
+  }
+
+  .emptyText {
+    font-size: var(--font-size-sm);
+  }
+
+  .textarea {
+    padding: var(--spacing-md);
+    font-size: 16px; /* Prevent zoom on iOS */
+  }
+
+  .editActions {
+    flex-direction: column-reverse;
+    gap: var(--spacing-sm);
+  }
+
+  .cancelButton,
+  .saveButton {
+    width: 100%;
+    padding: var(--spacing-md);
+  }
+
+  .actionButtons {
+    gap: var(--spacing-xs);
+  }
+
+  .textButton {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: var(--font-size-xs);
+  }
+}
+
+/* Small Mobile */
+@media (max-width: 480px) {
+  .container {
+    padding: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+  }
+
+  .header {
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+  }
+
+  .title {
+    font-size: var(--font-size-md);
+  }
+
+  .content {
+    gap: var(--spacing-md);
+  }
+
+  .section {
+    gap: var(--spacing-xs);
+  }
+
+  .label {
+    font-size: var(--font-size-xs);
+  }
+}

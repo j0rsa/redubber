@@ -1,0 +1,246 @@
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.playButton {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-base);
+  flex-shrink: 0;
+}
+
+.playButton:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-primary);
+  transform: scale(1.05);
+}
+
+.playButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.playButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.playButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: var(--radius-full);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.errorIcon {
+  font-size: 20px;
+}
+
+.progressSection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.time {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 40px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  position: relative;
+  padding: var(--spacing-md) 0;
+  min-width: 0;
+}
+
+.progressBar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: var(--color-border-light);
+  border-radius: var(--radius-full);
+}
+
+.progressFill {
+  position: absolute;
+  left: 0;
+  height: 6px;
+  background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  border-radius: var(--radius-full);
+  transition: width 0.1s linear;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.progressHandle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: var(--color-primary);
+  border: 2px solid white;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  transform: translate(-50%, -50%);
+  top: 50%;
+  transition: transform var(--transition-fast);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+}
+
+.progressBar:hover .progressHandle {
+  opacity: 1;
+}
+
+.progressBar:active .progressHandle {
+  transform: translate(-50%, -50%) scale(1.2);
+}
+
+.progressBar:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.noAudio {
+  padding: var(--spacing-lg);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+}
+
+.error {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--color-error-light);
+  color: var(--color-error);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.error::before {
+  content: '⚠️';
+}
+
+/* Mobile adjustments */
+@media (max-width: 640px) {
+  .player {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .playButton {
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    min-height: 56px;
+  }
+
+  .icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .progressSection {
+    width: 100%;
+  }
+
+  .time {
+    min-width: 35px;
+  }
+}
+
+/* Touch device enhancements */
+@media (hover: none) and (pointer: coarse) {
+  .playButton {
+    width: 56px;
+    height: 56px;
+  }
+
+  .progressBar {
+    height: 56px;
+    padding: var(--spacing-lg) 0;
+  }
+
+  .progressBar::before {
+    height: 8px;
+  }
+
+  .progressFill {
+    height: 8px;
+  }
+
+  .progressHandle {
+    width: 20px;
+    height: 20px;
+    opacity: 1;
+  }
+}

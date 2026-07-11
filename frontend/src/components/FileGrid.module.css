@@ -1,0 +1,304 @@
+.fileGrid {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  background: var(--color-bg-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.header th {
+  padding: var(--spacing-md) var(--spacing-md);
+  text-align: left;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/* ── Rows ────────────────────────────────────────────────────────────────── */
+
+.row {
+  border-bottom: 1px solid var(--color-border-light);
+  transition: background-color var(--transition-fast);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row:hover {
+  background: var(--color-bg-secondary);
+}
+
+.rowSelected {
+  background: var(--color-primary-light);
+}
+
+.rowComplete {
+  opacity: 0.55;
+  pointer-events: auto; /* keep action buttons clickable */
+}
+
+.rowSelected:hover {
+  background: var(--color-primary-light);
+  filter: brightness(0.97);
+}
+
+/* ── Cells ───────────────────────────────────────────────────────────────── */
+
+.cell {
+  padding: var(--spacing-md);
+  vertical-align: middle;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+/* Checkbox column */
+.checkboxCell {
+  width: 40px;
+  padding: 0 var(--spacing-sm);
+  text-align: center;
+  vertical-align: middle;
+}
+
+.header .checkboxCell {
+  padding: var(--spacing-md) var(--spacing-sm);
+}
+
+/* Filename with running indicator */
+.filename {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  margin-right: 4px;
+}
+
+.badge.running {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.badge.completed {
+  background: var(--color-success-light);
+  color: var(--color-success);
+}
+
+.badge.pending {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
+
+/* ── Action button ───────────────────────────────────────────────────────── */
+
+.actionButton {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.actionButton:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-primary);
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.finalizeButton {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-success);
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.finalizeButton:hover:not(:disabled) {
+  filter: brightness(1.1);
+  box-shadow: var(--shadow-sm);
+}
+
+.finalizeButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Inline details ──────────────────────────────────────────────────────── */
+
+.audioStream {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+}
+
+.subtitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+}
+
+.duration {
+  font-family: var(--font-family-mono);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.size {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ── Running dot (pulsing) ───────────────────────────────────────────────── */
+
+.runningDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  flex-shrink: 0;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── View Job link ───────────────────────────────────────────────────────── */
+
+.viewJobLink {
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.viewJobLink:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+/* ── Mobile card layout ──────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Flatten the table into stacked cards */
+  .table  { display: block; }
+  .table thead { display: none; }
+  .table tbody { display: block; }
+  .table .row  { display: block; position: relative; padding: var(--spacing-md); border-bottom: 1px solid var(--color-border); }
+  .table .row:last-child { border-bottom: none; }
+  .table .row:hover { background: none; }
+
+  /* Checkbox pinned top-right */
+  .checkboxCell {
+    position: absolute;
+    top: var(--spacing-md);
+    right: var(--spacing-md);
+    width: auto;
+    padding: 0;
+    text-align: right;
+  }
+
+  /* Every data cell: flex row, label on left, value on right */
+  .cell {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+    padding: 3px 0;
+    font-size: var(--font-size-sm);
+    text-align: left;
+  }
+
+  .cell::before {
+    content: attr(data-label);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--color-text-tertiary);
+    white-space: nowrap;
+    min-width: 68px;
+    flex-shrink: 0;
+  }
+
+  /* Filename: larger, no label, right-pad for checkbox */
+  .cell[data-label="Filename"] {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    padding-bottom: var(--spacing-xs);
+    padding-right: 28px;
+  }
+  .cell[data-label="Filename"]::before { display: none; }
+
+  /* Actions: full-width button */
+  .cell[data-label="Actions"] { padding-top: var(--spacing-xs); }
+  .cell[data-label="Actions"] .actionButton { width: 100%; }
+  .cell[data-label="Actions"]::before { display: none; }
+}
+
+/* ── Bulk bar (legacy — kept for FilegGrid.stories compatibility) ─────────── */
+
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.bulkBarInfo {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  flex: 1;
+  min-width: 80px;
+}

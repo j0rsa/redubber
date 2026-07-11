@@ -2,6 +2,7 @@ from pydantic import BaseModel
 import os
 from enum import Enum
 
+
 class Reproj(BaseModel):
     root: str
     source: str
@@ -18,8 +19,10 @@ class Reproj(BaseModel):
 
     def __init__(self, source: str, file_path: str, root: str = "redubber_tmp"):
         filename = os.path.splitext(os.path.basename(file_path))[0]
-        super().__init__(root=root, source=source, file_path=file_path, filename=filename)
-        
+        super().__init__(
+            root=root, source=source, file_path=file_path, filename=filename
+        )
+
     def get_file_working_dir(self, section: Section) -> str:
         """
         Get the working directory for the given section.
@@ -28,6 +31,3 @@ class Reproj(BaseModel):
         path = os.path.join(self.root, rel_file, section.value)
         os.makedirs(path, exist_ok=True)
         return path
-
-
-    

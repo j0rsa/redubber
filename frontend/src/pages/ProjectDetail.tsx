@@ -1,0 +1,343 @@
+import { useState, useRef, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { useProject } from '../hooks/useProjects';
+import { useVideos, useScanVideos } from '../hooks/useVideos';
+import { useSubmitRedub } from '../hooks/useTasks';
+import { useActiveTasks } from '../hooks/useActiveTasks';
+import { FileGrid } from '../components/FileGrid';
+import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/ProjectSettingsPanel';
+import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
+import { useUIStore } from '../stores/uiStore';
+import { apiClient } from '../api/client';
+import type { VideoFile, TaskStatus } from '../types';
+import styles from './ProjectDetail.module.css';
+
+export const ProjectDetail = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const projectId = id ? parseInt(id, 10) : null;
+  const queryClient = useQueryClient();
+
+  const { data: project, isLoading: projectLoading } = useProject(projectId);
+
+  // activeTasks polls every 3s when jobs are running — use it as the source of truth
+  const { activeTasks } = useActiveTasks();
+  const hasRunningJobs = activeTasks.length > 0;
+  const { data: videos, isLoading: videosLoading } = useVideos(projectId, hasRunningJobs);
+
+  // Derive runningJobs from activeTasks by matching video_path to the loaded video list
+  // This works even after page reload — no client state needed
+  const runningJobs = new Map<number, string>();
+  if (videos) {
+    for (const task of activeTasks) {
+      const video = videos.find((v) => v.path === task.video_path);
+      if (video) runningJobs.set(video.id, task.task_id);
+    }
+  }
+
+  // Cache counters from completed tasks so they persist after the task leaves activeTasks
+  const completedCounters = useRef<Map<string, Partial<TaskStatus>>>(new Map());
+
+  useEffect(() => {
+    for (const task of activeTasks) {
+      if (task.status === 'completed') {
+        completedCounters.current.set(task.video_path, {
+          audio_chunks: task.audio_chunks,
+          transcripts: task.transcripts,
+          tts_segments: task.tts_segments,
+          tts_total: task.tts_total,
+          subtitles: task.subtitles,
+          audio_assembled: task.audio_assembled,
+          audio_assembled_total: task.audio_assembled_total,
+          video_mixed: task.video_mixed,
+          progress: task.progress,
+          stage: task.stage,
+        });
+      }
+    }
+  }, [activeTasks]);
+
+  // Build videoId → TaskStatus for live progress overlay
+  // Also inject cached completed counters for videos whose task just finished
+  const taskStatusByVideoId = new Map<number, TaskStatus>();
+  if (videos) {
+    for (const video of videos) {
+      const runningTaskId = runningJobs.get(video.id);
+      if (runningTaskId) {
+        const ts = activeTasks.find((t) => t.task_id === runningTaskId);
+        if (ts) taskStatusByVideoId.set(video.id, ts);
+      } else {
+        // No active task — check if we have cached completed counters
+        const cached = completedCounters.current.get(video.path);
+        if (cached && !video.pipeline_status?.replaced) {
+          taskStatusByVideoId.set(video.id, {
+            task_id: '',
+            video_path: video.path,
+            status: 'completed',
+            stage: cached.stage ?? 'Completed',
+            progress: cached.progress ?? 100,
+            created_at: '',
+            ...cached,
+          });
+        }
+      }
+    }
+  }
+  const scanVideos = useScanVideos();
+  const submitRedub = useSubmitRedub();
+
+  const setCurrentProjectId = useUIStore((state) => state.setCurrentProjectId);
+
+  const [isVoiceRefinementOpen, setIsVoiceRefinementOpen] = useState(false);
+  const [targetLangSaving, setTargetLangSaving] = useState(false);
+  const [sourceLangSaving, setSourceLangSaving] = useState(false);
+
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
+  const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
+  const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
+
+  const handleScan = async () => {
+    if (!projectId) return;
+    try { await scanVideos.mutateAsync(projectId); }
+    catch (err) { console.error('Failed to scan videos:', err); }
+  };
+
+  const handleBatchRedub = async (videoFiles: VideoFile[]) => {
+    if (!projectId) return;
+    setBatchProgress({ submitted: 0, total: videoFiles.length });
+    for (const video of videoFiles) {
+      try {
+        await submitRedub.mutateAsync({ video_path: video.path, project_id: projectId });
+        setBatchProgress((prev) => prev ? { ...prev, submitted: prev.submitted + 1 } : null);
+      } catch (err) {
+        console.error(`Failed to submit ${video.filename}:`, err);
+      }
+    }
+    setBatchProgress(null);
+    setSelectedIds(new Set());
+  };
+
+  const handleRedubSelected = () => {
+    if (!videos) return;
+    void handleBatchRedub(videos.filter((v) => selectedIds.has(v.id)));
+  };
+
+  const handleRedubAll = () => {
+    if (!videos) return;
+    void handleBatchRedub(videos.filter((v) => !v.pipeline_status?.replaced));
+  };
+
+  const handleRedubSingle = async (videoPath: string) => {
+    if (!projectId) return;
+    try {
+      await submitRedub.mutateAsync({ video_path: videoPath, project_id: projectId });
+    } catch (err) {
+      console.error('Failed to submit redub:', err);
+    }
+  };
+
+  const handleFinalize = async (videoId: number) => {
+    if (!projectId) return;
+    setFinalizingIds((prev) => new Set(prev).add(videoId));
+    try {
+      await apiClient.post(`/projects/${projectId}/videos/${videoId}/finalize`);
+      queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+    } catch (err) {
+      console.error('Finalize failed:', err);
+    } finally {
+      setFinalizingIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
+    }
+  };
+
+  const handleGenerateSubs = async (videoId: number) => {
+    if (!projectId) return;
+    setGeneratingSubsIds((prev) => new Set(prev).add(videoId));
+    try {
+      await apiClient.post(`/projects/${projectId}/videos/${videoId}/generate-subtitles`);
+      queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+    } catch (err) {
+      console.error('Generate subs failed:', err);
+    } finally {
+      setGeneratingSubsIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
+    }
+  };
+
+  const handleBack = () => {
+    setCurrentProjectId(null);
+    navigate('/');
+  };
+
+  const handleSourceLanguageUpdate = async (lang: string): Promise<void> => {
+    if (!projectId) return;
+    setSourceLangSaving(true);
+    try {
+      await apiClient.put(`/projects/${projectId}/source-language`, { source_language: lang });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    } catch (err) {
+      console.error('Failed to update source language:', err);
+    } finally {
+      setSourceLangSaving(false);
+    }
+  };
+
+  const handleTargetLanguageUpdate = async (lang: string): Promise<void> => {
+    if (!projectId) return;
+    setTargetLangSaving(true);
+    try {
+      await apiClient.put(`/projects/${projectId}/target-language`, { target_language: lang });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    } catch (err) {
+      console.error('Failed to update target language:', err);
+    } finally {
+      setTargetLangSaving(false);
+    }
+  };
+
+  if (projectLoading) {
+    return (
+      <div className={styles.centered}>
+        <p className={styles.loadingText}>Loading project…</p>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className={styles.centered}>
+        <p className={styles.notFoundText}>Project not found</p>
+        <button className={styles.backButton} onClick={handleBack}>
+          Back to Projects
+        </button>
+      </div>
+    );
+  }
+
+  const hasVideos = videos && videos.length > 0;
+  const selectedCount = selectedIds.size;
+  const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced).length ?? 0;
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.inner}>
+
+        {/* ── Header ── */}
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            <button className={styles.backButton} onClick={handleBack}>
+              ← Back
+            </button>
+            <h1 className={styles.projectName}>{project.name}</h1>
+            <p className={styles.projectPath}>{project.path}</p>
+            {project.working_directory && (
+              <p className={styles.projectPath} title="Working directory for artefacts">
+                ↳ {project.working_directory}
+              </p>
+            )}
+          </div>
+          <div className={styles.headerActions}>
+            <button
+              className={styles.scanButton}
+              onClick={handleScan}
+              disabled={scanVideos.isPending}
+            >
+              {scanVideos.isPending ? 'Scanning…' : 'Scan for Videos'}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Error banners ── */}
+        {scanVideos.isError && (
+          <div className={styles.errorBanner}>
+            Failed to scan: {(scanVideos.error as Error).message}
+          </div>
+        )}
+        {submitRedub.isError && (
+          <div className={styles.errorBanner}>
+            Failed to submit redub: {(submitRedub.error as Error).message}
+          </div>
+        )}
+
+        {/* ── Project Settings (language + voice, collapsible) ── */}
+        <ProjectSettingsPanel
+          project={project}
+          onOpenVoiceRefinement={() => setIsVoiceRefinementOpen(true)}
+          onUpdateSourceLanguage={handleSourceLanguageUpdate}
+          onUpdateTargetLanguage={handleTargetLanguageUpdate}
+          isSavingSource={sourceLangSaving}
+          isSavingTarget={targetLangSaving}
+        />
+
+        {/* ── Videos ── */}
+        <div className={styles.videosSection}>
+          <div className={styles.videosSectionHeader}>
+            <h2 className={styles.videosSectionTitle}>Video Files</h2>
+          </div>
+
+          {hasVideos && (
+            <div className={styles.bulkBar}>
+              <span className={styles.bulkBarInfo}>
+                {batchProgress
+                  ? `Submitting ${batchProgress.submitted}/${batchProgress.total}…`
+                  : selectedCount > 0
+                  ? `${selectedCount} selected`
+                  : 'No selection'}
+              </span>
+              <button
+                className={styles.bulkButtonPrimary}
+                onClick={handleRedubSelected}
+                disabled={selectedCount === 0 || batchProgress !== null}
+              >
+                Redub Selected{selectedCount > 0 ? ` (${selectedCount})` : ''}
+              </button>
+              <button
+                className={styles.bulkButtonOutline}
+                onClick={handleRedubAll}
+                disabled={batchProgress !== null}
+              >
+                Redub All ({totalCount})
+              </button>
+            </div>
+          )}
+
+          {videosLoading ? (
+            <p className={styles.loadingText}>Loading videos…</p>
+          ) : hasVideos ? (
+            <FileGrid
+              videos={videos}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              runningJobIds={runningJobs}
+              onRedubSingle={handleRedubSingle}
+              onFinalize={handleFinalize}
+              finalizingIds={finalizingIds}
+              onGenerateSubs={handleGenerateSubs}
+              generatingSubsIds={generatingSubsIds}
+              liveTaskStatuses={taskStatusByVideoId}
+              activeTasks={activeTasks}
+            />
+          ) : (
+            <p className={styles.emptyText}>
+              No videos found. Click "Scan for Videos" to search the project directory.
+            </p>
+          )}
+        </div>
+
+        {/* ── Voice Refinement modal ── */}
+        {projectId && (
+          <VoiceRefinement
+            projectId={projectId}
+            isOpen={isVoiceRefinementOpen}
+            onClose={() => setIsVoiceRefinementOpen(false)}
+            onSave={() => {
+              setIsVoiceRefinementOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+            }}
+            firstVideoPath={videos?.[0]?.path}
+          />
+        )}
+      </div>
+    </div>
+  );
+};

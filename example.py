@@ -38,7 +38,11 @@ def redub(file_filter: str | None = None, interactive: bool = False):
             reproj = Reproj(source, src_file)
             final_video_path = os.path.join(target, reproj.filename + ".mp4")
 
-            if redubber.can_redub(src_file) and file_condition(reproj.filename) and not os.path.exists(final_video_path):
+            if (
+                redubber.can_redub(src_file)
+                and file_condition(reproj.filename)
+                and not os.path.exists(final_video_path)
+            ):
                 log.info(f"Redubbing {reproj.filename}")
                 all_segments = redubber.get_text_and_segments(reproj)
                 sbt_file = redubber.generate_subtitles(reproj, all_segments)
@@ -59,9 +63,18 @@ def redub(file_filter: str | None = None, interactive: bool = False):
                 # copy subs to target
                 # break
 
+
 def find_src_file(name: str, ext: str = ".mp4"):
     src_file = None
-    first_folder = os.path.join(source, [folder for folder in os.listdir(source) if not folder.startswith(".") and os.path.isdir(os.path.join(source, folder))][0])
+    first_folder = os.path.join(
+        source,
+        [
+            folder
+            for folder in os.listdir(source)
+            if not folder.startswith(".")
+            and os.path.isdir(os.path.join(source, folder))
+        ][0],
+    )
     for file in os.listdir(first_folder):
         if file.endswith(".mp4") and "62" in file:
             src_file = os.path.join(first_folder, file)
@@ -69,6 +82,7 @@ def find_src_file(name: str, ext: str = ".mp4"):
     if src_file is None:
         raise Exception("No src file found")
     return src_file
+
 
 def compress(interactive: bool = False):
     src_file = find_src_file("62")
@@ -98,9 +112,8 @@ def compress(interactive: bool = False):
     compression = (a_len - b_len) / a_len * 100
     print("Compression: ", round(compression, 2), "%")
 
-    #compare word count
+    # compare word count
     print("Word count difference: ", a_word_count - b_word_count)
-    
 
 
 def join(interactive: bool = False):
@@ -130,6 +143,7 @@ def main():
             join()
         case "redub":
             redub(sys.argv[2], interactive=True)
+
 
 if __name__ == "__main__":
     main()

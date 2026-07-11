@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  redubber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redubber-v2
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistent storage for database and processed videos
+      - ./storage:/mounted-storage
+      # Temporary files for video processing (optional - can use container's /tmp)
+      - ./tmp:/tmp/redubber
+    environment:
+      # Storage Configuration
+      - DATABASE_URL=/mounted-storage/redubber.db
+      - TMP_DIR=/tmp/redubber
+      - MOUNTED_STORAGE=/mounted-storage
+
+      # OpenAI Configuration (required)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_VOICE=${OPENAI_VOICE:-nova}
+
+      # Task Queue Configuration
+      - MAX_CONCURRENT_REDUBS=${MAX_CONCURRENT_REDUBS:-1}
+      - TASK_QUEUE_MAX_SIZE=${TASK_QUEUE_MAX_SIZE:-100}
+      - TTS_MAX_CONCURRENT=${TTS_MAX_CONCURRENT:-100}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # API Configuration
+      - API_TITLE=${API_TITLE:-Redubber API}
+      - API_VERSION=${API_VERSION:-2.0.0}
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
