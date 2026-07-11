@@ -1,4 +1,4 @@
-.PHONY: help install install-backend install-frontend dev dev-backend dev-frontend story build test lint format clean docker-build docker-up docker-down
+.PHONY: help install install-backend install-frontend install-hooks dev dev-backend dev-frontend story build test lint format clean docker-build docker-up docker-down
 
 # Default target
 help:
@@ -9,9 +9,10 @@ help:
 	@echo "  make setup            - Create directories and .env file"
 	@echo ""
 	@echo "Setup:"
-	@echo "  make install          - Install all dependencies (backend + frontend)"
+	@echo "  make install          - Install all dependencies (backend + frontend + hooks)"
 	@echo "  make install-backend  - Install Python dependencies via poetry"
 	@echo "  make install-frontend - Install Node.js dependencies via npm"
+	@echo "  make install-hooks    - Install git hooks (pre-push checks)"
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev              - Run backend + frontend in parallel"
@@ -41,7 +42,7 @@ help:
 	@echo "  make clean            - Remove build artifacts and cache"
 
 # Installation
-install: install-backend install-frontend
+install: install-backend install-frontend install-hooks
 	@echo "✓ All dependencies installed"
 
 install-backend:
@@ -53,6 +54,11 @@ install-frontend:
 	@echo "Installing Node.js dependencies..."
 	cd frontend && npm install
 	@echo "✓ Frontend dependencies installed"
+
+install-hooks:
+	@echo "Installing git hooks..."
+	bash scripts/install-hooks.sh
+	@echo "✓ Git hooks installed"
 
 # Development
 dev:

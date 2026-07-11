@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+pass() { echo -e "${GREEN}✓${NC} $1"; }
+fail() { echo -e "${RED}✗${NC} $1"; }
+info() { echo -e "${YELLOW}▶${NC} $1"; }
+
+ROOT="$(git rev-parse --show-toplevel)"
+ERRORS=0
+
+run_step() {
+  local label="$1"; shift
+  info "$label"
+  if "$@"; then
+    pass "$label"
+  else
+    fail "$label"
+    ERRORS=$((ERRORS + 1))
+  fi
+}
+
+# ── Backend ────────────────────────────────────────────────────────────────────
+echo ""
+echo "── Backend ──────────────────────────────────────────────────────────────"
+
+run_step "Ruff lint"   poetry run ruff check "$ROOT"
+run_step "Pytest"      poetry run pytest "$ROOT/tests" -q --tb=short
+
+# ── Frontend ───────────────────────────────────────────────────────────────────
+echo ""
+echo "── Frontend ─────────────────────────────────────────────────────────────"
+
+cd "$ROOT/frontend"
+
+run_step "TypeScript"  npx tsc --noEmit
+run_step "Lint"        npm run lint
+run_step "Vitest"      npx vitest run
+
+cd "$ROOT"
+
+# ── Result ─────────────────────────────────────────────────────────────────────
+echo ""
+if [ "$ERRORS" -gt 0 ]; then
+  echo -e "${RED}Pre-push checks failed ($ERRORS error(s)). Push aborted.${NC}"
+  echo "Fix the issues above or use --no-verify to skip (not recommended)."
+  exit 1
+fi
+
+echo -e "${GREEN}All checks passed.${NC}"
