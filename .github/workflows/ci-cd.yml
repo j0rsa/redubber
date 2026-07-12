@@ -230,6 +230,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --only main,dev --no-interaction
 
+      - name: Lint
+        run: poetry run ruff check .
 
   # ─────────────────────────────────────────────
   # Stream 2: Backend tests

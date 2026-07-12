@@ -5,7 +5,7 @@ Provides test database, video files, and FastAPI client with full lifespan.
 
 from __future__ import annotations
 
-import shutil
+
 from pathlib import Path
 from typing import Generator
 
@@ -131,14 +131,11 @@ def integration_client(
     Yields:
         TestClient configured with the FastAPI app and lifespan.
     """
-    # Create storage and temp directories
+    # Create storage directory
     storage_dir = integration_test_dir / "storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
-    tmp_dir = integration_test_dir / "tmp"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
 
     # Patch settings to use test directories
-    monkeypatch.setattr(settings, "tmp_dir", str(tmp_dir))
     monkeypatch.setattr(settings, "mounted_storage", str(storage_dir))
     monkeypatch.setattr(settings, "database_url", str(storage_dir / "test_redubber.db"))
     monkeypatch.setattr(settings, "openai_api_key", "test-key-integration")
@@ -150,9 +147,6 @@ def integration_client(
     with TestClient(app) as test_client:
         yield test_client
 
-    # Cleanup - remove temporary files
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @pytest.fixture

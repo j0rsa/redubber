@@ -15,11 +15,10 @@ class Settings(BaseSettings):
     database_url: str = "./redubber.db"
 
     # Storage
-    tmp_dir: str = "./redubber_tmp"
     mounted_storage: str = "./storage"
 
     # OpenAI
-    openai_api_key: str
+    openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     openai_voice: str = "nova"
 
@@ -35,11 +34,6 @@ class Settings(BaseSettings):
 
     # CORS (comma-separated origins)
     cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:4173"
-
-    @property
-    def tmp_path(self) -> Path:
-        """Get Path object for temp directory."""
-        return Path(self.tmp_dir)
 
     @property
     def storage_path(self) -> Path:

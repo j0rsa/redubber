@@ -11,12 +11,9 @@ services:
     volumes:
       # Persistent storage for database and processed videos
       - ./storage:/mounted-storage
-      # Temporary files for video processing (optional - can use container's /tmp)
-      - ./tmp:/tmp/redubber
     environment:
       # Storage Configuration
       - DATABASE_URL=/mounted-storage/redubber.db
-      - TMP_DIR=/tmp/redubber
       - MOUNTED_STORAGE=/mounted-storage
 
       # OpenAI Configuration (required)

@@ -40,6 +40,7 @@ cd "$ROOT/frontend"
 run_step "TypeScript"  npx tsc --noEmit
 run_step "Lint"        npm run lint
 run_step "Vitest"      npx vitest run
+run_step "Build"       npm run build
 
 cd "$ROOT"
 

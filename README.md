@@ -1,136 +1,258 @@
-# Redubber - Audio Redub Project Manager
+# Redubber
 
-High-performance video redubbing system with FastAPI backend and React PWA frontend. Redubber v2.0 delivers 5x faster processing with async TTS and modern web architecture.
+AI-powered video redubbing — transcribes, translates, and re-voices video with OpenAI APIs. v2.0 delivers 5× faster processing via async TTS and ships as a React PWA + FastAPI service.
 
 ## Features
 
-- 🎥 AI-powered video redubbing with OpenAI Whisper, GPT, and TTS
-- 🚀 5x performance boost with async TTS (100 concurrent API calls)
-- 📁 Project folder indexing and management
-- 🎯 Automatic video file detection with language recognition
-- 📝 Subtitle file detection with language identification
-- 🗄️ SQLite database for fast project re-opening
-- 🔄 Real-time progress tracking via WebSocket
-- 🐳 Production-ready Docker deployment
-- 🌐 Modern React PWA frontend with offline support
-
-## Quick Start (Docker - Recommended)
-
-1. **Prerequisites**: Docker Engine 20.10+ and OpenAI API key
-
-2. **Configure environment**:
-```bash
-cp .env.example .env
-# Edit .env and set OPENAI_API_KEY=sk-your-key-here
-```
-
-3. **Build and run**:
-```bash
-docker-compose build
-docker-compose up -d
-```
-
-4. **Access the application**: http://localhost:8000
-
-📘 **Full Docker documentation**: See [DOCKER.md](DOCKER.md) for production deployment, resource tuning, and troubleshooting.
-
-## Development Installation
-
-1. Install Poetry (if not already installed):
-```bash
-curl -sSL https://install.python-poetry.org | python3 -
-```
-
-2. Install dependencies:
-```bash
-poetry install
-```
-
-3. Install frontend dependencies:
-```bash
-cd frontend
-npm install
-```
-
-4. Run backend (development mode):
-```bash
-poetry run uvicorn app.main:app --reload
-```
-
-5. Run frontend (development mode):
-```bash
-cd frontend
-npm run dev
-```
-
-Or use the legacy Streamlit interface:
-```bash
-poetry run streamlit run app.py
-# or use the convenience script
-./run.sh
-```
-
-## Usage
-
-1. Enter the path to your video project folder in the sidebar
-2. Click "Load Project" to index the folder
-3. View video files with their detected languages and available subtitles
-4. Use "Refresh Project" to update the index after adding new files
-
-## Voice Refinement
-
-Find the perfect AI voice for your dubbing project with AI-powered voice analysis and preview generation.
-
-### Quick Start
-
-1. **Load your project** and transcribe at least one video
-2. **Click "Refine Voice"** from the project detail page
-3. **Select a segment** (5-15 seconds) representative of your content
-4. **Analyze with AI** to generate voice instructions
-5. **Preview all 6 voices** with your custom instructions
-6. **Save your selection** - it applies to all future TTS
-
-### Features
-
-- **AI Voice Analysis:** GPT-4o analyzes your audio to generate detailed TTS instructions
-- **Smart Previews:** Generate audio samples for all 6 OpenAI voices in ~10 seconds
-- **Intelligent Caching:** Reuse cached previews for instant voice switching (80%+ cache hit rate)
-- **Cost Effective:** ~$0.02 per refinement session with caching
-- **Iterative Refinement:** Edit instructions or regenerate with feedback
-
-### Available Voices
-
-| Voice | Description | Best For |
-|-------|-------------|----------|
-| **Alloy** | Neutral, balanced | General purpose, versatile content |
-| **Echo** | Male, clear | Technical, professional, instruction |
-| **Fable** | British, expressive | Storytelling, entertainment |
-| **Onyx** | Deep, authoritative | News, reports, authority |
-| **Nova** | Warm, engaging | Education, friendly content |
-| **Shimmer** | Soft, gentle | Calm content, meditation |
-
-### Documentation
-
-- **[User Guide](VOICE_REFINEMENT_USER_GUIDE.md)** - Step-by-step instructions with tips and troubleshooting
-- **[API Reference](VOICE_REFINEMENT_API.md)** - Complete API documentation with code examples
-- **[Integration Guide](VOICE_REFINEMENT_INTEGRATION.md)** - Frontend/backend integration and best practices
-
-### Cost Estimate
-
-| Operation | Cost |
-|-----------|------|
-| Voice analysis (GPT-4o) | ~$0.005 |
-| 6 voice previews (10s each) | ~$0.018 |
-| **Total per session** | **~$0.023** |
-| Cached re-runs | **$0.00** (Free!) |
+- **Full redubbing pipeline** — Whisper STT → GPT translation → TTS → ffmpeg mix-down
+- **Async TTS** — up to 100 concurrent API calls, 5× faster than sequential
+- **Voice refinement** — AI-guided voice selection with per-project instructions and cached previews
+- **React PWA** — installable, works offline, real-time job progress
+- **Project management** — multi-project SQLite store, auto file scanning, language detection
+- **Docker-first** — single `docker-compose up` gets you running
 
 ---
 
-## Project Structure
+## Quick Start (Docker)
 
-The application expects project folders containing:
-- Video files (mp4, avi, mkv, mov, etc.)
-- Subtitle files (srt, vtt, ass, etc.)
-- Files can be in subfolders within the project directory
+**Prerequisites:** Docker 20.10+, OpenAI API key
 
-Language detection is based on filename patterns and subtitle content analysis.
+```bash
+# 1. Create storage directories and env file
+mkdir -p storage
+echo "OPENAI_API_KEY=sk-your-key-here" > .env
+
+# 2. Start
+docker-compose up -d
+
+# 3. Open
+open http://localhost:8000
+```
+
+Videos and the database persist in `./storage`. Logs: `docker-compose logs -f`.
+
+---
+
+## Development Setup
+
+```bash
+# Install all deps + git hooks
+make install
+
+# Start backend (port 8000) and frontend (port 5173) in parallel
+make dev
+```
+
+Or individually:
+
+```bash
+make dev-backend   # FastAPI + uvicorn --reload
+make dev-frontend  # Vite HMR
+```
+
+Frontend proxies `/api/*` to `localhost:8000` automatically.
+
+### Other useful commands
+
+```bash
+make test          # Run backend tests (excludes integration)
+make lint          # ruff check
+make format        # ruff check --fix + ruff format
+make build         # Production frontend build → frontend/dist/
+make story         # Storybook component explorer (port 6006)
+```
+
+---
+
+## Environment Variables
+
+All variables are read at startup. Set them in `.env` (local dev) or pass them to the container.
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI API key (`sk-...`) |
+
+### Storage & Paths
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | `./redubber.db` | SQLite database file path |
+| `MOUNTED_STORAGE` | `./storage` | Root for persistent output (dubbed videos, exports) |
+
+### OpenAI Models
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_MODEL` | `gpt-4o` | GPT model used for translation |
+| `OPENAI_VOICE` | `nova` | Default TTS voice for new projects |
+
+Individual projects can override voice and voice instructions via the Voice Refinement UI.
+
+### Performance
+
+| Variable | Default | Description |
+|---|---|---|
+| `MAX_CONCURRENT_REDUBS` | `1` | Max simultaneous redubbing jobs. Increase only if CPU/RAM allow — each job is already heavily parallelised internally |
+| `TASK_QUEUE_MAX_SIZE` | `100` | Max queued jobs before new submissions are rejected |
+| `TTS_MAX_CONCURRENT` | `100` | Async TTS concurrency per job (OpenAI API calls in flight) |
+
+### Logging & API
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOG_LEVEL` | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `API_TITLE` | `Redubber API` | Title shown in `/api/docs` |
+| `API_VERSION` | `2.0.0` | Version shown in `/api/docs` |
+| `CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated allowed CORS origins |
+
+### App-level Settings (UI-configurable)
+
+These are stored in `settings.json` and editable via **Settings → ⚙** in the UI. They can also be seeded at startup via environment:
+
+| Env Var | Default | Description |
+|---|---|---|
+| `REDUBBER_PROJECTS_ROOT` | _(empty)_ | Starting directory for the project file browser |
+| `REDUBBER_WORKING_DIR` | _(empty)_ | Root where `.redubber/` working dirs are created |
+
+---
+
+## Deployment
+
+### Docker Compose (recommended)
+
+The included `docker-compose.yml` is production-ready for single-host deployments.
+
+```bash
+# Production run with explicit env
+OPENAI_API_KEY=sk-... docker-compose up -d
+```
+
+**Persistent data** lives in `./storage` (mounted as `/mounted-storage` in the container). Back this up — it contains the database and dubbed output files.
+
+**Resource limits** are set in `docker-compose.yml` (default: 2 CPU / 4 GB RAM). Tune based on video volume and concurrency needs.
+
+### Docker image (GHCR)
+
+Pre-built images are published on every push to `main`:
+
+```bash
+# Latest stable
+docker pull ghcr.io/j0rsa/redubber:latest
+
+# Pinned version
+docker pull ghcr.io/j0rsa/redubber:v2.0.0
+```
+
+Run standalone:
+
+```bash
+docker run -d \
+  -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-your-key \
+  -v $(pwd)/storage:/mounted-storage \
+  ghcr.io/j0rsa/redubber:latest
+```
+
+### Reverse proxy (nginx / Caddy)
+
+The app serves the React frontend from `/` and the API from `/api`. A minimal nginx config:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name redubber.example.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # Required for large video uploads
+        client_max_body_size 4G;
+        proxy_read_timeout 600s;
+    }
+}
+```
+
+### Health check
+
+```bash
+curl http://localhost:8000/api/health
+# {"status":"ok","version":"2.0.0"}
+```
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│  React PWA (Vite, TanStack Query, CSS Modules)│
+│  served from /  by FastAPI StaticFiles        │
+└─────────────────────┬────────────────────────┘
+                      │ /api/*
+┌─────────────────────▼────────────────────────┐
+│  FastAPI (uvicorn)                            │
+│  ├─ /api/projects    project CRUD             │
+│  ├─ /api/redub       submit redub job         │
+│  ├─ /api/tasks       job status & cancel      │
+│  ├─ /api/settings    tool-level settings      │
+│  └─ /api/projects/{id}/voice-*  refinement    │
+│                                               │
+│  TaskQueueManager (asyncio + ThreadPoolExecutor)
+│  └─ Pipeline stages:                          │
+│     1. Extract audio  (ffmpeg)                │
+│     2. Transcribe     (Whisper / gpt-4o-transcribe)
+│     3. Translate      (GPT-4o)                │
+│     4. TTS            (gpt-4o-mini-tts, async)│
+│     5. Assemble audio (ffmpeg)                │
+│     6. Mix with video (ffmpeg)                │
+│     7. Finalize       (validate, replace, cleanup)
+└─────────────────────┬────────────────────────┘
+                      │
+┌─────────────────────▼────────────────────────┐
+│  SQLite (redubber.db)                         │
+│  projects · video_files · subtitle_files      │
+│  voice_instruction_generations                │
+│  tts_preview_cache · voice_selection_history  │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## Voice Refinement
+
+Find the best AI voice for a project before committing to a full redub.
+
+1. Open a project → click **Refine Voice**
+2. Pick a representative segment (5–15 s)
+3. **Analyse with AI** — GPT analyses tone, pace, accent, energy
+4. Edit instructions if needed, or regenerate with feedback
+5. **Preview all 6 voices** in ~10 s (parallel TTS, cached)
+6. Select and **Save** — applied to all future TTS in this project
+
+### Available voices
+
+| Voice | Character | Best for |
+|---|---|---|
+| **Alloy** | Neutral, balanced | General purpose |
+| **Echo** | Male, clear | Technical, instructional |
+| **Fable** | British, expressive | Storytelling |
+| **Onyx** | Deep, authoritative | News, reports |
+| **Nova** | Warm, engaging | Education, friendly content |
+| **Shimmer** | Soft, gentle | Calm, meditative content |
+
+---
+
+## Supported Formats
+
+**Video:** mp4, avi, mkv, mov, wmv, flv, webm, m4v, mpg, mpeg, 3gp, ogv
+
+**Subtitles:** srt, vtt, ass, ssa, sub, sbv, ttml, dfxp, stl, scc
+
+---
+
+## API docs
+
+Interactive Swagger UI available at **`/api/docs`** when the server is running.

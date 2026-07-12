@@ -296,28 +296,20 @@ class TaskQueueManager:
 
     @staticmethod
     def _resolve_reproj_root(video_path: str, project_id: int | None) -> str:
-        """Return the working-directory root for a Reproj, honouring project settings.
-
-        Uses get_project_working_dir so artefacts land in the same place that the
-        UI displays (e.g. /Users/.../course/.redubber/ or a global working_directory).
-        Falls back to the legacy ./redubber_tmp when the project cannot be resolved.
-        """
-        try:
-            from app.core.config import settings as _config_settings
-            from app.core.project_paths import get_project_working_dir
-            from database import DatabaseManager
-
-            if project_id is not None:
-                db = DatabaseManager(_config_settings.database_url)
-                project = db.get_project_by_id(project_id)
-                if project:
-                    wd = get_project_working_dir(project["path"], project["name"])
-                    wd.mkdir(parents=True, exist_ok=True)
-                    return str(wd)
-        except Exception:
-            pass
+        """Return the working-directory root for a Reproj, honouring project settings."""
+        if project_id is None:
+            raise ValueError(f"Cannot resolve working directory: project_id is None for {video_path}")
         from app.core.config import settings as _config_settings
-        return str(_config_settings.tmp_path)
+        from app.core.project_paths import get_project_working_dir
+        from database import DatabaseManager
+
+        db = DatabaseManager(_config_settings.database_url)
+        project = db.get_project_by_id(project_id)
+        if not project:
+            raise ValueError(f"Cannot resolve working directory: project {project_id} not found")
+        wd = get_project_working_dir(project["path"], project["name"])
+        wd.mkdir(parents=True, exist_ok=True)
+        return str(wd)
 
     async def _process_task(self, task_id: str) -> None:
         """Process a single redubbing task with hybrid async/sync execution.

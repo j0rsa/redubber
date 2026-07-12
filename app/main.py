@@ -38,7 +38,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     # Ensure directories exist
-    settings.tmp_path.mkdir(parents=True, exist_ok=True)
     settings.storage_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Application startup complete")

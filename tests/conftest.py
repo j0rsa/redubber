@@ -29,7 +29,6 @@ def setup_test_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     storage_dir = tmp_path / "storage"
     storage_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(settings, "tmp_dir", str(tmp_path / "redubber_tmp"))
     monkeypatch.setattr(settings, "mounted_storage", str(storage_dir))
     monkeypatch.setattr(settings, "database_url", str(storage_dir / "redubber.db"))
     monkeypatch.setattr(settings, "openai_api_key", "test-key-not-used")

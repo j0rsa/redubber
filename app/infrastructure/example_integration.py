@@ -37,7 +37,6 @@ async def lifespan_with_task_queue(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.task_manager = task_manager
 
     # Ensure directories exist
-    settings.tmp_path.mkdir(parents=True, exist_ok=True)
     settings.storage_path.mkdir(parents=True, exist_ok=True)
 
     yield
