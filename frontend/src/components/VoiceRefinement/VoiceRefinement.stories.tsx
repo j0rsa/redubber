@@ -65,7 +65,6 @@ const mockInstructions: VoiceInstructions = {
   detected_characteristics: {
     tone: 'Professional and educational',
     pace: 'Moderate, clear articulation',
-    emotion: 'Engaged and enthusiastic',
     style: 'Tutorial presenter',
   },
   generation_id: 1,

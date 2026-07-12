@@ -48,15 +48,13 @@ RUN poetry install --only main --no-interaction --no-ansi --no-root
 # Copy application code
 COPY app/ ./app/
 COPY redubber.py database.py file_scanner.py video_analyzer.py ./
-COPY components/ ./components/
 COPY reproj.py seg_postprocessor.py utils.py pipeline_status.py ./
 
 # Copy frontend build artifacts from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./app/static
 
 # Create required directories with proper permissions
-RUN mkdir -p /tmp/redubber /mounted-storage && \
-    chmod 755 /tmp/redubber /mounted-storage
+RUN mkdir -p /mounted-storage && chmod 755 /mounted-storage
 
 # Expose FastAPI port
 EXPOSE 8000
