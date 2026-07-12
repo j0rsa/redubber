@@ -71,6 +71,8 @@ export const ProjectDetail = () => {
   const submitRedub = useSubmitRedub();
 
   const setCurrentProjectId = useUIStore((state) => state.setCurrentProjectId);
+  const hideCompleted = useUIStore((state) => projectId ? (state.hideCompletedByProject[projectId] ?? false) : false);
+  const setHideCompleted = useUIStore((state) => state.setHideCompleted);
 
   const [isVoiceRefinementOpen, setIsVoiceRefinementOpen] = useState(false);
   const [targetLangSaving, setTargetLangSaving] = useState(false);
@@ -304,6 +306,15 @@ export const ProjectDetail = () => {
         <div className={styles.videosSection}>
           <div className={styles.videosSectionHeader}>
             <h2 className={styles.videosSectionTitle}>Video Files</h2>
+            {hasVideos && videos?.some((v) => v.pipeline_status?.replaced) && (
+              <button
+                className={`${styles.toggleButton} ${hideCompleted ? styles.toggleButtonActive : ''}`}
+                onClick={() => projectId && setHideCompleted(projectId, !hideCompleted)}
+                title={hideCompleted ? 'Show completed files' : 'Hide completed files'}
+              >
+                {hideCompleted ? '👁 Show completed' : '✓ Hide completed'}
+              </button>
+            )}
           </div>
 
           {hasVideos && (
@@ -336,7 +347,7 @@ export const ProjectDetail = () => {
             <p className={styles.loadingText}>Loading videos…</p>
           ) : hasVideos ? (
             <FileGrid
-              videos={videos}
+              videos={hideCompleted ? (videos?.filter((v) => !v.pipeline_status?.replaced) ?? []) : (videos ?? [])}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               runningJobIds={runningJobs}

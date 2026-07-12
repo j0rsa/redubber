@@ -56,33 +56,60 @@ export const VoiceAnalyzer = ({
 
   return (
     <div className={styles.section}>
-      <h3 className={styles.sectionTitle}>Step 2: Analyze Voice</h3>
+      <h3 className={styles.sectionTitle}>Step 2: Voice Instructions</h3>
 
-      {!selectedSegment ? (
-        <div className={styles.disabledState}>
-          <p className={styles.disabledText}>
-            Please select a segment first
-          </p>
-        </div>
-      ) : !voiceInstructions ? (
+      {!voiceInstructions ? (
         <>
           <p className={styles.sectionDescription}>
-            Use AI to analyze the voice characteristics
+            Analyze a segment with AI, or type instructions manually.
           </p>
-          <button
-            className={styles.analyzeButton}
-            onClick={onAnalyze}
-            disabled={isAnalyzing}
-          >
-            {isAnalyzing ? (
-              <>
-                <span className={styles.buttonSpinner} />
-                Analyzing...
-              </>
-            ) : (
-              <>🔬 Analyze with AI</>
-            )}
-          </button>
+          <div className={styles.instructionsActions}>
+            <button
+              className={styles.analyzeButton}
+              onClick={onAnalyze}
+              disabled={isAnalyzing || !selectedSegment}
+              title={!selectedSegment ? 'Select a segment first' : undefined}
+            >
+              {isAnalyzing ? (
+                <>
+                  <span className={styles.buttonSpinner} />
+                  Analyzing...
+                </>
+              ) : (
+                <>🔬 Analyze with AI</>
+              )}
+            </button>
+            <button
+              className={styles.secondaryButton}
+              onClick={handleEdit}
+            >
+              ✎ Enter manually
+            </button>
+          </div>
+          {isEditing && (
+            <div className={styles.instructionsContainer}>
+              <textarea
+                className={styles.instructionsTextarea}
+                value={editedInstructions}
+                onChange={(e) => setEditedInstructions(e.target.value)}
+                placeholder="e.g., Speak with a warm, professional tone at a moderate pace. Clear enunciation with a slight accent."
+                rows={8}
+                autoFocus
+              />
+              <div className={styles.instructionsActions}>
+                <button className={styles.secondaryButton} onClick={handleCancelEdit}>
+                  Cancel
+                </button>
+                <button
+                  className={styles.primaryButton}
+                  onClick={handleSaveEdit}
+                  disabled={!editedInstructions.trim()}
+                >
+                  Apply Instructions
+                </button>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <>

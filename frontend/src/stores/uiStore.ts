@@ -21,6 +21,11 @@ interface UIState {
   };
   setFileFilters: (filters: Partial<UIState['fileFilters']>) => void;
 
+  // Per-project hide-completed preference
+  hideCompletedByProject: Record<number, boolean>;
+  setHideCompleted: (projectId: number, hide: boolean) => void;
+  getHideCompleted: (projectId: number) => boolean;
+
   // Theme
   theme: 'light' | 'dark';
   setTheme: (theme: 'light' | 'dark') => void;
@@ -46,6 +51,15 @@ export const useUIStore = create<UIState>()(
           fileFilters: { ...state.fileFilters, ...filters },
         })),
 
+      // Per-project hide-completed
+      hideCompletedByProject: {},
+      setHideCompleted: (projectId, hide) =>
+        set((state) => ({
+          hideCompletedByProject: { ...state.hideCompletedByProject, [projectId]: hide },
+        })),
+      getHideCompleted: (projectId) =>
+        (useUIStore.getState().hideCompletedByProject[projectId] ?? false),
+
       // Theme
       theme: 'light',
       setTheme: (theme) => set({ theme }),
@@ -55,6 +69,7 @@ export const useUIStore = create<UIState>()(
       partialize: (state) => ({
         currentProjectId: state.currentProjectId,
         theme: state.theme,
+        hideCompletedByProject: state.hideCompletedByProject,
       }),
     }
   )
