@@ -420,27 +420,43 @@ class Redubber(BaseModel):
                     log.debug(
                         f"Transcribing audio + LLM translation (target={self.target_language})"
                     )
+                    # verbose_json (with per-segment timestamps) is only supported by whisper-1.
+                    # gpt-4o-transcribe models only accept 'json' and return no segments.
+                    is_whisper = self.stt_model.startswith("whisper")
+                    fmt = "verbose_json" if is_whisper else "json"
+
                     raw_transcription = client.audio.transcriptions.create(
                         model=self.stt_model,
                         file=audio_file_buffer,
-                        response_format="verbose_json",
+                        response_format=fmt,
                     )
                     # Translate each segment text and the full text to target language
                     translated_text = self.translate_text_to(
                         raw_transcription.text, self.target_language
                     )
-                    if raw_transcription.segments:
+                    if is_whisper and raw_transcription.segments:
                         for seg in raw_transcription.segments:
                             seg.text = self.translate_text_to(
                                 seg.text, self.target_language
                             )
+                        segments = raw_transcription.segments
+                        duration = raw_transcription.duration or 0.0
+                    else:
+                        # gpt-4o models return no segments — treat the whole chunk as one
+                        from openai.types.audio.transcription_segment import TranscriptionSegment as _Seg
+                        segments = [_Seg(
+                            id=0, seek=0, start=0.0, end=audio_duration,
+                            text=translated_text, tokens=[], temperature=0.0,
+                            avg_logprob=0.0, compression_ratio=1.0, no_speech_prob=0.0,
+                        )]
+                        duration = audio_duration
                     # Wrap into TranslationVerbose-compatible structure for uniform handling
                     transcript = TranslationVerbose(
                         text=translated_text,
                         task="translate",
                         language=self.target_language,
-                        duration=raw_transcription.duration or 0.0,
-                        segments=raw_transcription.segments,
+                        duration=duration,
+                        segments=segments,
                     )
                     log.debug(f"Transcript type: {type(transcript)}")
             except Exception as e:
