@@ -16,7 +16,7 @@ class TestApplicationSetup:
         app = create_app()
 
         assert app.title == "Redubber API"
-        assert app.version == "2.0.0"
+        assert app.version == "2.0.1"
 
     def test_app_has_cors_middleware(self) -> None:
         """Application includes CORS middleware for frontend access."""
@@ -34,7 +34,7 @@ class TestApplicationSetup:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.0.0"
+        assert data["version"] == "2.0.1"
 
     def test_openapi_docs_accessible(self, client: TestClient) -> None:
         """OpenAPI documentation endpoints are accessible."""
