@@ -15,7 +15,7 @@ export interface VoiceRefinementViewProps {
   filter: SegmentFilter;
   totalCandidates?: number;
   hasMore: boolean;
-  onFilterChange: (filter: Partial<SegmentFilter>) => void;
+  onFilterChange: (filter: SegmentFilter | Partial<SegmentFilter>) => void;
   onLoadMore: () => void;
 
   // Voice instructions
