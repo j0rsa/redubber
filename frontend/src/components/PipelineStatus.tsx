@@ -19,7 +19,7 @@ export const PipelineStatus = ({ status }: PipelineStatusProps) => {
     if (status.is_complete) return 'Complete';
     if (status.replacement_status === 'pending') return 'Ready';
     if (status.current_stage === 'Queued') return 'Queued';
-    if (status.progress > 0) return 'Running';
+    if (status.progress > 0) return 'Ongoing';
     return 'Pending';
   };
 

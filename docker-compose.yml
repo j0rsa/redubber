@@ -9,11 +9,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Persistent storage for database and processed videos
-      - ./storage:/mounted-storage
+      - ./storage:/config
     environment:
-      # Storage Configuration
-      - DATABASE_URL=/mounted-storage/redubber.db
+      # Config directory — redubber.db and settings.json stored here
+      - REDUBBER_CONFIG_PATH=/config
 
       # OpenAI Configuration (required)
       - OPENAI_API_KEY=${OPENAI_API_KEY}

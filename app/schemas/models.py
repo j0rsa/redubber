@@ -12,6 +12,7 @@ class ProjectCreate(BaseModel):
     """Request schema for creating/opening a project."""
 
     path: str = Field(..., description="Absolute path to project directory")
+    name: str | None = Field(default=None, description="Project display name. Defaults to the folder name.")
 
 
 class ProjectResponse(BaseModel):

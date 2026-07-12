@@ -17,6 +17,12 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 
+def _get_openai_key() -> str:
+    """Read the OpenAI API key from DB settings, falling back to env var."""
+    from app.services.settings_service import get_openai_api_key
+    return get_openai_api_key()
+
+
 TaskStatusType = Literal["queued", "running", "completed", "failed"]
 
 
@@ -404,7 +410,7 @@ class TaskQueueManager:
                         pass  # keep default
 
                 redubber = Redubber(
-                    openai_token=settings.openai_api_key,
+                    openai_token=_get_openai_key(),
                     interactive=False,
                     stt_model=_stt_model,
                     openai_base_url=_base_url,
@@ -451,7 +457,7 @@ class TaskQueueManager:
 
             def generate_subtitles_step() -> None:
                 from redubber import Redubber
-                _r = Redubber(openai_token=settings.openai_api_key, interactive=False)
+                _r = Redubber(openai_token=_get_openai_key(), interactive=False)
                 _r.generate_subtitles(reproj, segments)
 
             await loop.run_in_executor(self._executor, generate_subtitles_step)
@@ -499,7 +505,7 @@ class TaskQueueManager:
                 pass
 
             async_service = AsyncRedubberService(
-                openai_token=settings.openai_api_key,
+                openai_token=_get_openai_key(),
                 voice=_project_voice,
                 voice_instructions=_project_voice_instructions,
                 openai_timeout=_openai_timeout,
@@ -564,7 +570,7 @@ class TaskQueueManager:
                     _mix_tts_concurrency = 20
 
                 redubber = Redubber(
-                    openai_token=settings.openai_api_key,
+                    openai_token=_get_openai_key(),
                     interactive=False,
                     tts_speed=_mix_tts_speed,
                     audio_chunk_duration=_mix_audio_chunk_duration,
@@ -819,7 +825,7 @@ class TaskQueueManager:
                         pass
 
                 redubber = Redubber(
-                    openai_token=settings.openai_api_key,
+                    openai_token=_get_openai_key(),
                     interactive=False,
                     stt_model=stt_model,
                     openai_base_url=base_url,

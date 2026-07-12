@@ -22,12 +22,14 @@
 .node {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   cursor: pointer;
   transition: all var(--transition-fast);
   border-bottom: 1px solid var(--color-border-light);
   min-height: 48px;
+  text-align: left;
 }
 
 .node:hover {
@@ -48,16 +50,6 @@
   font-weight: var(--font-weight-medium);
 }
 
-.expandIcon {
-  width: 20px;
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform var(--transition-fast);
-}
 
 .icon {
   font-size: 20px;
@@ -149,11 +141,6 @@
     padding-left: calc(var(--spacing-sm) - 4px);
   }
 
-  .expandIcon {
-    width: 24px;
-    font-size: 13px;
-  }
-
   .icon {
     font-size: 22px;
   }
@@ -178,11 +165,6 @@
     padding: var(--spacing-md) var(--spacing-sm);
     gap: var(--spacing-sm);
     min-height: 56px;
-  }
-
-  .expandIcon {
-    width: 26px;
-    font-size: 14px;
   }
 
   .icon {

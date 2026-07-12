@@ -131,12 +131,12 @@ def integration_client(
     Yields:
         TestClient configured with the FastAPI app and lifespan.
     """
-    # Create storage directory
-    storage_dir = integration_test_dir / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    # Create config directory (holds db + settings.json)
+    config_dir = integration_test_dir / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
 
     # Patch settings to use test directories
-    monkeypatch.setattr(settings, "database_url", str(storage_dir / "test_redubber.db"))
+    monkeypatch.setattr(settings, "redubber_config_path", str(config_dir))
     monkeypatch.setattr(settings, "openai_api_key", "test-key-integration")
     monkeypatch.setattr(settings, "max_concurrent_redubs", 2)
     monkeypatch.setattr(settings, "task_queue_max_size", 10)

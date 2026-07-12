@@ -1,5 +1,7 @@
 """Application configuration using Pydantic Settings."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,8 +12,8 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False
     )
 
-    # Database
-    database_url: str = "./redubber.db"
+    # Config directory — redubber.db and settings.json are stored here
+    redubber_config_path: str = ""
 
     # OpenAI
     openai_api_key: str = ""
@@ -28,6 +30,11 @@ class Settings(BaseSettings):
     # CORS (comma-separated origins)
     cors_origins: str = "http://localhost:5173,http://localhost:5174,http://localhost:4173"
 
+    @property
+    def database_url(self) -> str:
+        if self.redubber_config_path:
+            return str(Path(self.redubber_config_path) / "redubber.db")
+        return "./redubber.db"
 
 
 # Global settings instance

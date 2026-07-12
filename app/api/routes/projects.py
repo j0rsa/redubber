@@ -40,6 +40,7 @@ async def _scan_project_files(
 
     # Collect all audio streams for language detection
     all_audio_streams = []
+    video_info_cache: dict = {}
 
     # Add video files
     for video_file in video_files:
@@ -51,11 +52,11 @@ async def _scan_project_files(
             language=language,
         )
 
-        # Analyze video and store results
+        # Analyze video and cache results
         video_info = get_video_info_with_duration(video_file)
+        video_info_cache[video_file.name] = video_info
         audio_streams = video_info["audio_streams"]
 
-        # Collect audio streams for dominant language detection
         all_audio_streams.append(audio_streams)
 
         db.save_video_analysis(
@@ -80,9 +81,28 @@ async def _scan_project_files(
             language=language,
         )
 
-    # Detect and set the dominant source language
+    # Link subtitle matches to each video now that all subs are indexed
+    for video_file in video_files:
+        matched_subs = db.get_subtitle_files_for_video(project_id, video_file.name)
+        if matched_subs:
+            info = video_info_cache[video_file.name]
+            db.save_video_analysis(
+                project_id=project_id,
+                video_data={
+                    "filename": video_file.name,
+                    "path": str(video_file),
+                    "size_mb": round(video_file.stat().st_size / (1024 * 1024), 2),
+                    "duration_seconds": info["duration_seconds"],
+                    "audio_streams": info["audio_streams"],
+                    "subtitles": matched_subs,
+                },
+            )
+
+    # Detect and set the dominant source language using the last audio track per video
+    # (last track is typically the original language in dubbed/multi-track content)
     if all_audio_streams:
-        dominant_language = detect_dominant_language(all_audio_streams)
+        last_streams = [[streams[-1]] for streams in all_audio_streams if streams]
+        dominant_language = detect_dominant_language(last_streams)
         if dominant_language:
             db.set_source_language_override(project_id, dominant_language)
 
@@ -129,8 +149,7 @@ async def create_project(
             detail=f"Path is not a directory: {project.path}",
         )
 
-    # Create project with directory name as default name
-    project_name = project_path.name
+    project_name = (project.name or "").strip() or project_path.name
     project_id = db.add_project(path=str(project_path), name=project_name)
 
     # Trigger async file scan in background

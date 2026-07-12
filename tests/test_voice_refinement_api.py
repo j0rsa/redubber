@@ -43,7 +43,7 @@ class TestTranscriptionSegmentsEndpoint:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()
@@ -170,7 +170,7 @@ class TestVoiceInstructionAnalyzeEndpoint:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()
@@ -367,7 +367,7 @@ class TestVoiceInstructionRegenerateEndpoint:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()
@@ -464,7 +464,7 @@ class TestVoicePreviewGenerateEndpoint:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()
@@ -619,7 +619,7 @@ class TestVoiceSettingsSaveEndpoint:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()
@@ -776,7 +776,7 @@ class TestEndpointIntegration:
         storage_dir = tmp_path / "storage"
         storage_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(settings, "database_url", str(storage_dir / "test.db"))
+        monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
         app = create_app()

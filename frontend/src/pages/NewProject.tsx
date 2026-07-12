@@ -22,9 +22,9 @@ export const NewProject = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startPath]);
 
-  const handleCreate = async (path: string) => {
+  const handleCreate = async (path: string, name: string) => {
     try {
-      const project = await createProject.mutateAsync({ path });
+      const project = await createProject.mutateAsync({ path, name });
       setCurrentProjectId(project.id);
       navigate(`/project/${project.id}`);
     } catch (err) {

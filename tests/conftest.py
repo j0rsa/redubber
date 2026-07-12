@@ -25,11 +25,10 @@ def setup_test_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     # Patch the settings object to use temporary directories
     from app.core.config import settings
 
-    # Create storage directory
-    storage_dir = tmp_path / "storage"
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(settings, "database_url", str(storage_dir / "redubber.db"))
+    monkeypatch.setattr(settings, "redubber_config_path", str(config_dir))
     monkeypatch.setattr(settings, "openai_api_key", "test-key-not-used")
 
 

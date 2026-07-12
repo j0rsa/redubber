@@ -65,10 +65,9 @@ def get_project_working_dir(project_path: str, project_name: str) -> Path:
 
     Resolution order:
     1. If ``settings.working_directory`` is set (non-empty), returns
-       ``<working_directory>/<sanitised_project_name>/`` so that all project
-       artefacts live under a single configurable root.
-    2. Otherwise falls back to ``<project_path>/.redubber/`` for backward
-       compatibility with existing installations.
+       ``<working_directory>/<slug>/`` where slug is derived from the
+       project's display name (not the folder name).
+    2. Otherwise falls back to ``<project_path>/.redubber/``.
 
     The returned path is **not** created by this function; callers that need
     the directory to exist should call ``.mkdir(parents=True, exist_ok=True)``
@@ -76,9 +75,7 @@ def get_project_working_dir(project_path: str, project_name: str) -> Path:
 
     Args:
         project_path: Absolute path to the project's video directory.
-        project_name: Display name of the project (used only when the
-            settings-based layout is active; the sanitised basename of
-            *project_path* is used as the folder name).
+        project_name: Display name of the project used to derive the slug.
 
     Returns:
         Resolved ``Path`` for the project's working directory.
@@ -91,7 +88,9 @@ def get_project_working_dir(project_path: str, project_name: str) -> Path:
         pass
 
     if working_directory:
-        folder_name = sanitise_project_name(project_path)
+        # Slug from display name, fall back to path basename if name is empty
+        slug_source = project_name if project_name.strip() else project_path
+        folder_name = sanitise_project_name(slug_source)
         return Path(working_directory) / folder_name
 
     # Backward-compatible fallback
