@@ -135,6 +135,12 @@ def _load_real_segments(project_id: int, project_path: str) -> list[Transcriptio
 
     stt_root = get_project_working_dir(project_path, _pname)
 
+    import logging as _log
+    _log.getLogger(__name__).info(
+        "Scanning for .seg files: project_id=%s name=%r path=%r working_dir=%s exists=%s",
+        project_id, _pname, project_path, stt_root, stt_root.exists()
+    )
+
     if not stt_root.exists():
         return segments
 
