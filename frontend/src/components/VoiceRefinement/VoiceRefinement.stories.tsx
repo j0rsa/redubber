@@ -7,13 +7,14 @@ const meta: Meta<typeof VoiceRefinementView> = {
   title: 'Components/VoiceRefinement',
   component: VoiceRefinementView,
   parameters: {
-    // fullscreen so the fixed-position modal overlay fills the canvas naturally
     layout: 'fullscreen',
     backgrounds: { default: 'dark' },
     docs: {
       description: {
         component:
-          'Voice refinement modal: select a transcription segment, analyze voice characteristics with AI, generate TTS previews for all voices, and save the best match.',
+          'Voice customization modal with two tabs:\n\n' +
+          '**Interactive** — 3-step flow: pick a segment → AI-analyze voice → preview all voices.\n\n' +
+          '**Manual** — directly type instructions and pick a voice, with an optional preview step.',
       },
     },
   },
@@ -22,23 +23,14 @@ const meta: Meta<typeof VoiceRefinementView> = {
 export default meta;
 type Story = StoryObj<typeof VoiceRefinementView>;
 
-// ─── Mock data ───────────────────────────────────────────────────────────────
+// ─── Mock data ────────────────────────────────────────────────────────────────
 
 const seg = (
-  id: string,
-  file: string,
-  start: number,
-  end: number,
-  original: string,
-  translated: string
+  id: string, file: string, start: number, end: number,
+  original: string, translated: string
 ): TranscriptionSegment => ({
-  id,
-  video_filename: file,
-  start_time: start,
-  end_time: end,
-  duration: end - start,
-  original_text: original,
-  translated_text: translated,
+  id, video_filename: file, start_time: start, end_time: end,
+  duration: end - start, original_text: original, translated_text: translated,
   audio_url: `https://example.com/audio/${id}.mp3`,
 });
 
@@ -61,7 +53,7 @@ const mockSegments: TranscriptionSegment[] = [
 ];
 
 const mockInstructions: VoiceInstructions = {
-  text: 'Speak in a professional, clear, and engaging tone. Use a moderate pace with emphasis on key technical terms. Maintain an educational and authoritative style suitable for tutorial content. Express slight enthusiasm when introducing new concepts, and pause naturally between sections.',
+  text: 'Speak in a professional, clear, and engaging tone. Use a moderate pace with emphasis on key technical terms. Maintain an educational and authoritative style suitable for tutorial content. Express slight enthusiasm when introducing new concepts.',
   detected_characteristics: {
     tone: 'Professional and educational',
     pace: 'Moderate, clear articulation',
@@ -81,8 +73,6 @@ const mockPreviews: VoicePreview[] = [
 
 const defaultFilter: SegmentFilter = { search: '', minDuration: 0, maxDuration: 0 };
 
-// ─── Shared no-op actions ─────────────────────────────────────────────────────
-
 const baseActions: Pick<
   VoiceRefinementViewProps,
   | 'onSelectSegment' | 'onFilterChange' | 'onLoadMore'
@@ -94,243 +84,138 @@ const baseActions: Pick<
   onLoadMore: () => console.log('Load more clicked'),
   onAnalyze: async () => console.log('Analyze clicked'),
   onRegenerate: async (fb) => console.log('Regenerate:', fb),
-  onUpdateInstructions: () => console.log('Instructions updated'),
+  onUpdateInstructions: (i) => console.log('Instructions updated:', i),
   onSelectVoice: (v) => console.log('Voice selected:', v),
   onGeneratePreviews: async () => console.log('Generate previews clicked'),
   onSave: () => console.log('Save clicked'),
   onClose: () => console.log('Close clicked'),
 };
 
-// ─── Shared segment-step props ────────────────────────────────────────────────
+const segmentBase = { filter: defaultFilter, totalCandidates: 5, hasMore: false };
 
-const segmentBase = {
-  filter: defaultFilter,
-  totalCandidates: 5,
-  hasMore: false,
-};
+// ─── Interactive tab stories ──────────────────────────────────────────────────
 
-const segmentLarge = {
-  filter: defaultFilter,
-  totalCandidates: 1247,
-  hasMore: true,
-};
-
-// ─── Stories ─────────────────────────────────────────────────────────────────
-
-export const Step1LoadingSegments: Story = {
+export const Interactive_LoadingSegments: Story = {
+  name: 'Interactive — Loading segments',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: [],
-    selectedSegment: null,
-    loadingSegments: true,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
+    ...baseActions, ...segmentBase,
+    segments: [], selectedSegment: null, loadingSegments: true,
+    voiceInstructions: '', voiceInstructionsData: null, analyzingVoice: false,
+    previews: [], selectedVoice: null, generatingPreviews: false,
+    saving: false, error: null,
+  },
+};
+
+export const Interactive_SegmentsReady: Story = {
+  name: 'Interactive — Segments ready',
+  args: {
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: null, loadingSegments: false,
+    voiceInstructions: '', voiceInstructionsData: null, analyzingVoice: false,
+    previews: [], selectedVoice: null, generatingPreviews: false,
+    saving: false, error: null,
+  },
+};
+
+export const Interactive_Analyzing: Story = {
+  name: 'Interactive — Analyzing voice',
+  args: {
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: mockSegments[1], loadingSegments: false,
+    voiceInstructions: '', voiceInstructionsData: null, analyzingVoice: true,
+    previews: [], selectedVoice: null, generatingPreviews: false,
+    saving: false, error: null,
+  },
+};
+
+export const Interactive_InstructionsReady: Story = {
+  name: 'Interactive — Instructions ready',
+  args: {
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: mockSegments[1], loadingSegments: false,
+    voiceInstructions: mockInstructions.text, voiceInstructionsData: mockInstructions,
     analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
+    previews: [], selectedVoice: null, generatingPreviews: false,
+    saving: false, error: null,
   },
 };
 
-export const Step1SegmentsLoaded: Story = {
+export const Interactive_PreviewsReady: Story = {
+  name: 'Interactive — Previews ready',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: null,
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: mockSegments[1], loadingSegments: false,
+    voiceInstructions: mockInstructions.text, voiceInstructionsData: mockInstructions,
     analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
+    previews: mockPreviews, selectedVoice: 'nova', generatingPreviews: false,
+    saving: false, error: null,
   },
 };
 
-export const Step1LargeProject: Story = {
+export const Interactive_EmptyProject: Story = {
+  name: 'Interactive — No segments (transcription needed)',
   args: {
-    ...baseActions,
-    ...segmentLarge,
-    segments: mockSegments,
-    selectedSegment: null,
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
-    analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
+    ...baseActions, filter: defaultFilter, totalCandidates: 0, hasMore: false,
+    segments: [], selectedSegment: null, loadingSegments: false,
+    voiceInstructions: '', voiceInstructionsData: null, analyzingVoice: false,
+    previews: [], selectedVoice: null, generatingPreviews: false,
+    saving: false, error: null,
+    onTranscribe: async () => console.log('Transcribe clicked'),
   },
 };
 
-export const Step2SegmentSelected: Story = {
-  args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
-    analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
-  },
-};
+// ─── Manual tab stories ───────────────────────────────────────────────────────
+// These open on the Interactive tab by default; the tab switcher is interactive.
+// Storybook can't directly control internal useState, but docs show the states.
 
-export const Step2Analyzing: Story = {
+export const Manual_VoiceAndInstructions: Story = {
+  name: 'Manual — Voice + instructions filled',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
-    analyzingVoice: true,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
-  },
-};
-
-export const Step2InstructionsReady: Story = {
-  args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
+    ...baseActions, ...segmentBase,
+    segments: [], selectedSegment: null, loadingSegments: false,
     voiceInstructions: mockInstructions.text,
-    voiceInstructionsData: mockInstructions,
+    voiceInstructionsData: null,
     analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
+    previews: [], selectedVoice: 'nova', generatingPreviews: false,
+    saving: false, error: null,
   },
 };
 
-export const Step3GeneratingPreviews: Story = {
+export const Manual_PreviewsGenerated: Story = {
+  name: 'Manual — Previews generated',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
+    ...baseActions, ...segmentBase,
+    segments: [], selectedSegment: null, loadingSegments: false,
     voiceInstructions: mockInstructions.text,
-    voiceInstructionsData: mockInstructions,
+    voiceInstructionsData: null,
     analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: true,
-    saving: false,
-    error: null,
+    previews: mockPreviews, selectedVoice: 'shimmer', generatingPreviews: false,
+    saving: false, error: null,
   },
 };
 
-export const Step3PreviewsReady: Story = {
-  args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: mockInstructions.text,
-    voiceInstructionsData: mockInstructions,
-    analyzingVoice: false,
-    previews: mockPreviews,
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
-  },
-};
-
-export const Step4VoiceSelected: Story = {
-  args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: mockInstructions.text,
-    voiceInstructionsData: mockInstructions,
-    analyzingVoice: false,
-    previews: mockPreviews,
-    selectedVoice: 'nova',
-    generatingPreviews: false,
-    saving: false,
-    error: null,
-  },
-};
+// ─── Shared states ────────────────────────────────────────────────────────────
 
 export const Saving: Story = {
+  name: 'Saving',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: mockInstructions.text,
-    voiceInstructionsData: mockInstructions,
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: mockSegments[0], loadingSegments: false,
+    voiceInstructions: mockInstructions.text, voiceInstructionsData: mockInstructions,
     analyzingVoice: false,
-    previews: mockPreviews,
-    selectedVoice: 'nova',
-    generatingPreviews: false,
-    saving: true,
-    error: null,
+    previews: mockPreviews, selectedVoice: 'nova', generatingPreviews: false,
+    saving: true, error: null,
   },
 };
 
 export const WithError: Story = {
+  name: 'Error state',
   args: {
-    ...baseActions,
-    ...segmentBase,
-    segments: mockSegments,
-    selectedSegment: mockSegments[0],
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
-    analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
+    ...baseActions, ...segmentBase,
+    segments: mockSegments, selectedSegment: null, loadingSegments: false,
+    voiceInstructions: '', voiceInstructionsData: null, analyzingVoice: false,
+    previews: [], selectedVoice: null, generatingPreviews: false,
     saving: false,
     error: 'Failed to connect to the AI service. Please check your API key and try again.',
-  },
-};
-
-export const EmptyProject: Story = {
-  args: {
-    ...baseActions,
-    filter: defaultFilter,
-    totalCandidates: 0,
-    hasMore: false,
-    segments: [],
-    selectedSegment: null,
-    loadingSegments: false,
-    voiceInstructions: '',
-    voiceInstructionsData: null,
-    analyzingVoice: false,
-    previews: [],
-    selectedVoice: null,
-    generatingPreviews: false,
-    saving: false,
-    error: null,
   },
 };

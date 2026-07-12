@@ -2,4 +2,5 @@ export { VoiceRefinement } from './VoiceRefinement';
 export { SegmentSelector } from './SegmentSelector';
 export { VoiceAnalyzer } from './VoiceAnalyzer';
 export { VoicePreviewGrid } from './VoicePreviewGrid';
+export { ManualVoiceTab } from './ManualVoiceTab';
 export * from './types';
