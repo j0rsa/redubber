@@ -66,6 +66,7 @@
   vertical-align: middle;
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
+  text-align: left;
 }
 
 /* Checkbox column */

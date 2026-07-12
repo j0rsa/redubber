@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useProject } from '../hooks/useProjects';
+import { useProject, useDeleteProject } from '../hooks/useProjects';
 import { useVideos, useScanVideos } from '../hooks/useVideos';
 import { useSubmitRedub } from '../hooks/useTasks';
 import { useActiveTasks } from '../hooks/useActiveTasks';
@@ -75,6 +75,19 @@ export const ProjectDetail = () => {
   const [isVoiceRefinementOpen, setIsVoiceRefinementOpen] = useState(false);
   const [targetLangSaving, setTargetLangSaving] = useState(false);
   const [sourceLangSaving, setSourceLangSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const deleteProject = useDeleteProject();
+
+  const handleDeleteProject = async () => {
+    if (!projectId) return;
+    try {
+      await deleteProject.mutateAsync(projectId);
+      navigate('/');
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+    }
+  };
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
@@ -227,8 +240,43 @@ export const ProjectDetail = () => {
             >
               {scanVideos.isPending ? 'Scanning…' : 'Scan for Videos'}
             </button>
+            <button
+              className={styles.deleteButton}
+              onClick={() => setConfirmDelete(true)}
+              title="Delete project"
+            >
+              Delete
+            </button>
           </div>
         </div>
+
+        {/* ── Delete confirmation dialog ── */}
+        {confirmDelete && (
+          <div className={styles.confirmOverlay}>
+            <div className={styles.confirmDialog}>
+              <h2 className={styles.confirmTitle}>Delete project?</h2>
+              <p className={styles.confirmBody}>
+                This removes <strong>{project.name}</strong> from Redubber. Your video files are not deleted.
+              </p>
+              <div className={styles.confirmActions}>
+                <button
+                  className={styles.confirmDeleteButton}
+                  onClick={handleDeleteProject}
+                  disabled={deleteProject.isPending}
+                >
+                  {deleteProject.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+                <button
+                  className={styles.confirmCancelButton}
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleteProject.isPending}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Error banners ── */}
         {scanVideos.isError && (

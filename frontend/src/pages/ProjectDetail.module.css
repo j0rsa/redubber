@@ -97,6 +97,104 @@
   cursor: not-allowed;
 }
 
+.deleteButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: transparent;
+  color: var(--color-error, #e53e3e);
+  border: 1px solid var(--color-error, #e53e3e);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.deleteButton:hover {
+  background: var(--color-error, #e53e3e);
+  color: white;
+}
+
+/* ── Delete confirmation dialog ──────────────────────────────────────────── */
+
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.confirmDialog {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-2xl);
+  max-width: 420px;
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+}
+
+.confirmTitle {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.confirmBody {
+  margin: 0 0 var(--spacing-xl);
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+}
+
+.confirmDeleteButton {
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background: var(--color-error, #e53e3e);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.confirmDeleteButton:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.confirmDeleteButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.confirmCancelButton {
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.confirmCancelButton:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
 /* ── Error banners ────────────────────────────────────────────────────────── */
 
 .errorBanner {
