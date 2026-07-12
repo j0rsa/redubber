@@ -365,7 +365,7 @@ export const ProjectDetail = () => {
               setIsVoiceRefinementOpen(false);
               queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             }}
-            firstVideoPath={videos?.[0]?.path}
+            firstVideoPath={videos?.find((v) => !v.pipeline_status?.replaced)?.path}
           />
         )}
       </div>

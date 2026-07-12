@@ -414,47 +414,34 @@ class Redubber(BaseModel):
             # https://platform.openai.com/docs/api-reference/audio/verbose-json-object
             try:
                 with open(audio_file, "rb") as audio_file_buffer:
-                    # Use translations.create only on the standard US endpoint.
-                    # The EU endpoint (and any custom base_url) does not support it.
-                    use_translation_api = (
-                        self.target_language == "eng"
-                        and not self.openai_base_url
+                    # Transcribe then translate separately.
+                    # The translations endpoint only supports whisper-1 and is unavailable
+                    # on many providers/regions — always use transcriptions instead.
+                    log.debug(
+                        f"Transcribing audio + LLM translation (target={self.target_language})"
                     )
-                    if use_translation_api:
-                        log.debug("Using Whisper translation API (target=eng, standard endpoint)")
-                        transcript = client.audio.translations.create(
-                            model=self.stt_model,
-                            file=audio_file_buffer,
-                            response_format="verbose_json",
-                        )
-                    else:
-                        # transcriptions.create preserves source language; translate separately
-                        log.debug(
-                            f"Using Whisper transcription API + LLM translation (target={self.target_language})"
-                        )
-
-                        raw_transcription = client.audio.transcriptions.create(
-                            model=self.stt_model,
-                            file=audio_file_buffer,
-                            response_format="verbose_json",
-                        )
-                        # Translate each segment text and the full text to target language
-                        translated_text = self.translate_text_to(
-                            raw_transcription.text, self.target_language
-                        )
-                        if raw_transcription.segments:
-                            for seg in raw_transcription.segments:
-                                seg.text = self.translate_text_to(
-                                    seg.text, self.target_language
-                                )
-                        # Wrap into TranslationVerbose-compatible structure for uniform handling
-                        transcript = TranslationVerbose(
-                            text=translated_text,
-                            task="translate",
-                            language=self.target_language,
-                            duration=raw_transcription.duration or 0.0,
-                            segments=raw_transcription.segments,
-                        )
+                    raw_transcription = client.audio.transcriptions.create(
+                        model=self.stt_model,
+                        file=audio_file_buffer,
+                        response_format="verbose_json",
+                    )
+                    # Translate each segment text and the full text to target language
+                    translated_text = self.translate_text_to(
+                        raw_transcription.text, self.target_language
+                    )
+                    if raw_transcription.segments:
+                        for seg in raw_transcription.segments:
+                            seg.text = self.translate_text_to(
+                                seg.text, self.target_language
+                            )
+                    # Wrap into TranslationVerbose-compatible structure for uniform handling
+                    transcript = TranslationVerbose(
+                        text=translated_text,
+                        task="translate",
+                        language=self.target_language,
+                        duration=raw_transcription.duration or 0.0,
+                        segments=raw_transcription.segments,
+                    )
                     log.debug(f"Transcript type: {type(transcript)}")
             except Exception as e:
                 log.error(f"❌ Transcription failed for {audio_filename}")
