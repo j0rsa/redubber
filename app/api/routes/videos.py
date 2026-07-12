@@ -226,26 +226,49 @@ async def list_videos(
         )
 
         task_error = failed_tasks.get(record["file_path"], "")
-        pipeline_status: PipelineStatusResponse | None = None
-        # Only show pipeline status when actual pipeline work has started or completed.
-        # has_external_subs alone is not pipeline progress — it just means subs exist on disk.
-        actual_work_done = (
-            pipeline_status_obj.has_audio_chunks
-            or pipeline_status_obj.has_transcripts
-            or pipeline_status_obj.subtitles_generated
-            or pipeline_status_obj.has_tts
-            or pipeline_status_obj.has_target_audio
-            or pipeline_status_obj.final_file_exists
+
+        # Detect pre-redubbed files: ≥2 audio tracks where one matches the project target
+        # language, AND a subtitle in the target language is present.
+        # Covers videos imported from a previously redubbed project with no working dir.
+        target_lang = project_record.get("target_language") or ""
+        audio_langs = {s.language for s in audio_streams if s.language}
+        sub_langs = {s.language for s in subtitles if s.language}
+        pre_redubbed = (
+            bool(target_lang)
+            and len(audio_streams) >= 2
+            and target_lang in audio_langs
+            and target_lang in sub_langs
         )
-        if actual_work_done or pipeline_status_obj.is_complete or task_error:
+
+        pipeline_status: PipelineStatusResponse | None = None
+        if pre_redubbed and not pipeline_status_obj.final_file_exists:
             pipeline_status = PipelineStatusResponse(
-                progress=pipeline_status_obj.progress_percent,
-                current_stage=pipeline_status_obj.current_stage,
-                is_complete=pipeline_status_obj.is_complete,
-                replaced=pipeline_status_obj.replaced,
-                failed=bool(task_error),
-                error=task_error,
+                progress=100,
+                current_stage="Complete",
+                is_complete=True,
+                replaced=True,
+                failed=False,
+                error="",
             )
+        else:
+            # Only show pipeline status when actual pipeline work has started or completed.
+            actual_work_done = (
+                pipeline_status_obj.has_audio_chunks
+                or pipeline_status_obj.has_transcripts
+                or pipeline_status_obj.subtitles_generated
+                or pipeline_status_obj.has_tts
+                or pipeline_status_obj.has_target_audio
+                or pipeline_status_obj.final_file_exists
+            )
+            if actual_work_done or pipeline_status_obj.is_complete or task_error:
+                pipeline_status = PipelineStatusResponse(
+                    progress=pipeline_status_obj.progress_percent,
+                    current_stage=pipeline_status_obj.current_stage,
+                    is_complete=pipeline_status_obj.is_complete,
+                    replaced=pipeline_status_obj.replaced,
+                    failed=bool(task_error),
+                    error=task_error,
+                )
 
         results.append(
             VideoAnalysis(
