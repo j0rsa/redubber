@@ -36,10 +36,12 @@ class Settings(BaseModel):
         ),
     )
     stt_model: str = Field(
-        default="gpt-4o-transcribe",
+        default="whisper-1",
         description=(
             "OpenAI model used for speech-to-text transcription. "
-            "Options: 'gpt-4o-transcribe' (best accuracy), 'gpt-4o-mini-transcribe' (fast), 'whisper-1' (legacy)."
+            "Only 'whisper-1' is supported — it is the only model that returns per-segment "
+            "timestamps (verbose_json format), which the pipeline requires to align TTS audio "
+            "with original video timing. gpt-4o-transcribe models produce no timestamps."
         ),
     )
     tts_model: TtsModel = Field(

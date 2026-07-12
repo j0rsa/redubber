@@ -15,10 +15,13 @@ export interface SettingsProps {
 
 // ─── Option metadata ──────────────────────────────────────────────────────────
 
+// Only whisper-1 returns per-segment timestamps (verbose_json format), which the
+// redubbing pipeline requires to align TTS audio with the original video timing.
+// gpt-4o-transcribe models produce higher accuracy text but no timestamps,
+// making them incompatible with the segmented pipeline. Add other models here
+// only when/if OpenAI exposes timestamp support for them.
 const STT_MODEL_OPTIONS: { value: SttModel; label: string }[] = [
-  { value: 'gpt-4o-transcribe',      label: 'gpt-4o-transcribe — Best accuracy' },
-  { value: 'gpt-4o-mini-transcribe', label: 'gpt-4o-mini-transcribe — Fast, affordable' },
-  { value: 'whisper-1',              label: 'whisper-1 — Legacy, broad format support' },
+  { value: 'whisper-1', label: 'whisper-1 — Required: only model supporting per-segment timestamps' },
 ];
 
 const TTS_MODEL_OPTIONS: { value: TtsModel; label: string }[] = [
@@ -187,7 +190,9 @@ export const Settings = ({
             <label className={styles.label} htmlFor={sttModelId}>
               Transcription Model
             </label>
-            <span className={styles.hint}>Model used to transcribe audio to text</span>
+            <span className={styles.hint}>
+              Only whisper-1 supports per-segment timestamps, which are required to align dubbed audio with the original video. Other OpenAI transcription models do not expose timestamps.
+            </span>
           </div>
           <div className={styles.controlCol}>
             <select

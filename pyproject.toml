@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "redubber"
-version = "2.0.7"
+version = "2.0.8"
 description = "High-performance video redubbing system with FastAPI backend and React PWA frontend"
 authors = ["red <red.avtovo@gmail.com>"]
 readme = "README.md"

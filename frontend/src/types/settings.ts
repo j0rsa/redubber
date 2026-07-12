@@ -2,7 +2,7 @@
  * Type definitions for the Settings screen.
  */
 
-export type SttModel = 'whisper-1' | 'gpt-4o-transcribe' | 'gpt-4o-mini-transcribe';
+export type SttModel = 'whisper-1';
 export type TtsModel = 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts';
 export type VoiceAnalysisModel = 'gpt-4o' | 'gpt-4o-mini' | 'o3' | 'o4-mini';
 export type VoiceAnalysisAudioModel = 'gpt-audio-mini' | 'gpt-audio-1';
