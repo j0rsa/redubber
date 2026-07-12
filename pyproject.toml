@@ -16,7 +16,6 @@ httpx = {extras = ["http2"], version = "^0.28.0"}
 # OpenAI with async support
 openai = "^1.109.1"
 # Existing dependencies
-streamlit = "^1.50.0"  # Keep for migration phase, remove later
 langdetect = "^1.0.9"
 tqdm = "^4.67.1"
 tdqm = "^0.0.1"

@@ -4,138 +4,118 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Redubber is a comprehensive audio redubbing system with two main interfaces:
-1. **Streamlit Web UI** (`app.py`) - Project manager for indexing and managing video/subtitle files
-2. **Core Redubbing Engine** (`redubber.py`) - Handles the actual AI-powered video redubbing workflow using OpenAI APIs
+Redubber is an AI-powered video redubbing system. It transcribes, translates, and re-voices video files using OpenAI APIs. The service is a FastAPI backend + React PWA frontend, deployed via Docker.
 
 ## Architecture
 
-### Core Components
+### Backend (`app/`)
 
-**Streamlit Web Application:**
-- `app.py` - Main Streamlit application with UI logic and session management
-- `components/open.py` - Project opening/loading interface
-- `components/project.py` - Current project display and management
+- `app/main.py` — FastAPI app factory, lifespan, CORS, static file serving
+- `app/core/config.py` — Pydantic settings from environment variables
+- `app/core/project_paths.py` — Working directory resolution per project
+- `app/api/routes/` — Route modules: `projects`, `videos`, `tasks`, `settings`, `voice_refinement`, `filesystem`
+- `app/infrastructure/task_queue.py` — Async job queue (asyncio + ThreadPoolExecutor), drives the full redub pipeline
+- `app/services/` — `settings_service`, `tts_preview_generator`, `voice_instruction_generator`
+- `app/schemas/` — Pydantic request/response models
 
-**Data Layer:**
-- `database.py` - SQLite database operations via `DatabaseManager` class
-- `file_scanner.py` - Recursive file system scanning via `FileScanner` class
-- `utils.py` - Language detection utilities for video/subtitle files
+### Core Engine (root-level, used by the backend)
 
-**Video Processing:**
-- `video_analyzer.py` - Video analysis using ffprobe for audio stream detection
-- `redubber.py` - Core redubbing engine with OpenAI integration for transcription, translation, and TTS
+- `redubber.py` — Full redubbing pipeline: extract audio → transcribe → translate → TTS → mix
+- `reproj.py` — Per-video working directory and file layout management
+- `database.py` — SQLite `DatabaseManager` (projects, videos, voice refinement tables)
+- `file_scanner.py` — Recursive video/subtitle file detection
+- `video_analyzer.py` — ffprobe-based audio stream detection
+- `pipeline_status.py` — Pipeline step status tracking
+- `seg_postprocessor.py` — Segment post-processing after STT
+- `utils.py` — Language detection from filenames and content
 
-**Examples:**
-- `example.py` - Demonstrates batch redubbing workflow using the core engine
+### Frontend (`frontend/`)
+
+React PWA (Vite, TypeScript, TanStack Query, CSS Modules). Source in `frontend/src/`:
+- `pages/` — ProjectHub, ProjectDetail, NewProject, JobMonitor
+- `components/` — FileGrid, PipelineStatus, VoiceRefinement, Settings, TasksPanel, etc.
+- `hooks/` — useActiveTasks, useVoiceRefinement, useProjects, useVideos, useTasks, useSettings
+- `types/` — Shared TypeScript interfaces
 
 ### Database Schema
 
-The SQLite database (`redubber.db`) contains three main tables:
-- `projects` - Project metadata with path, name, timestamps
-- `video_files` - Video file records linked to projects with language detection
-- `subtitle_files` - Subtitle file records linked to projects with language matching
+SQLite (`redubber.db`) — created automatically on first run:
+- `projects` — path, name, voice, voice_instructions, target/source language
+- `video_files` — per-project video records with language detection
+- `subtitle_files` — subtitle records matched to videos
+- `voice_instruction_generations` — LLM voice analysis history
+- `tts_preview_cache` — cached TTS preview audio (hash-keyed)
+- `voice_selection_history` — audit trail of voice selections
 
-### Redubbing Workflow
+### Redubbing Pipeline (11 stages)
 
-The core redubbing process in `redubber.py` follows this workflow:
-1. **Extract audio** from video using ffmpeg
-2. **Transcribe** audio to text using OpenAI Whisper API
-3. **Translate** text using OpenAI GPT models
-4. **Generate speech** from translated text using OpenAI TTS
-5. **Mix** new audio track back into video with original audio streams
-
-### Language Detection
-
-Language detection works through two mechanisms:
-1. Filename pattern matching using regex patterns for common language codes
-2. Content-based detection for subtitles using the `langdetect` library (optional dependency)
+1. Extract audio chunks (ffmpeg)
+2. Transcribe (gpt-4o-transcribe / whisper-1)
+3. Translate (GPT-4o)
+4. Generate TTS segments (gpt-4o-mini-tts, async, up to 100 concurrent)
+5. Assemble audio (ffmpeg)
+6. Mix with video (ffmpeg)
+7. Validate output
+8. Replace original (if `auto_process` enabled)
+9. Copy subtitles
+10. Sync metadata to DB
+11. Clean up temp files
 
 ## Common Commands
 
-**Install dependencies:**
+**Install all dependencies + git hooks:**
 ```bash
-poetry install
+make install
 ```
 
-**Run the Streamlit web application:**
+**Run backend + frontend in parallel (dev mode):**
 ```bash
-poetry run streamlit run app.py
-# or use the convenience script
-./run.sh
-# or use the poetry script
-poetry run redubber
+make dev
+# or individually:
+make dev-backend   # FastAPI on :8000
+make dev-frontend  # Vite on :5173
 ```
 
-**Run the batch redubbing example:**
+**Run tests:**
 ```bash
-poetry run python example.py
+make test          # excludes integration tests
+poetry run pytest tests/ -m integration  # integration only
 ```
 
-**Add new dependencies:**
+**Lint + format:**
 ```bash
-poetry add <package-name>
+make lint          # ruff check
+make format        # ruff check --fix + ruff format
 ```
 
-**Run in development shell:**
+**Build frontend:**
 ```bash
-poetry shell
+make build
 ```
 
-**Type checking (if mypy is available):**
+**Docker:**
 ```bash
-poetry run mypy --ignore-missing-imports .
+docker-compose up -d
 ```
 
 ## Key Development Patterns
 
-**Database Management:**
-- Database operations use context managers (`with sqlite3.connect()`) for proper resource management
-- All database queries use parameterized statements to prevent SQL injection
-- Session state management in Streamlit maintains database connections and current project context
+**Task queue:** Jobs are submitted via `POST /api/redub`, picked up by `TaskQueueManager` workers. Blocking pipeline stages run in a `ThreadPoolExecutor`; async TTS runs directly in the event loop.
 
-**File Processing:**
-- File scanning is recursive using `Path.rglob()` to handle nested project structures
-- Video-subtitle matching uses base filename pattern matching (removes extension and matches with LIKE)
-- Supported file extensions are defined in `FileScanner` class constants
+**Working directories:** Each project gets a `.redubber/` subdirectory inside its folder (or under `REDUBBER_WORKING_DIR` if set). All pipeline artefacts live there.
 
-**Error Handling & Dependencies:**
-- Language detection falls back gracefully when optional dependencies are missing
-- Optional dependencies are handled with try/catch imports (e.g., `langdetect` for content-based language detection)
-- External tool dependencies (ffmpeg/ffprobe) are called via subprocess with proper error handling
+**Settings:** Two-tier config:
+1. `app/core/config.py` — infra settings from env vars (database path, concurrency, API keys)
+2. `app/schemas/settings.py` / `app/services/settings_service.py` — user-facing settings persisted to `settings.json` (TTS model, voice, speed, etc.), editable from the UI
 
-**Audio/Video Processing:**
-- Video analysis uses ffprobe subprocess calls with JSON output parsing for audio stream detection
-- Audio processing pipeline uses temporary files in `redubber_tmp/` directory
-- OpenAI integration requires API token via environment variable `OPENAI_TOKEN` or `openai_config.json`
-- Concurrent processing supported via ThreadPoolExecutor for batch operations
+**Voice refinement:** Three-step flow: select segment → LLM analyses audio/text to generate voice instructions → parallel TTS previews for all 6 voices. Instructions and selection are stored per-project.
 
-**Configuration:**
-- OpenAI settings stored in `openai_config.json` (token, model, voice, instructions)
-- Streamlit configuration in `.streamlit/config.toml`
-- SpaCy language model (`en_core_web_sm`) used for natural language processing
+**Database:** All queries use parameterised statements. `DatabaseManager` is instantiated per-request from the `database_url` config value.
 
-## File Extensions
+**File extensions:**
+- Video: mp4, avi, mkv, mov, wmv, flv, webm, m4v, mpg, mpeg, 3gp, ogv
+- Subtitles: srt, vtt, ass, ssa, sub, sbv, ttml, dfxp, stl, scc
 
-**Supported video formats:** mp4, avi, mkv, mov, wmv, flv, webm, m4v, mpg, mpeg, 3gp, ogv
-**Supported subtitle formats:** srt, vtt, ass, ssa, sub, sbv, ttml, dfxp, stl, scc
+## Environment Variables
 
-## Development Environment
-
-**Database:** SQLite database (`redubber.db`) is created automatically in the working directory
-
-**Core Dependencies:**
-- `streamlit` - Web application framework
-- `openai` - AI-powered transcription, translation, and text-to-speech
-- `spacy` + `en_core_web_sm` - Natural language processing
-- `langdetect` - Content-based language detection (optional)
-
-**External Tools:**
-- **FFmpeg/ffprobe** - Required for video analysis and audio extraction
-- **Python 3.13** - Exact version requirement in pyproject.toml
-
-**Project Structure:**
-- Root-level modules for core functionality
-- `components/` package for Streamlit UI organization
-- `redubber_tmp/` directory for temporary audio processing files
-- Configuration files: `openai_config.json`, `.streamlit/config.toml`
+See `README.md` for the full table. Required: `OPENAI_API_KEY`. Key optional vars: `DATABASE_URL`, `MOUNTED_STORAGE`, `REDUBBER_WORKING_DIR`, `MAX_CONCURRENT_REDUBS`.

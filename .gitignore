@@ -209,6 +209,7 @@ __marimo__/
 # Redubber specific
 redubber.db
 openai_config.json
+openapi.json
 
 dest/
 redubber_tmp/
