@@ -542,9 +542,9 @@ class VoiceSaveRequest(BaseModel):
         ],
     )
     segment_used: str = Field(
-        ...,
-        description="Segment ID that was used for voice testing",
-        examples=["project_42_segment_0", "intro_video_segment_1"],
+        default="",
+        description="Segment ID that was used for voice testing. Empty when voice was set manually.",
+        examples=["project_42_segment_0", "intro_video_segment_1", ""],
     )
 
     model_config = {

@@ -335,8 +335,8 @@ export const useVoiceRefinement = ({
 
   // Save voice settings
   const saveSettings = useCallback(async () => {
-    if (!selectedVoice || !voiceInstructions || !selectedSegment) {
-      setError('Please select a voice before saving');
+    if (!selectedVoice || !voiceInstructions) {
+      setError('Please select a voice and enter instructions before saving');
       return;
     }
 
@@ -350,7 +350,7 @@ export const useVoiceRefinement = ({
         body: JSON.stringify({
           voice: selectedVoice,
           voice_instructions: voiceInstructions,
-          segment_used: selectedSegment.id,
+          segment_used: selectedSegment?.id ?? '',
         }),
       });
 
