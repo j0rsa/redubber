@@ -364,7 +364,7 @@ export const useVoiceRefinement = ({
         onSave({
           voice: selectedVoice,
           voice_instructions: voiceInstructions,
-          segment_used: selectedSegment.id,
+          segment_used: selectedSegment?.id ?? '',
         });
       }
     } catch (err) {
