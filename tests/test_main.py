@@ -59,7 +59,7 @@ class TestApplicationSetup:
         paths = schema["paths"]
 
         # Check project routes
-        assert "/api/projects/" in paths
+        assert "/api/projects" in paths
         assert "/api/projects/{project_id}" in paths
         assert "/api/projects/{project_id}/voice-settings" in paths
 
@@ -82,7 +82,7 @@ class TestApplicationSetup:
         paths = schema["paths"]
 
         # Projects endpoints should be tagged
-        projects_path = paths["/api/projects/"]["get"]
+        projects_path = paths["/api/projects"]["get"]
         assert "projects" in projects_path["tags"]
 
         # Tasks endpoints should be tagged

@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useProjects } from '../hooks/useProjects';
 import { useUIStore } from '../stores/uiStore';
 import { InstallPrompt } from '../components/InstallPrompt';
@@ -7,6 +8,7 @@ import styles from './ProjectHub.module.css';
 import { useState } from 'react';
 import { Settings } from '../components/Settings/Settings';
 import { useSettings } from '../hooks/useSettings';
+import { apiClient } from '../api/client';
 
 export const ProjectHub = () => {
   const navigate = useNavigate();
@@ -14,6 +16,11 @@ export const ProjectHub = () => {
   const setCurrentProjectId = useUIStore((state) => state.setCurrentProjectId);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { settings, isSaving, error: settingsError, successMessage, saveSettings } = useSettings();
+  const { data: health } = useQuery<{ version: string }>({
+    queryKey: ['health'],
+    queryFn: async () => (await apiClient.get('/health')).data,
+    staleTime: Infinity,
+  });
 
   const handleSelectProject = (id: number) => {
     setCurrentProjectId(id);
@@ -27,7 +34,12 @@ export const ProjectHub = () => {
         <header className={styles.header}>
           <div className={styles.headerContent}>
             <div className={styles.brand}>
-              <h1 className={styles.title}>Redubber</h1>
+              <h1 className={styles.title}>
+                Redubber
+                {health?.version && (
+                  <sup className={styles.version}>v{health.version}</sup>
+                )}
+              </h1>
               <p className={styles.subtitle}>AI-powered video dubbing</p>
             </div>
             <div className={styles.headerActions}>

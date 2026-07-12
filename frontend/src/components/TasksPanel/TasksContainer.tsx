@@ -11,12 +11,14 @@ import { TasksPanel } from './TasksPanel';
 export const TasksContainer = () => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
-  const { activeTasks, activeCount } = useActiveTasks();
+  const { activeTasks, activeCount, hasActive } = useActiveTasks();
 
   const handleViewJob = (taskId: string) => {
     setIsOpen(false);
     navigate(`/job/${taskId}`);
   };
+
+  if (!hasActive) return null;
 
   return (
     <>

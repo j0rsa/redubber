@@ -87,7 +87,8 @@ async def _scan_project_files(
             db.set_source_language_override(project_id, dominant_language)
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)
+@router.post("/", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse, include_in_schema=False)
 async def create_project(
     project: ProjectCreate,
     background_tasks: BackgroundTasks,
@@ -163,7 +164,8 @@ async def create_project(
     return ProjectResponse(**project_record)
 
 
-@router.get("/", response_model=list[ProjectResponse])
+@router.get("", response_model=list[ProjectResponse])
+@router.get("/", response_model=list[ProjectResponse], include_in_schema=False)
 async def list_projects(
     db: Annotated[DatabaseManager, Depends(get_db)],
 ) -> list[ProjectResponse]:
