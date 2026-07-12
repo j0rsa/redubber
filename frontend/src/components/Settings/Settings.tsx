@@ -296,9 +296,11 @@ export const Settings = ({
         <div className={styles.row}>
           <div className={styles.labelCol}>
             <label className={styles.label} htmlFor={ttsSpeedId}>
-              TTS Speed
+              TTS Initial Speed
             </label>
-            <span className={styles.hint}>1.25 helps dubs fit timing, 1.0 = natural pace</span>
+            <span className={styles.hint}>
+              Pre-render speed sent to the TTS engine. Audio is then auto-adjusted per segment to fit the original timing. 1.25 is a good default — dubbed speech tends to run longer, so starting faster means less aggressive auto-stretching.
+            </span>
           </div>
           <div className={styles.controlCol}>
             <input
@@ -392,9 +394,11 @@ export const Settings = ({
         <div className={styles.row}>
           <div className={styles.labelCol}>
             <label className={styles.label} htmlFor={audioChunkId}>
-              Audio Chunk
+              Audio Chunk Duration
             </label>
-            <span className={styles.hint}>Audio chunk size for Whisper (max ~25MB)</span>
+            <span className={styles.hint}>
+              How many seconds of audio are sent to the transcription API per request. The API limit is ~25 MB per chunk — lower this if your videos have high-bitrate audio and transcription fails. Raise it to reduce API call overhead on short videos.
+            </span>
           </div>
           <div className={styles.controlCol}>
             <div className={styles.inputWithSuffix}>

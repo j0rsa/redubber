@@ -14,24 +14,20 @@ services:
     environment:
       # Storage Configuration
       - DATABASE_URL=/mounted-storage/redubber.db
-      - MOUNTED_STORAGE=/mounted-storage
 
       # OpenAI Configuration (required)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
-      - OPENAI_VOICE=${OPENAI_VOICE:-nova}
 
       # Task Queue Configuration
       - MAX_CONCURRENT_REDUBS=${MAX_CONCURRENT_REDUBS:-1}
       - TASK_QUEUE_MAX_SIZE=${TASK_QUEUE_MAX_SIZE:-100}
-      - TTS_MAX_CONCURRENT=${TTS_MAX_CONCURRENT:-100}
 
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
       # API Configuration
       - API_TITLE=${API_TITLE:-Redubber API}
-      - API_VERSION=${API_VERSION:-2.0.0}
+      - API_VERSION=${API_VERSION:-2.0.1}
 
     restart: unless-stopped
 

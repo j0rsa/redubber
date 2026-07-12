@@ -20,6 +20,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class _NoHealthCheckFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/health" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_NoHealthCheckFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifespan (startup and shutdown)."""
@@ -36,9 +44,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(
         "TaskQueueManager started with %d workers", settings.max_concurrent_redubs
     )
-
-    # Ensure directories exist
-    settings.storage_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Application startup complete")
 
@@ -123,6 +128,7 @@ preserving the original speaker's tone, emotion, and delivery style.
                 "description": "Service health and status monitoring",
             },
         ],
+        redirect_slashes=False,
     )
 
     # CORS middleware for frontend

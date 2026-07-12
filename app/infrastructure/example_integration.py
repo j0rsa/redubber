@@ -36,9 +36,6 @@ async def lifespan_with_task_queue(app: FastAPI) -> AsyncGenerator[None, None]:
     # Store in app state for access from routes
     app.state.task_manager = task_manager
 
-    # Ensure directories exist
-    settings.storage_path.mkdir(parents=True, exist_ok=True)
-
     yield
 
     # Shutdown: Stop workers gracefully

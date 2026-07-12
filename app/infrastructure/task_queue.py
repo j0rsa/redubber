@@ -473,14 +473,17 @@ class TaskQueueManager:
             _openai_timeout = 60.0
             _openai_retries = 3
             _tts_model = "gpt-4o-mini-tts"
-            _project_voice = settings.openai_voice
+            _project_voice = "nova"
             _project_voice_instructions = ""
+            _async_tts_concurrency = 20
             try:
                 from app.services.settings_service import get_settings as _get_settings_tts
                 _tts_settings = _get_settings_tts()
                 _openai_timeout = _tts_settings.openai_timeout
                 _openai_retries = _tts_settings.openai_retries
                 _tts_model = _tts_settings.tts_model or _tts_model
+                _project_voice = _tts_settings.default_voice or _project_voice
+                _async_tts_concurrency = _tts_settings.tts_concurrency
             except Exception:
                 pass
 
@@ -530,7 +533,7 @@ class TaskQueueManager:
                 segments=segments,
                 output_dir=tts_output_dir,
                 progress_callback=tts_progress_callback,
-                max_concurrent=settings.tts_max_concurrent,
+                max_concurrent=_async_tts_concurrency,
             )
 
             await async_service.close()

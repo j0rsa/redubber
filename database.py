@@ -13,6 +13,8 @@ class DatabaseManager:
 
     def __init__(self, db_path: str = "redubber.db"):
         self.db_path = db_path
+        import os as _os
+        _os.makedirs(_os.path.dirname(_os.path.abspath(db_path)), exist_ok=True)
         self.init_database()
 
     def init_database(self):
