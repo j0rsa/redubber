@@ -169,11 +169,23 @@ preserving the original speaker's tone, emotion, and delivery style.
     static_path = Path(__file__).parent / "static"
     if static_path.exists():
         logger.info("Mounting static files from %s", static_path)
-        app.mount(
-            "/",
-            StaticFiles(directory=str(static_path), html=True),
-            name="static",
-        )
+
+        # Serve static assets directory (JS bundles, CSS, images)
+        assets_path = static_path / "assets"
+        if assets_path.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
+
+        # SPA catch-all: serve a real file if it exists, otherwise return index.html
+        # so that React Router handles client-side navigation (e.g. /project/1).
+        from fastapi.responses import FileResponse
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def spa_fallback(full_path: str):
+            file = static_path / full_path
+            if file.is_file():
+                return FileResponse(str(file))
+            return FileResponse(str(static_path / "index.html"))
+
     else:
         logger.warning("Static files directory not found at %s", static_path)
 
