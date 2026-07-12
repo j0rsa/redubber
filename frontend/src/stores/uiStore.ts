@@ -24,7 +24,6 @@ interface UIState {
   // Per-project hide-completed preference
   hideCompletedByProject: Record<number, boolean>;
   setHideCompleted: (projectId: number, hide: boolean) => void;
-  getHideCompleted: (projectId: number) => boolean;
 
   // Theme
   theme: 'light' | 'dark';
@@ -57,8 +56,6 @@ export const useUIStore = create<UIState>()(
         set((state) => ({
           hideCompletedByProject: { ...state.hideCompletedByProject, [projectId]: hide },
         })),
-      getHideCompleted: (projectId) =>
-        (useUIStore.getState().hideCompletedByProject[projectId] ?? false),
 
       // Theme
       theme: 'light',
