@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "generate-icons": "node scripts/generate-pwa-icons.js",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "STORYBOOK=true storybook build"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
