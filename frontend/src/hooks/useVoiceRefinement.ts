@@ -50,7 +50,7 @@ interface UseVoiceRefinementReturn {
   // Actions
   fetchSegments: () => Promise<void>;
   loadMoreSegments: () => Promise<void>;
-  updateFilter: (filter: SegmentFilter) => void;
+  updateFilter: (filter: Partial<SegmentFilter>) => void;
   selectSegment: (segment: TranscriptionSegment) => void;
   analyzeVoice: () => Promise<void>;
   regenerateInstructions: (feedback?: string) => Promise<void>;
@@ -163,8 +163,8 @@ export const useVoiceRefinement = ({
 
   /** Update filter, reset pagination, and re-fetch */
   const updateFilter = useCallback(
-    (newFilter: SegmentFilter) => {
-      setFilter(newFilter);
+    (newFilter: Partial<SegmentFilter>) => {
+      setFilter((prev) => ({ ...prev, ...newFilter }));
       setOffset(0);
       setSegments([]);
       setHasMore(false);
