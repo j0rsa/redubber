@@ -1,0 +1,136 @@
+.container {
+  min-width: 200px;
+}
+
+.statusHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.stageName {
+  font-size: 12px;
+  color: #666;
+  font-weight: 400;
+}
+
+.stageChip {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.3s;
+}
+
+.stageChip.pending {
+  background: #f5f5f5;
+  color: #757575;
+}
+
+.stageChip.running {
+  background: #e3f2fd;
+  color: #1976d2;
+  animation: pulse 2s infinite;
+}
+
+.stageChip.ready {
+  background: #fff3e0;
+  color: #f57c00;
+  animation: pulse 2s infinite;
+}
+
+.stageChip.completed {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.stageChip.failed {
+  background: #ffebee;
+  color: #d32f2f;
+}
+
+.errorText {
+  font-size: 11px;
+  color: #d32f2f;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.progressSection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.percentage {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1976d2;
+  min-width: 40px;
+  text-align: right;
+}
+
+.stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #757575;
+}
+
+.statProgress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #1976d2;
+  animation: pulse 2s infinite;
+}
+
+.statIcon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.statValue {
+  font-weight: 500;
+  color: #424242;
+}
+
+.statProgress .statValue {
+  color: #1976d2;
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}

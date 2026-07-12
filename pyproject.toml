@@ -1,15 +1,23 @@
 [tool.poetry]
 name = "redubber"
-version = "0.1.0"
-description = "A Streamlit application for managing audio-redub projects with automatic video and subtitle file indexing"
+version = "2.0.0"
+description = "High-performance video redubbing system with FastAPI backend and React PWA frontend"
 authors = ["red <red.avtovo@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.13,<3.14"
-streamlit = "^1.50.0"
-langdetect = "^1.0.9"
+# FastAPI Backend
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+pydantic = "^2.10.0"
+pydantic-settings = "^2.6.0"
+httpx = {extras = ["http2"], version = "^0.28.0"}
+# OpenAI with async support
 openai = "^1.109.1"
+# Existing dependencies
+streamlit = "^1.50.0"  # Keep for migration phase, remove later
+langdetect = "^1.0.9"
 tqdm = "^4.67.1"
 tdqm = "^0.0.1"
 
@@ -20,10 +28,27 @@ redubber = "app:main"
 poetry-types = "^0.6.0"
 # Usage: poetry types add <package-name>
 types-tqdm = "^4.67.0.20250809"
+pytest = "^9.1.1"
+pytest-asyncio = "^1.4.0"
+httpx = "^0.28.1"
+ruff = "^0.15.21"
 
 [[tool.mypy.overrides]]
 module = "ffmpeg"
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (slow)",
+    "performance: marks performance benchmark tests",
+    "stale: marks tests that need to be rewritten to match current API",
+]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-m 'not stale and not integration'"
 
 [build-system]
 requires = ["poetry-core"]

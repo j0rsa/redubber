@@ -1,0 +1,21 @@
+.container {
+  width: 100%;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Mobile adjustments */
+@media (max-width: 640px) {
+  .container {
+    height: 48px;
+  }
+}

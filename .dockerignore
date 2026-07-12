@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.mypy_cache/
+.pytype/
+.venv/
+venv/
+ENV/
+env/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README.md
+CLAUDE.md
+DOCKER.md
+LICENSE
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Storage & Database
+storage/
+tmp/
+redubber.db
+*.db
+*.db-journal
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude
+.claude/
+
+# Streamlit
+.streamlit/
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+
+# Build artifacts
+*.whl
+*.tar.gz
+
+# Jupyter
+*.ipynb
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+redubber_tmp/
+
+# Config files with secrets
+openai_config.json
+
+# Lock files (we copy them explicitly)
+# poetry.lock - keep this one
+# package-lock.json - keep this one
+uv.lock
+
+# Python version management
+.python-version
