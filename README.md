@@ -1,6 +1,6 @@
 # Redubber
 
-AI-powered video redubbing — transcribes, translates, and re-voices video with OpenAI APIs. v2.0 delivers 5× faster processing via async TTS and ships as a React PWA + FastAPI service.
+AI-powered video redubbing — transcribes, translates, and re-voices video with OpenAI APIs. Ships as a React PWA + FastAPI service.
 
 ## Features
 
@@ -18,8 +18,8 @@ AI-powered video redubbing — transcribes, translates, and re-voices video with
 **Prerequisites:** Docker 20.10+, OpenAI API key
 
 ```bash
-# 1. Create storage directories and env file
-mkdir -p storage
+# 1. Create a config directory and env file
+mkdir -p config
 echo "OPENAI_API_KEY=sk-your-key-here" > .env
 
 # 2. Start
@@ -29,7 +29,9 @@ docker-compose up -d
 open http://localhost:8000
 ```
 
-Videos and the database persist in `./storage`. Logs: `docker-compose logs -f`.
+`config/` holds `redubber.db` (projects, videos, settings) and survives container restarts. Logs: `docker-compose logs -f`.
+
+> **Tip:** You can also set the OpenAI API key in the app's Settings page — it's stored in the database and persists across restarts.
 
 ---
 
@@ -72,21 +74,22 @@ All variables are read at startup. Set them in `.env` (local dev) or pass them t
 
 | Variable | Description |
 |---|---|
-| `OPENAI_API_KEY` | OpenAI API key (`sk-...`) — can also be set via the UI Settings page and is then persisted to `settings.json` |
+| `OPENAI_API_KEY` | OpenAI API key (`sk-...`) — can also be set via the UI Settings page and is then persisted to the database |
 
 ### Storage & Paths
 
 | Variable | Default | Description |
 |---|---|---|
-| `REDUBBER_CONFIG_PATH` | _(empty)_ | Directory where `redubber.db` and `settings.json` are stored. **Set this to a mounted volume path in production** so the database and all UI settings (including your API key) survive container restarts. |
+| `REDUBBER_CONFIG_PATH` | _(empty)_ | **Set this in production.** Directory where `redubber.db` is stored. All UI settings (API key, voice, models) are stored in the database — everything survives container restarts when this points to a mounted volume. |
+| `REDUBBER_WORKING_DIR` | _(empty)_ | Root where per-project `.redubber/` artefact directories are created. Defaults to a `.redubber/` folder inside each project's own directory. |
+| `REDUBBER_PROJECTS_ROOT` | _(empty)_ | Starting directory for the file browser when creating a new project. |
 
-### Performance
+### Task Queue
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAX_CONCURRENT_REDUBS` | `1` | Max simultaneous redubbing jobs. Increase only if CPU/RAM allow — each job is already heavily parallelised internally |
-| `TASK_QUEUE_MAX_SIZE` | `100` | Max queued jobs before new submissions are rejected |
-
+| `MAX_CONCURRENT_REDUBS` | `1` | Max simultaneous redubbing jobs. Increase only if CPU/RAM allow — each job is already heavily parallelised internally. |
+| `TASK_QUEUE_MAX_SIZE` | `100` | Max queued jobs before new submissions are rejected. |
 
 ### Logging & API
 
@@ -94,17 +97,8 @@ All variables are read at startup. Set them in `.env` (local dev) or pass them t
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | Python log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `API_TITLE` | `Redubber API` | Title shown in `/api/docs` |
-| `API_VERSION` | `2.0.0` | Version shown in `/api/docs` |
+| `API_VERSION` | `2.0.2` | Version shown in `/api/docs` |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated allowed CORS origins |
-
-### App-level Settings (UI-configurable)
-
-These are stored in `settings.json` and editable via **Settings → ⚙** in the UI. They can also be seeded at startup via environment:
-
-| Env Var | Default | Description |
-|---|---|---|
-| `REDUBBER_PROJECTS_ROOT` | _(empty)_ | Starting directory for the project file browser |
-| `REDUBBER_WORKING_DIR` | _(empty)_ | Root where `.redubber/` working dirs are created |
 
 ---
 
@@ -115,11 +109,10 @@ These are stored in `settings.json` and editable via **Settings → ⚙** in the
 The included `docker-compose.yml` is production-ready for single-host deployments.
 
 ```bash
-# Production run with explicit env
 OPENAI_API_KEY=sk-... docker-compose up -d
 ```
 
-**Persistent data** lives in `./storage` (mounted as `/mounted-storage` in the container). Back this up — it contains the database and dubbed output files.
+**Persistent data** lives in `./config` (mounted as `/config` in the container). Back this directory up — it contains the database, all settings, and is the only stateful data the app writes.
 
 **Resource limits** are set in `docker-compose.yml` (default: 2 CPU / 4 GB RAM). Tune based on video volume and concurrency needs.
 
@@ -132,7 +125,7 @@ Pre-built images are published on every push to `main`:
 docker pull ghcr.io/j0rsa/redubber:latest
 
 # Pinned version
-docker pull ghcr.io/j0rsa/redubber:v2.0.0
+docker pull ghcr.io/j0rsa/redubber:v2.0.2
 ```
 
 Run standalone:
@@ -141,7 +134,8 @@ Run standalone:
 docker run -d \
   -p 8000:8000 \
   -e OPENAI_API_KEY=sk-your-key \
-  -v $(pwd)/storage:/mounted-storage \
+  -e REDUBBER_CONFIG_PATH=/config \
+  -v $(pwd)/config:/config \
   ghcr.io/j0rsa/redubber:latest
 ```
 
@@ -169,7 +163,7 @@ server {
 
 ```bash
 curl http://localhost:8000/api/health
-# {"status":"ok","version":"2.0.0"}
+# {"status":"healthy","version":"2.0.2"}
 ```
 
 ---
@@ -206,6 +200,7 @@ curl http://localhost:8000/api/health
 │  projects · video_files · subtitle_files      │
 │  voice_instruction_generations                │
 │  tts_preview_cache · voice_selection_history  │
+│  app_settings  (OpenAI key, voices, models)   │
 └──────────────────────────────────────────────┘
 ```
 
