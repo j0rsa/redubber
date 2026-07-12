@@ -164,7 +164,8 @@ export const useVoiceRefinement = ({
   /** Update filter, reset pagination, and re-fetch */
   const updateFilter = useCallback(
     (newFilter: Partial<SegmentFilter>) => {
-      setFilter((prev) => ({ ...prev, ...newFilter }));
+      const merged: SegmentFilter = { ...filter, ...newFilter };
+      setFilter(merged);
       setOffset(0);
       setSegments([]);
       setHasMore(false);
@@ -173,7 +174,7 @@ export const useVoiceRefinement = ({
       setLoadingSegments(true);
       setError(null);
 
-      const url = buildSegmentsUrl(newFilter, 0);
+      const url = buildSegmentsUrl(merged, 0);
       fetch(url)
         .then((response) => {
           if (!response.ok) {
