@@ -38,6 +38,7 @@ const configuredSettings: SettingsData = {
   stt_model: 'whisper-1',
   tts_model: 'tts-1',
   voice_analysis_model: 'gpt-4o',
+  voice_analysis_audio_model: 'gpt-audio-1',
   default_voice: 'nova',
   projects_root_path: '/Users/jane/Videos',
   working_directory: '/Users/jane/redubber_output',

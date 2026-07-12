@@ -18,6 +18,7 @@ export interface VoiceInstructions {
   detected_characteristics: {
     tone: string;
     pace: string;
+    emotion?: string;
     energy?: string;
     style: string;
     speaker_gender?: 'male' | 'female' | 'unknown';
