@@ -79,16 +79,6 @@ All variables are read at startup. Set them in `.env` (local dev) or pass them t
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `./redubber.db` | SQLite database file path |
-| `MOUNTED_STORAGE` | `./storage` | Root for persistent output (dubbed videos, exports) |
-
-### OpenAI Models
-
-| Variable | Default | Description |
-|---|---|---|
-| `OPENAI_MODEL` | `gpt-4o` | GPT model used for translation |
-| `OPENAI_VOICE` | `nova` | Default TTS voice for new projects |
-
-Individual projects can override voice and voice instructions via the Voice Refinement UI.
 
 ### Performance
 
@@ -96,7 +86,7 @@ Individual projects can override voice and voice instructions via the Voice Refi
 |---|---|---|
 | `MAX_CONCURRENT_REDUBS` | `1` | Max simultaneous redubbing jobs. Increase only if CPU/RAM allow — each job is already heavily parallelised internally |
 | `TASK_QUEUE_MAX_SIZE` | `100` | Max queued jobs before new submissions are rejected |
-| `TTS_MAX_CONCURRENT` | `100` | Async TTS concurrency per job (OpenAI API calls in flight) |
+
 
 ### Logging & API
 

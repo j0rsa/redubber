@@ -136,7 +136,6 @@ def integration_client(
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     # Patch settings to use test directories
-    monkeypatch.setattr(settings, "mounted_storage", str(storage_dir))
     monkeypatch.setattr(settings, "database_url", str(storage_dir / "test_redubber.db"))
     monkeypatch.setattr(settings, "openai_api_key", "test-key-integration")
     monkeypatch.setattr(settings, "max_concurrent_redubs", 2)
