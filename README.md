@@ -72,13 +72,13 @@ All variables are read at startup. Set them in `.env` (local dev) or pass them t
 
 | Variable | Description |
 |---|---|
-| `OPENAI_API_KEY` | OpenAI API key (`sk-...`) |
+| `OPENAI_API_KEY` | OpenAI API key (`sk-...`) — can also be set via the UI Settings page and is then persisted to `settings.json` |
 
 ### Storage & Paths
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `./redubber.db` | SQLite database file path |
+| `REDUBBER_CONFIG_PATH` | _(empty)_ | Directory where `redubber.db` and `settings.json` are stored. **Set this to a mounted volume path in production** so the database and all UI settings (including your API key) survive container restarts. |
 
 ### Performance
 

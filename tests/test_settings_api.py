@@ -10,7 +10,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -175,14 +174,10 @@ class TestApiKeyMasking:
     """Tests that ensure the OpenAI API key is masked in responses."""
 
     def test_api_key_masked_in_get_response(
-        self, client: TestClient, settings_tmp: Path
+        self, client: TestClient
     ) -> None:
         """GET response must never return a full API key."""
-        # Write a settings file with a real-looking key directly
-        settings_tmp.write_text(
-            json.dumps({"openai_api_key": "sk-abc123def456xyz789ABCD"}),
-            encoding="utf-8",
-        )
+        client.put("/api/settings", json={"openai_api_key": "sk-abc123def456xyz789ABCD"})
 
         response = client.get("/api/settings")
         body = response.json()
@@ -202,15 +197,16 @@ class TestApiKeyMasking:
         assert "..." in body["openai_api_key"]
         assert body["openai_api_key"].endswith("1234")
 
-    def test_api_key_stored_in_full_on_disk(
-        self, client: TestClient, settings_tmp: Path
+    def test_api_key_stored_in_full_in_db(
+        self, client: TestClient
     ) -> None:
-        """The full API key must be persisted to disk even though it's masked in responses."""
+        """The full API key must be persisted (masked only in API responses)."""
         full_key = "sk-verysecretapikey9876"
         client.put("/api/settings", json={"openai_api_key": full_key})
 
-        stored = json.loads(settings_tmp.read_text(encoding="utf-8"))
-        assert stored["openai_api_key"] == full_key
+        # Verify round-trip: save masked key via PUT then re-read via internal service
+        from app.services.settings_service import get_openai_api_key
+        assert get_openai_api_key() == full_key
 
     def test_empty_key_returns_empty_string(self, client: TestClient) -> None:
         """An empty API key should yield an empty string in the response (not masked)."""
@@ -220,13 +216,10 @@ class TestApiKeyMasking:
         assert response.json()["openai_api_key"] == ""
 
     def test_api_key_shows_last_4_chars(
-        self, client: TestClient, settings_tmp: Path
+        self, client: TestClient
     ) -> None:
         """Masked key format must be 'sk-...{last4}'."""
-        settings_tmp.write_text(
-            json.dumps({"openai_api_key": "sk-PROJ-SomeLongKeyWXYZ"}),
-            encoding="utf-8",
-        )
+        client.put("/api/settings", json={"openai_api_key": "sk-PROJ-SomeLongKeyWXYZ"})
 
         response = client.get("/api/settings")
         body = response.json()

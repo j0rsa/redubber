@@ -18,6 +18,7 @@ export interface Project {
 
 export interface ProjectCreate {
   path: string;
+  name?: string;
 }
 
 export interface AudioStream {

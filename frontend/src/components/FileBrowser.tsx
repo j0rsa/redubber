@@ -65,16 +65,11 @@ export const FileBrowser = ({
           onClick={() => handleNodeClick(node)}
           onDoubleClick={() => handleNodeDoubleClick(node)}
         >
-          {isDirectory && (
-            <span className={styles.expandIcon}>
-              {isExpanded ? '▼' : '▶'}
-            </span>
-          )}
           <span className={styles.icon}>
             {isDirectory ? '📁' : '📄'}
           </span>
           <span className={styles.name}>{node.name}</span>
-          {node.size !== undefined && (
+          {!isDirectory && node.size !== undefined && (
             <span className={styles.size}>{formatSize(node.size)}</span>
           )}
         </div>

@@ -186,6 +186,55 @@ class DatabaseManager:
                 )
             """)
 
+            # App settings table (singleton row, id=1 enforced)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    openai_api_key TEXT DEFAULT '',
+                    openai_base_url TEXT DEFAULT '',
+                    stt_model TEXT DEFAULT 'gpt-4o-transcribe',
+                    tts_model TEXT DEFAULT 'gpt-4o-mini-tts',
+                    voice_analysis_model TEXT DEFAULT 'o4-mini',
+                    voice_analysis_audio_model TEXT DEFAULT 'gpt-audio-1',
+                    default_voice TEXT DEFAULT 'nova',
+                    tts_concurrency INTEGER DEFAULT 20,
+                    openai_timeout REAL DEFAULT 60.0,
+                    openai_retries INTEGER DEFAULT 3,
+                    tts_speed REAL DEFAULT 1.25,
+                    audio_chunk_duration INTEGER DEFAULT 900,
+                    projects_root_path TEXT DEFAULT '',
+                    working_directory TEXT DEFAULT '',
+                    auto_process BOOLEAN DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            conn.commit()
+
+    def get_app_settings(self) -> Optional[Dict]:
+        """Fetch the app settings row, or None if not yet saved."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM app_settings WHERE id = 1")
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def save_app_settings(self, settings_dict: Dict) -> None:
+        """Upsert all app settings as a single row (id=1)."""
+        fields = [k for k in settings_dict if k != "id"]
+        placeholders = ", ".join(f"{f} = ?" for f in fields)
+        values = [settings_dict[f] for f in fields]
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            # Insert row if missing, then update
+            cursor.execute(
+                "INSERT OR IGNORE INTO app_settings (id) VALUES (1)"
+            )
+            cursor.execute(
+                f"UPDATE app_settings SET {placeholders}, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+                values,
+            )
             conn.commit()
 
     def add_project(self, path: str, name: str) -> int:
