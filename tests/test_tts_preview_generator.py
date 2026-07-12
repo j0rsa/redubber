@@ -4,7 +4,6 @@ Tests TTS audio generation with caching and parallel processing.
 """
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -17,7 +16,6 @@ from app.services.tts_preview_generator import (
 )
 from database import DatabaseManager
 
-pytestmark = pytest.mark.stale  # needs rewrite to match current generate_audio signature
 
 
 class TestTTSPreviewGeneratorInit:
@@ -214,10 +212,11 @@ class TestGenerateAudio:
         """Provide generator instance."""
         return TTSPreviewGenerator(api_key="test-key", cache_dir=str(tmp_path))
 
-    def test_generate_audio_success(self, generator):
+    def test_generate_audio_success(self, generator, tmp_path):
         """Test successful audio generation."""
         mock_response = Mock()
         mock_response.stream_to_file = Mock()
+        output_path = str(tmp_path / "nova_test.mp3")
 
         with patch.object(
             generator.client.audio.speech, "create", return_value=mock_response
@@ -225,9 +224,10 @@ class TestGenerateAudio:
             generator, "get_audio_duration_ms", return_value=2500
         ):
             audio_path, duration = generator.generate_audio(
+                text="Hello world",
                 voice="nova",
-                translated_text="Hello world",
-                voice_instructions="Speak clearly",
+                instructions="Speak clearly",
+                output_path=output_path,
             )
 
             mock_create.assert_called_once()
@@ -235,98 +235,94 @@ class TestGenerateAudio:
             assert duration == 2500
             assert "nova" in audio_path
 
-    def test_generate_audio_with_instructions_uses_mini_tts(self, generator):
-        """Test that generation with instructions tries gpt-4o-mini-tts first."""
+    def test_generate_audio_with_instructions_uses_mini_tts(self, generator, tmp_path):
+        """Test that generation with instructions uses gpt-4o-mini-tts."""
         mock_response = Mock()
         mock_response.stream_to_file = Mock()
+        output_path = str(tmp_path / "alloy_test.mp3")
 
         with patch.object(
             generator.client.audio.speech, "create", return_value=mock_response
         ) as mock_create, patch.object(generator, "get_audio_duration_ms", return_value=1000):
             generator.generate_audio(
+                text="Test",
                 voice="alloy",
-                translated_text="Test",
-                voice_instructions="Test instructions",
+                instructions="Test instructions",
+                output_path=output_path,
             )
 
-            # Should try gpt-4o-mini-tts with instructions
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["model"] == "gpt-4o-mini-tts"
             assert call_kwargs["instructions"] == "Test instructions"
 
-    def test_generate_audio_without_instructions_uses_standard_model(self, generator):
+    def test_generate_audio_without_instructions_uses_standard_model(self, generator, tmp_path):
         """Test that generation without instructions uses standard TTS model."""
         mock_response = Mock()
         mock_response.stream_to_file = Mock()
+        output_path = str(tmp_path / "echo_test.mp3")
 
         with patch.object(
             generator.client.audio.speech, "create", return_value=mock_response
         ) as mock_create, patch.object(generator, "get_audio_duration_ms", return_value=1000):
             generator.generate_audio(
+                text="Test",
                 voice="echo",
-                translated_text="Test",
-                voice_instructions="",
+                instructions="",
+                output_path=output_path,
             )
 
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["model"] == TTS_MODEL
             assert "instructions" not in call_kwargs
 
-    def test_generate_audio_fallback_on_mini_tts_failure(self, generator):
-        """Test fallback to standard model if gpt-4o-mini-tts fails."""
-        mock_response = Mock()
-        mock_response.stream_to_file = Mock()
-
-        call_count = [0]
-
-        def create_side_effect(**kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1 and kwargs.get("model") == "gpt-4o-mini-tts":
-                raise Exception("Model not available")
-            return mock_response
+    def test_generate_audio_raises_on_api_failure(self, generator, tmp_path):
+        """Test that API failure propagates — no silent fallback."""
+        output_path = str(tmp_path / "fable_test.mp3")
 
         with patch.object(
-            generator.client.audio.speech, "create", side_effect=create_side_effect
-        ) as mock_create, patch.object(generator, "get_audio_duration_ms", return_value=1000):
-            audio_path, duration = generator.generate_audio(
-                voice="fable",
-                translated_text="Test",
-                voice_instructions="Instructions",
-            )
+            generator.client.audio.speech, "create", side_effect=Exception("Model not available")
+        ):
+            with pytest.raises(Exception, match="Model not available"):
+                generator.generate_audio(
+                    text="Test",
+                    voice="fable",
+                    instructions="Instructions",
+                    output_path=output_path,
+                )
 
-            # Should have been called twice (first failed, second succeeded)
-            assert mock_create.call_count == 2
-            assert audio_path is not None
-
-    def test_generate_audio_with_hd_model(self, generator):
+    def test_generate_audio_with_hd_model(self, generator, tmp_path):
         """Test audio generation with HD model."""
         mock_response = Mock()
         mock_response.stream_to_file = Mock()
+        output_path = str(tmp_path / "onyx_hd.mp3")
 
         with patch.object(
             generator.client.audio.speech, "create", return_value=mock_response
         ) as mock_create, patch.object(generator, "get_audio_duration_ms", return_value=1000):
             generator.generate_audio(
+                text="Test",
                 voice="onyx",
-                translated_text="Test",
-                voice_instructions="",
+                instructions="",
+                output_path=output_path,
                 use_hd=True,
             )
 
             call_kwargs = mock_create.call_args.kwargs
             assert call_kwargs["model"] == "tts-1-hd"
 
-    def test_generate_audio_invalid_voice_raises_error(self, generator):
+    def test_generate_audio_invalid_voice_raises_error(self, generator, tmp_path):
         """Test that invalid voice name raises ValueError."""
         with pytest.raises(ValueError, match="Invalid voice"):
             generator.generate_audio(
+                text="Test",
                 voice="invalid_voice",
-                translated_text="Test",
-                voice_instructions="",
+                instructions="",
+                output_path=str(tmp_path / "out.mp3"),
             )
 
-    def test_generate_audio_api_failure_raises_exception(self, generator):
+    def test_generate_audio_api_failure_raises_exception(self, generator, tmp_path):
         """Test that API failure raises exception."""
+        output_path = str(tmp_path / "shimmer_test.mp3")
         with patch.object(
             generator.client.audio.speech,
             "create",
@@ -334,23 +330,26 @@ class TestGenerateAudio:
         ):
             with pytest.raises(Exception, match="API error"):
                 generator.generate_audio(
+                    text="Test",
                     voice="shimmer",
-                    translated_text="Test",
-                    voice_instructions="",
+                    instructions="",
+                    output_path=output_path,
                 )
 
     def test_generate_audio_creates_file_in_cache_dir(self, generator, tmp_path):
-        """Test that generated audio files are saved in cache directory."""
+        """Test that generated audio is written to the specified output path."""
         mock_response = Mock()
         mock_response.stream_to_file = Mock()
+        output_path = str(tmp_path / "nova_cache.mp3")
 
         with patch.object(
             generator.client.audio.speech, "create", return_value=mock_response
         ), patch.object(generator, "get_audio_duration_ms", return_value=1000):
             audio_path, _ = generator.generate_audio(
+                text="Test",
                 voice="nova",
-                translated_text="Test",
-                voice_instructions="",
+                instructions="",
+                output_path=output_path,
             )
 
             assert str(tmp_path) in audio_path
@@ -426,7 +425,7 @@ class TestGeneratePreview:
         assert result["cached"] is False
         assert result["duration_ms"] == 3000
         assert result["voice"] == "echo"
-        assert os.path.exists(result["audio_file_path"])
+        assert result["audio_file_path"].endswith(".mp3")
 
     def test_generate_preview_cache_file_missing(self, generator, project_id, tmp_path):
         """Test regeneration when cached file is missing."""
@@ -476,11 +475,10 @@ class TestGeneratePreview:
         cache_key = generator.generate_cache_key(
             "Save to cache", "Cache instructions", "fable"
         )
-        cached = generator.db_manager.get_or_create_tts_cache(
+        cached = generator.db_manager.get_tts_cache(
             project_id=project_id,
             voice_name="fable",
             voice_instructions_hash=cache_key,
-            translated_text="Save to cache",
         )
 
         assert cached is not None

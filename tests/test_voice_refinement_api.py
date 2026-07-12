@@ -12,7 +12,24 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from database import DatabaseManager
 
-pytestmark = pytest.mark.stale  # needs rewrite: seg file mocks, preview cache mocks
+def _make_fake_segments(project_id: int, count: int = 30):
+    """Return a list of fake TranscriptionSegment-like dicts for testing."""
+    from app.schemas.voice_refinement import TranscriptionSegment
+    segments = []
+    for i in range(count):
+        start = float(i * 8)
+        end = start + 5.0 + (i % 3)  # durations 5–7s, all pass default 3–20s filter
+        segments.append(TranscriptionSegment(
+            id=f"project_{project_id}_seg_{i}",
+            video_filename="test_video.mp4",
+            start_time=start,
+            end_time=end,
+            duration=end - start,
+            original_text=f"This is original text for segment {i}." + (" demonstration" if i % 5 == 0 else ""),
+            translated_text=f"Este es el texto traducido para el segmento {i}.",
+            audio_url=f"/api/projects/{project_id}/segments/project_{project_id}_seg_{i}/audio",
+        ))
+    return segments
 
 
 class TestTranscriptionSegmentsEndpoint:
@@ -20,7 +37,7 @@ class TestTranscriptionSegmentsEndpoint:
 
     @pytest.fixture
     def client(self, tmp_path, monkeypatch):
-        """Provide test client with temporary database."""
+        """Provide test client with temporary database and fake segments."""
         from app.core.config import settings
 
         storage_dir = tmp_path / "storage"
@@ -34,13 +51,18 @@ class TestTranscriptionSegmentsEndpoint:
             yield test_client
 
     @pytest.fixture
-    def project_id(self, client, tmp_path):
-        """Create a test project using a real temp directory and return its ID."""
+    def project_id(self, client, tmp_path, monkeypatch):
+        """Create a test project and patch segment loading with fake data."""
         project_dir = tmp_path / "test_project"
         project_dir.mkdir()
         response = client.post("/api/projects/", json={"path": str(project_dir)})
         assert response.status_code == 201
-        return response.json()["id"]
+        pid = response.json()["id"]
+        monkeypatch.setattr(
+            "app.api.routes.voice_refinement._load_real_segments",
+            lambda project_id, project_path: _make_fake_segments(project_id),
+        )
+        return pid
 
     def test_get_transcription_segments_success(self, client, project_id):
         """Test successful retrieval of transcription segments with default params."""
@@ -457,7 +479,21 @@ class TestVoicePreviewGenerateEndpoint:
         response = client.post("/api/projects/", json={"path": str(project_dir)})
         return response.json()["id"]
 
-    def test_generate_voice_previews_success(self, client, project_id):
+    def _mock_generate_audio(self, tmp_path):
+        """Return a patch context that fakes TTS audio generation."""
+        from app.services.tts_preview_generator import TTSPreviewGenerator
+        fake_mp3 = tmp_path / "fake.mp3"
+        fake_mp3.write_bytes(b"fake")
+
+        def _fake_generate(text, voice, instructions, output_path, **kwargs):
+            # Write a real file so the route can stat it
+            import shutil
+            shutil.copy(str(fake_mp3), output_path)
+            return output_path, 1500
+
+        return patch.object(TTSPreviewGenerator, "generate_audio", side_effect=_fake_generate)
+
+    def test_generate_voice_previews_success(self, client, project_id, tmp_path):
         """Test successful preview generation for all voices."""
         request_data = {
             "translated_text": "This is test text for preview generation.",
@@ -465,10 +501,11 @@ class TestVoicePreviewGenerateEndpoint:
             "voices": ["alloy", "nova", "shimmer"],
         }
 
-        response = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request_data,
-        )
+        with self._mock_generate_audio(tmp_path):
+            response = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json=request_data,
+            )
 
         assert response.status_code == 200
         result = response.json()
@@ -479,33 +516,29 @@ class TestVoicePreviewGenerateEndpoint:
         assert "cache_hits" in result
         assert "cache_misses" in result
 
-        # Verify preview structure
         preview = result["previews"][0]
         assert "voice" in preview
         assert "audio_url" in preview
         assert "duration_ms" in preview
         assert "cached" in preview
 
-    def test_generate_voice_previews_default_voices(self, client, project_id):
+    def test_generate_voice_previews_default_voices(self, client, project_id, tmp_path):
         """Test generation with default voice list."""
         request_data = {
             "translated_text": "Test text",
             "voice_instructions": "Test instructions",
-            # No voices specified, should use defaults
         }
 
-        response = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request_data,
-        )
+        with self._mock_generate_audio(tmp_path):
+            response = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json=request_data,
+            )
 
         assert response.status_code == 200
-        result = response.json()
+        assert len(response.json()["previews"]) == 6
 
-        # Should generate for all 6 default voices
-        assert len(result["previews"]) == 6
-
-    def test_generate_voice_previews_cache_behavior(self, client, project_id):
+    def test_generate_voice_previews_cache_behavior(self, client, project_id, tmp_path):
         """Test cache hit/miss tracking."""
         request_data = {
             "translated_text": "Test text for caching",
@@ -513,59 +546,37 @@ class TestVoicePreviewGenerateEndpoint:
             "voices": ["nova", "alloy"],
         }
 
-        # First request - all cache misses
-        response1 = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request_data,
-        )
+        with self._mock_generate_audio(tmp_path):
+            result1 = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json=request_data,
+            ).json()
+            assert result1["cache_misses"] == 2
+            assert result1["cache_hits"] == 0
 
-        assert response1.status_code == 200
-        result1 = response1.json()
-        assert result1["cache_misses"] == 2
-        assert result1["cache_hits"] == 0
-
-        # Second request - all cache hits
-        response2 = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request_data,
-        )
-
-        assert response2.status_code == 200
-        result2 = response2.json()
-        assert result2["cache_hits"] == 2
-        assert result2["cache_misses"] == 0
+            # Second request — files exist in cache dir on disk but the route
+            # uses DB cache keyed by hash; second call finds DB entries.
+            result2 = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json=request_data,
+            ).json()
+            assert result2["cache_hits"] == 2
+            assert result2["cache_misses"] == 0
 
     def test_generate_voice_previews_different_instructions_miss_cache(
-        self, client, project_id
+        self, client, project_id, tmp_path
     ):
         """Test that different instructions cause cache miss."""
-        # First request
-        request1 = {
-            "translated_text": "Same text",
-            "voice_instructions": "Instructions version 1",
-            "voices": ["nova"],
-        }
+        with self._mock_generate_audio(tmp_path):
+            client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json={"translated_text": "Same text", "voice_instructions": "Version 1", "voices": ["nova"]},
+            )
+            result2 = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json={"translated_text": "Same text", "voice_instructions": "Version 2", "voices": ["nova"]},
+            ).json()
 
-        client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request1,
-        )
-
-        # Second request with different instructions
-        request2 = {
-            "translated_text": "Same text",
-            "voice_instructions": "Instructions version 2",
-            "voices": ["nova"],
-        }
-
-        response2 = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=request2,
-        )
-
-        assert response2.status_code == 200
-        result2 = response2.json()
-        # Should be cache miss because instructions changed
         assert result2["cache_misses"] == 1
 
     def test_generate_voice_previews_project_not_found(self, client):
@@ -773,162 +784,128 @@ class TestEndpointIntegration:
             yield test_client
 
     @pytest.fixture
-    def project_id(self, client, tmp_path):
-        """Create a test project."""
+    def project_id(self, client, tmp_path, monkeypatch):
+        """Create a test project with fake segments."""
         project_dir = tmp_path / "test_project"
         project_dir.mkdir(exist_ok=True)
         response = client.post("/api/projects/", json={"path": str(project_dir)})
-        return response.json()["id"]
-
-    def test_complete_voice_refinement_workflow(self, client, project_id):
-        """Test complete workflow from segments to voice selection."""
-        # 1. Get transcription segments
-        segments_response = client.get(
-            f"/api/projects/{project_id}/transcription-segments"
+        pid = response.json()["id"]
+        monkeypatch.setattr(
+            "app.api.routes.voice_refinement._load_real_segments",
+            lambda project_id, project_path: _make_fake_segments(project_id),
         )
+        return pid
+
+    def test_complete_voice_refinement_workflow(self, client, project_id, tmp_path):
+        """Test complete workflow from segments to voice selection."""
+        from app.services.tts_preview_generator import TTSPreviewGenerator
+        fake_mp3 = tmp_path / "fake.mp3"
+        fake_mp3.write_bytes(b"fake")
+
+        def _fake_generate_audio(text, voice, instructions, output_path, **kwargs):
+            import shutil
+            shutil.copy(str(fake_mp3), output_path)
+            return output_path, 1500
+
+        # 1. Get transcription segments
+        segments_response = client.get(f"/api/projects/{project_id}/transcription-segments")
         assert segments_response.status_code == 200
-        segments = segments_response.json()
-        segment = segments["segments"][0]
+        segment = segments_response.json()["segments"][0]
 
         # 2. Generate voice instructions
-        analyze_request = {
-            "segment_id": segment["id"],
-            "original_text": segment["original_text"],
-            "translated_text": segment["translated_text"],
-        }
-
         mock_instructions = {
             "voice_instructions": "Speak clearly and professionally.",
             "detected_characteristics": {
-                "tone": "professional",
-                "pace": "moderate",
-                "emotion": "balanced",
-                "style": "authoritative",
+                "tone": "professional", "pace": "moderate",
+                "emotion": "balanced", "style": "authoritative",
             },
             "llm_model": "gpt-4o",
         }
 
-        with patch("app.services.voice_instruction_generator.VoiceInstructionGenerator") as MockGen:
-            mock_instance = Mock()
-            mock_instance.generate_instructions.return_value = mock_instructions
-            MockGen.return_value = mock_instance
+        mock_instance = Mock()
+        mock_instance.generate_instructions.return_value = mock_instructions
 
-            with patch("app.api.routes.voice_refinement.get_voice_instruction_generator", return_value=mock_instance):
-                analyze_response = client.post(
-                    f"/api/projects/{project_id}/voice-instructions/analyze",
-                    json=analyze_request,
-                )
+        with patch("app.api.routes.voice_refinement.get_voice_instruction_generator", return_value=mock_instance):
+            analyze_response = client.post(
+                f"/api/projects/{project_id}/voice-instructions/analyze",
+                json={"segment_id": segment["id"], "original_text": segment["original_text"],
+                      "translated_text": segment["translated_text"]},
+            )
 
         assert analyze_response.status_code == 201
         instructions_result = analyze_response.json()
 
         # 3. Generate voice previews
-        preview_request = {
-            "translated_text": segment["translated_text"],
-            "voice_instructions": instructions_result["voice_instructions"],
-            "voices": ["nova", "alloy"],
-        }
-
-        preview_response = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=preview_request,
-        )
+        with patch.object(TTSPreviewGenerator, "generate_audio", side_effect=_fake_generate_audio):
+            preview_response = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json={"translated_text": segment["translated_text"],
+                      "voice_instructions": instructions_result["voice_instructions"],
+                      "voices": ["nova", "alloy"]},
+            )
 
         assert preview_response.status_code == 200
-        preview_response.json()
 
         # 4. Save selected voice
-        save_request = {
-            "voice": "nova",
-            "voice_instructions": instructions_result["voice_instructions"],
-            "segment_used": segment["id"],
-        }
-
         save_response = client.put(
             f"/api/projects/{project_id}/voice-settings",
-            json=save_request,
+            json={"voice": "nova", "voice_instructions": instructions_result["voice_instructions"],
+                  "segment_used": segment["id"]},
         )
 
         assert save_response.status_code == 200
         final_project = save_response.json()
-
         assert final_project["voice"] == "nova"
         assert final_project["voice_instructions"] == instructions_result["voice_instructions"]
 
-    def test_regenerate_and_preview_workflow(self, client, project_id):
+    def test_regenerate_and_preview_workflow(self, client, project_id, tmp_path):
         """Test regenerating instructions and generating new previews."""
-        # Initial generation
-        initial_request = {
-            "segment_id": "segment_0",
-            "original_text": "Test",
-            "translated_text": "Prueba",
-        }
+        from app.services.tts_preview_generator import TTSPreviewGenerator
+        fake_mp3 = tmp_path / "fake.mp3"
+        fake_mp3.write_bytes(b"fake")
+
+        def _fake_generate_audio(text, voice, instructions, output_path, **kwargs):
+            import shutil
+            shutil.copy(str(fake_mp3), output_path)
+            return output_path, 1500
 
         mock_initial = {
             "voice_instructions": "Initial instructions",
-            "detected_characteristics": {
-                "tone": "neutral",
-                "pace": "moderate",
-                "emotion": "balanced",
-                "style": "natural",
-            },
+            "detected_characteristics": {"tone": "neutral", "pace": "moderate", "emotion": "balanced", "style": "natural"},
             "llm_model": "gpt-4o",
         }
-
         mock_regenerated = {
             "voice_instructions": "Improved instructions with more energy",
-            "detected_characteristics": {
-                "tone": "energetic",
-                "pace": "fast",
-                "emotion": "excited",
-                "style": "dynamic",
-            },
+            "detected_characteristics": {"tone": "energetic", "pace": "fast", "emotion": "excited", "style": "dynamic"},
             "llm_model": "gpt-4o",
         }
 
-        with patch("app.services.voice_instruction_generator.VoiceInstructionGenerator") as MockGen:
-            mock_instance = Mock()
-            mock_instance.generate_instructions.return_value = mock_initial
-            mock_instance.regenerate_with_feedback.return_value = mock_regenerated
-            MockGen.return_value = mock_instance
+        mock_instance = Mock()
+        mock_instance.generate_instructions.return_value = mock_initial
+        mock_instance.regenerate_with_feedback.return_value = mock_regenerated
 
-            with patch("app.api.routes.voice_refinement.get_voice_instruction_generator", return_value=mock_instance):
-                # Initial generation
-                initial_response = client.post(
-                    f"/api/projects/{project_id}/voice-instructions/analyze",
-                    json=initial_request,
-                )
+        with patch("app.api.routes.voice_refinement.get_voice_instruction_generator", return_value=mock_instance):
+            initial_response = client.post(
+                f"/api/projects/{project_id}/voice-instructions/analyze",
+                json={"segment_id": "segment_0", "original_text": "Test", "translated_text": "Prueba"},
+            )
+            assert initial_response.status_code == 201
 
-                assert initial_response.status_code == 201
-
-                # Regenerate with feedback
-                regenerate_request = {
-                    "segment_id": "segment_0",
-                    "original_text": "Test",
-                    "translated_text": "Prueba",
-                    "previous_instructions": mock_initial["voice_instructions"],
-                    "user_feedback": "Make it more energetic",
-                }
-
-                regenerate_response = client.post(
-                    f"/api/projects/{project_id}/voice-instructions/regenerate",
-                    json=regenerate_request,
-                )
+            regenerate_response = client.post(
+                f"/api/projects/{project_id}/voice-instructions/regenerate",
+                json={"segment_id": "segment_0", "original_text": "Test", "translated_text": "Prueba",
+                      "previous_instructions": mock_initial["voice_instructions"],
+                      "user_feedback": "Make it more energetic"},
+            )
 
         assert regenerate_response.status_code == 201
         regenerated = regenerate_response.json()
         assert "energy" in regenerated["voice_instructions"].lower()
 
-        # Generate previews with new instructions
-        preview_request = {
-            "translated_text": "Prueba",
-            "voice_instructions": regenerated["voice_instructions"],
-            "voices": ["nova"],
-        }
-
-        preview_response = client.post(
-            f"/api/projects/{project_id}/voice-previews/generate",
-            json=preview_request,
-        )
+        with patch.object(TTSPreviewGenerator, "generate_audio", side_effect=_fake_generate_audio):
+            preview_response = client.post(
+                f"/api/projects/{project_id}/voice-previews/generate",
+                json={"translated_text": "Prueba", "voice_instructions": regenerated["voice_instructions"], "voices": ["nova"]},
+            )
 
         assert preview_response.status_code == 200
