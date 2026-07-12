@@ -10,15 +10,15 @@ All artefacts are written inside the project's working directory (`.redubber/` b
 
 ```
 <working_dir>/
-└── <video_filename>/          # e.g. "16. Structure of the Chest Area.mp4/"
-    ├── 01_source_audio_chunks/   # WAV/M4A chunks fed to Whisper
-    ├── 02_stt/                   # Transcription output (.seg, .txt, .transcript.json)
-    ├── 03_subtitles/             # SRT subtitle file
-    ├── 04_tts/                   # Per-segment TTS audio files
-    ├── 05_target_audio_chunks/   # Assembled dubbed audio chunks
-    └── <name>.dubbed.<ext>       # Mixed output video (before finalization)
-    tts_previews/                 # Voice-refinement preview cache
-    backups/                      # Original video backup (created at finalization)
+└── <video_filename>/              # e.g. "16. Structure of the Chest Area.mp4/"
+    ├── 01_source_audio_chunks/    # M4A chunks fed to Whisper
+    ├── 02_stt/                    # Transcription output (.seg, .txt, .transcript.json)
+    ├── 03_subtitles/              # SRT subtitle file
+    ├── 04_tts/                    # Per-segment TTS audio files (000.en.m4a … NNN.en.m4a)
+    ├── 05_target_audio_chunks/    # Assembled dubbed audio chunks
+    └── <name>.dubbed.<ext>        # Mixed output video (before finalization)
+tts_previews/                      # Voice-refinement preview cache (project-level)
+backups/                           # Original video backups (created at finalization)
 ```
 
 ---
@@ -28,10 +28,11 @@ All artefacts are written inside the project's working directory (`.redubber/` b
 Triggered by **"Transcribe First Video"** in Voice Refinement when no segments exist yet.  
 Purpose: obtain real transcription segments cheaply so voice customisation can happen before any TTS spend.
 
-| Step | Stage | Output | Progress |
-|------|-------|--------|----------|
-| 1 | Extract audio chunks | `01_source_audio_chunks/*.m4a` | 5 % |
-| 2 | Transcribe with Whisper | `02_stt/*.seg`, `*.txt`, `*.transcript.json` | 20–100 % |
+| Stage name | What it does | Output | Progress |
+|---|---|---|---|
+| `Extracting audio` | Split video audio into chunks | `01_source_audio_chunks/*.m4a` | 5 % |
+| `Transcribing` | Run Whisper on each chunk | `02_stt/*.seg`, `*.txt`, `*.transcript.json` | 20 % |
+| `Done — N segments` | Complete | Segments available in UI | 100 % |
 
 After this pipeline completes, Voice Refinement can load real segments, play audio clips, generate voice instructions from the actual speaker's voice, and preview TTS samples for each voice.
 
@@ -40,31 +41,33 @@ After this pipeline completes, Voice Refinement can load real segments, play aud
 ## Pipeline 2 — Full Redub
 
 Triggered by **"Redub"** on a video file.  
-Steps 1–2 are skipped if the transcription pipeline already ran (cached on disk).
+Steps 1–2 are skipped if the transcription pipeline already ran (`.seg` files present on disk).
 
-| Step | Stage | Output | Progress |
-|------|-------|--------|----------|
-| 1 | Extract audio chunks | `01_source_audio_chunks/*.m4a` | 10 % |
-| 2 | Transcribe with Whisper | `02_stt/*.seg`, `*.txt`, `*.transcript.json` | 10–35 % |
-| 3 | Generate subtitles | `03_subtitles/<name>.en.srt` | 35 % |
-| 4 | Generate TTS (async, up to 100 concurrent) | `04_tts/<idx>.en.m4a` (one per segment) | 40–70 % |
-| 5 | Assemble dubbed audio chunks | `05_target_audio_chunks/<name>_NNN.en.m4a` | 75 % |
-| 6 | Mix dubbed audio with original video | `<name>.dubbed.<ext>` in working dir | 85 % |
+| Stage name | What it does | Output | Progress |
+|---|---|---|---|
+| `Initializing` | Set up working directories | — | 5 % |
+| `Extracting and transcribing audio` | Extract audio chunks + Whisper transcription | `01_source_audio_chunks/`, `02_stt/` | 10–35 % |
+| `Generating subtitles` | Build SRT from transcription | `03_subtitles/<name>.en.srt` | 35–38 % |
+| `Generating TTS (async)` | Synthesise one M4A per segment (up to 100 concurrent) | `04_tts/000.en.m4a … NNN.en.m4a` | 40–72 % |
+| `Assembling audio (N/M)` | Concatenate TTS segments into dubbed audio | `05_target_audio_chunks/` | 75–85 % |
+| `Mixing audio with video` | ffmpeg mix dubbed audio into original video | `<name>.dubbed.<ext>` in working dir | 85 % |
+| `Completed` | Task done | Dubbed file ready | 100 % |
 
-At this point the task completes (progress 100 %) and the **"🔁 Replace Original"** button appears.
+At 100 % the **"🔁 Replace Original"** button appears (or finalization runs automatically if `auto_process = true` in Settings).
 
 ### Finalization (Steps 7–11)
 
-Triggered manually by "🔁 Replace Original" (or automatically if `auto_process = true` in Settings).
+Triggered manually via "🔁 Replace Original", or automatically when `auto_process = true`.  
+Runs **after** the task reaches 100 % — it is not part of the task progress counter.
 
 | Step | Action | Notes |
-|------|--------|-------|
+|---|---|---|
 | 7 | Validate dubbed file | ffprobe checks: video stream, 2 audio tracks with language metadata, duration within 1 % of original |
 | 8 | Back up original | Copied to `<working_dir>/backups/<name>.<timestamp>.<ext>` |
 | 9 | Replace original | `os.replace()` atomically moves dubbed file over the original path |
-| 9b | Copy subtitles | `03_subtitles/<name>.en.srt` → `<video_dir>/<name>.<lang2>.srt` (ISO 639-1, e.g. `en`, `ja`) |
+| 9b | Copy subtitles | `03_subtitles/<name>.en.srt` → `<video_dir>/<name>.<lang>.srt` (e.g. `video.jpn.srt`) |
 | 10 | Sync metadata | Updates `size_mb`, `duration_seconds`, `audio_streams` in the database |
-| 11 | Cleanup | Removes `01_source_audio_chunks`, `02_stt`, `04_tts`, `05_target_audio_chunks` to free disk space. **Skipped if subtitle copy failed.** |
+| 11 | Cleanup | Removes `01_source_audio_chunks`, `02_stt`, `04_tts`, `05_target_audio_chunks` to free disk. **Skipped if subtitle copy failed.** |
 
 ---
 
@@ -95,26 +98,26 @@ flowchart TD
     START([User clicks 'Redub']) --> S1
 
     subgraph REDUB["Redub Pipeline  (runs in background)"]
-        S1["Step 1 — Extract audio chunks\n01_source_audio_chunks/"] --> S2
-        S2["Step 2 — Transcribe  (Whisper)\n02_stt/  ·  cached if Pipeline 1 ran"] --> S3
-        S3["Step 3 — Generate subtitles\n03_subtitles/&lt;name&gt;.en.srt"] --> S4
-        S4["Step 4 — TTS synthesis  (async, 100 concurrent)\n04_tts/000.en.m4a … NNN.en.m4a"] --> S5
-        S5["Step 5 — Assemble audio chunks\n05_target_audio_chunks/&lt;name&gt;_NNN.en.m4a"] --> S6
-        S6["Step 6 — Mix audio + video  (ffmpeg)\n&lt;name&gt;.dubbed.&lt;ext&gt;  in working dir"]
+        S1["Initializing  5%"] --> S2
+        S2["Extract audio + Transcribe  10→35%\n01_source_audio_chunks/  ·  02_stt/\n(cached if Pipeline 1 already ran)"] --> S3
+        S3["Generate subtitles  35→38%\n03_subtitles/&lt;name&gt;.en.srt"] --> S4
+        S4["TTS synthesis  40→72%  (async, 100 concurrent)\n04_tts/000.en.m4a … NNN.en.m4a"] --> S5
+        S5["Assemble audio chunks  75→85%\n05_target_audio_chunks/"] --> S6
+        S6["Mix audio + video  85%  (ffmpeg)\n&lt;name&gt;.dubbed.&lt;ext&gt;  in working dir"]
     end
 
-    S6 --> DONE(["Task complete — 100%\n'🔁 Replace Original' button appears"])
+    S6 --> DONE(["Completed — 100%\n'🔁 Replace Original' button appears"])
 
     DONE --> MANUAL{auto_process?}
     MANUAL -- "false (default)" --> CLICK([User clicks\n'🔁 Replace Original'])
     MANUAL -- true --> F7
     CLICK --> F7
 
-    subgraph FINAL["Finalization Pipeline  (Steps 7–11)"]
+    subgraph FINAL["Finalization  (Steps 7–11)"]
         F7["Step 7 — Validate dubbed file\nffprobe: 2 audio tracks, language tags,\nduration ±1% of original"] --> F8
         F8["Step 8 — Back up original\nworking_dir/backups/&lt;name&gt;.&lt;timestamp&gt;.ext"] --> F9
         F9["Step 9 — Replace original\nos.replace() — atomic on POSIX"] --> F9B
-        F9B["Step 9b — Copy subtitles\n&lt;video_dir&gt;/&lt;name&gt;.&lt;lang2&gt;.srt"] --> F10
+        F9B["Step 9b — Copy subtitles\n&lt;video_dir&gt;/&lt;name&gt;.&lt;lang&gt;.srt"] --> F10
         F10["Step 10 — Sync metadata\nDB: size_mb, duration_seconds, audio_streams"] --> F11
         F11{Subs copied?}
         F11 -- yes --> CLEANUP["Step 11 — Cleanup\nRemove 01, 02, 04, 05 directories"]
