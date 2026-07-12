@@ -40,7 +40,6 @@ const mockInstructionsData: VoiceInstructions = {
   detected_characteristics: {
     tone: 'Professional and educational',
     pace: 'Moderate, clear articulation',
-    emotion: 'Engaged and enthusiastic',
     style: 'Tutorial presenter',
   },
   generation_id: 1,
@@ -214,7 +213,6 @@ export const ShortInstructions: Story = {
       detected_characteristics: {
         tone: 'Professional',
         pace: 'Moderate',
-        emotion: 'Neutral',
         style: 'Clear',
       },
       generation_id: 1,
@@ -241,7 +239,6 @@ export const ManyCharacteristics: Story = {
       detected_characteristics: {
         tone: 'Professional and educational',
         pace: 'Moderate, clear articulation',
-        emotion: 'Engaged and enthusiastic',
         style: 'Tutorial presenter',
       },
       generation_id: 1,
@@ -268,7 +265,6 @@ export const FewCharacteristics: Story = {
       detected_characteristics: {
         tone: 'Professional',
         pace: 'Moderate',
-        emotion: 'Neutral',
         style: 'Informative',
       },
       generation_id: 1,
@@ -295,7 +291,6 @@ export const EnergeticVoice: Story = {
       detected_characteristics: {
         tone: 'Enthusiastic and upbeat',
         pace: 'Fast, dynamic',
-        emotion: 'Excited and motivated',
         style: 'Energetic presenter',
       },
       generation_id: 2,
@@ -322,7 +317,6 @@ export const CalmVoice: Story = {
       detected_characteristics: {
         tone: 'Gentle and soothing',
         pace: 'Slow, deliberate',
-        emotion: 'Calm and peaceful',
         style: 'Meditation guide',
       },
       generation_id: 3,
