@@ -39,6 +39,8 @@ class ProjectResponse(BaseModel):
     working_directory: str = Field(
         default="", description="Resolved working directory for project artefacts"
     )
+    total_videos: int = Field(default=0, description="Total number of video files in the project")
+    replaced_videos: int = Field(default=0, description="Number of videos that have been redubbed and replaced")
 
     @model_validator(mode="after")
     def _set_working_directory(self) -> "ProjectResponse":

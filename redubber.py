@@ -1830,6 +1830,10 @@ def finalize_redubbing(
         )
 
     log.info(f"✓ Step 9 complete: Original replaced, backup at {backup_path}")
+    try:
+        db.increment_replaced_videos(project_id)
+    except Exception:
+        pass  # counter update is best-effort — never abort finalization
 
     # Step 9b: Copy subtitle file next to original as <name>.<lang2>.srt
     _ISO639_2_TO_1: dict[str, str] = {

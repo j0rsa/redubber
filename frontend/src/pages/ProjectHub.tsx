@@ -143,12 +143,24 @@ const ProjectCard = ({ project, onClick }: ProjectCardProps) => {
     year: 'numeric', month: 'short', day: 'numeric',
   });
 
+  const total = project.total_videos ?? 0;
+  const replaced = project.replaced_videos ?? 0;
+  const pct = total > 0 ? Math.round((replaced / total) * 100) : 0;
+
   return (
     <button className={styles.projectCard} onClick={onClick} type="button">
       <span className={styles.projectIcon}>🎬</span>
       <div className={styles.projectInfo}>
         <span className={styles.projectName}>{project.name}</span>
         <span className={styles.projectPath}>{project.path}</span>
+        {total > 0 && (
+          <div className={styles.progressRow}>
+            <div className={styles.progressBar}>
+              <div className={styles.progressFill} style={{ width: `${pct}%` }} />
+            </div>
+            <span className={styles.progressLabel}>{replaced}/{total}</span>
+          </div>
+        )}
       </div>
       <span className={styles.projectDate}>{date}</span>
     </button>

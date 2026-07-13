@@ -14,6 +14,8 @@ export interface Project {
   /** ISO 639-3 language code for the dubbing target language (e.g. "eng", "spa"). */
   target_language: string;
   working_directory?: string;
+  total_videos: number;
+  replaced_videos: number;
 }
 
 export interface ProjectCreate {

@@ -128,6 +128,20 @@ class DatabaseManager:
                     "ALTER TABLE projects ADD COLUMN target_language TEXT DEFAULT 'eng'"
                 )
 
+            # Add video count columns if they don't exist (migration)
+            try:
+                cursor.execute("SELECT total_videos FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN total_videos INTEGER DEFAULT 0"
+                )
+            try:
+                cursor.execute("SELECT replaced_videos FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN replaced_videos INTEGER DEFAULT 0"
+                )
+
             # Voice instruction generations table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS voice_instruction_generations (
@@ -398,6 +412,26 @@ class DatabaseManager:
             cursor.execute("SELECT * FROM projects ORDER BY id DESC")
 
             return [dict(row) for row in cursor.fetchall()]
+
+    def update_project_video_counts(self, project_id: int, total: int, replaced: int) -> None:
+        """Set total_videos and replaced_videos for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE projects SET total_videos = ?, replaced_videos = ? WHERE id = ?",
+                (total, replaced, project_id),
+            )
+            conn.commit()
+
+    def increment_replaced_videos(self, project_id: int) -> None:
+        """Increment replaced_videos counter by 1 for a project."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE projects SET replaced_videos = replaced_videos + 1 WHERE id = ?",
+                (project_id,),
+            )
+            conn.commit()
 
     def save_project_scan(self, project_id: int, scan_data: str) -> None:
         """Save project scan results to database."""

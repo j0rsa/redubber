@@ -106,6 +106,20 @@ async def _scan_project_files(
         if dominant_language:
             db.set_source_language_override(project_id, dominant_language)
 
+    # Update video count counters on the project row.
+    # replaced_videos is derived by checking each video's backup directory — a backup
+    # file present means finalize_redubbing already atomically replaced the original.
+    import os as _os
+    from app.core.project_paths import get_project_working_dir as _get_wd
+    _project = db.get_project_by_id(project_id)
+    _project_name = _project["name"] if _project else ""
+    _working_dir = str(_get_wd(project_path, _project_name))
+    _backup_dir = _os.path.join(_working_dir, "backups")
+    _replaced = 0
+    if _os.path.isdir(_backup_dir):
+        _replaced = len([f for f in _os.listdir(_backup_dir) if not f.startswith(".")])
+    db.update_project_video_counts(project_id, len(video_files), _replaced)
+
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse, include_in_schema=False)
