@@ -88,6 +88,15 @@ async def submit_redub_task(
             detail=f"Path is not a file: {task.video_path}",
         )
 
+    # Reject if a task for this video is already active
+    existing = await task_manager.list_tasks()
+    for t in existing:
+        if t.video_path == task.video_path and t.status in ("queued", "running"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"A redub task for this video is already {t.status} (task_id={t.task_id})",
+            )
+
     # Submit task to queue
     try:
         task_id = await task_manager.submit_task(
