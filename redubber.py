@@ -1592,9 +1592,10 @@ def replace_original_video_file(
         log.info(f"Creating backup: {backup_path}")
         shutil.copy2(original_path, backup_path)
 
-        # Atomic replacement: os.replace is atomic on POSIX systems
-        log.info(f"Atomically replacing: {original_path}")
-        os.replace(redubbed_path, original_path)
+        # Move dubbed file to original path — shutil.move handles cross-device moves
+        # (copy + delete) unlike os.replace which requires the same filesystem.
+        log.info(f"Moving dubbed file to: {original_path}")
+        shutil.move(redubbed_path, original_path)
 
         log.info(f"Successfully replaced video, backup at: {backup_path}")
         return (True, backup_path)
@@ -1606,7 +1607,7 @@ def replace_original_video_file(
         if os.path.exists(backup_path):
             try:
                 log.info("Rolling back: restoring from backup")
-                os.replace(backup_path, original_path)
+                shutil.move(backup_path, original_path)
                 log.info("Rollback successful")
             except Exception as rollback_error:
                 log.error(f"CRITICAL: Rollback failed: {rollback_error}")
