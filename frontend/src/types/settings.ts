@@ -9,6 +9,8 @@ export type VoiceAnalysisAudioModel = 'gpt-audio-mini' | 'gpt-audio-1';
 export type DefaultVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
 
 export interface SettingsData {
+  /** Fields locked by environment variables — shown as read-only in the UI. */
+  env_overrides?: string[];
   /** Masked API key: "sk-...xxxx" when saved, or "" when not yet configured. Never the full key. */
   openai_api_key: string;
   /** Custom OpenAI-compatible API base URL. Empty = use default openai.com endpoint. */

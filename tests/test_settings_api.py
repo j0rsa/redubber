@@ -39,6 +39,10 @@ def settings_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     settings_file = tmp_path / "settings.json"
     monkeypatch.setenv("REDUBBER_SETTINGS_PATH", str(settings_file))
+    # Clear env vars that would override settings values in tests
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("REDUBBER_WORKING_DIR", raising=False)
+    monkeypatch.delenv("REDUBBER_PROJECTS_ROOT", raising=False)
     return settings_file
 
 
@@ -103,6 +107,7 @@ class TestGetSettings:
             "openai_retries",
             "tts_speed",
             "audio_chunk_duration",
+            "env_overrides",
         }
         assert set(body.keys()) == expected_keys
 

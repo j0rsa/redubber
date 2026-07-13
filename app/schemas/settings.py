@@ -281,6 +281,16 @@ class SettingsResponse(BaseModel):
         examples=[False, True],
     )
 
+    # Fields whose values are controlled by an environment variable.
+    # When non-empty, the UI should show those fields as read-only.
+    env_overrides: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of setting field names whose values are set by an environment variable "
+            "and cannot be changed via the UI (e.g. ['openai_api_key', 'working_directory'])."
+        ),
+    )
+
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -291,6 +301,7 @@ class SettingsResponse(BaseModel):
                     "default_voice": "nova",
                     "working_directory": "",
                     "auto_process": False,
+                    "env_overrides": ["openai_api_key"],
                 }
             ]
         }

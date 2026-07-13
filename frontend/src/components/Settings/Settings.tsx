@@ -56,6 +56,9 @@ export const Settings = ({
   const [showKey, setShowKey] = useState(false);
   const [localSettings, setLocalSettings] = useState<SettingsData>(settings);
 
+  const isEnvLocked = (field: string) =>
+    (settings.env_overrides ?? []).includes(field);
+
   // Keep local copy in sync when parent settings change (e.g. after initial fetch)
   // We use the JSON key as a change signal to avoid infinite loops.
   const parentJson = JSON.stringify(settings);
@@ -121,6 +124,9 @@ export const Settings = ({
           <div className={styles.labelCol}>
             <label className={styles.label} htmlFor={apiKeyId}>
               OpenAI API Key
+              {isEnvLocked('openai_api_key') && (
+                <span className={styles.envBadge}>Defined by env var</span>
+              )}
             </label>
             <span className={styles.hint}>Used for transcription, translation, and TTS</span>
           </div>
@@ -133,11 +139,13 @@ export const Settings = ({
                   styles.input,
                   styles.inputWithToggle,
                   isSavedKey && !showKey ? styles.apiKeyMasked : '',
+                  isEnvLocked('openai_api_key') ? styles.inputReadOnly : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
                 value={localSettings.openai_api_key}
                 onChange={(e) =>
+                  !isEnvLocked('openai_api_key') &&
                   setLocalSettings((s) => ({ ...s, openai_api_key: e.target.value }))
                 }
                 placeholder={
@@ -145,6 +153,7 @@ export const Settings = ({
                     ? '●●●●●●●●●●●●'
                     : 'sk-...'
                 }
+                readOnly={isEnvLocked('openai_api_key')}
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -459,18 +468,23 @@ export const Settings = ({
           <div className={styles.labelCol}>
             <label className={styles.label} htmlFor={projectsRootId}>
               Projects Root
+              {isEnvLocked('projects_root_path') && (
+                <span className={styles.envBadge}>Defined by env var</span>
+              )}
             </label>
-            <span className={styles.hint}>Starting folder for the file browser when creating a project. Also set via REDUBBER_PROJECTS_ROOT.</span>
+            <span className={styles.hint}>Starting folder for the file browser when creating a project.</span>
           </div>
           <div className={styles.controlCol}>
             <input
               id={projectsRootId}
               type="text"
-              className={styles.input}
+              className={`${styles.input} ${isEnvLocked('projects_root_path') ? styles.inputReadOnly : ''}`}
               value={localSettings.projects_root_path}
               onChange={(e) =>
+                !isEnvLocked('projects_root_path') &&
                 setLocalSettings((s) => ({ ...s, projects_root_path: e.target.value }))
               }
+              readOnly={isEnvLocked('projects_root_path')}
               placeholder="/Users/you/Videos"
               spellCheck={false}
             />
@@ -482,18 +496,23 @@ export const Settings = ({
           <div className={styles.labelCol}>
             <label className={styles.label} htmlFor={workDirId}>
               Working Directory
+              {isEnvLocked('working_directory') && (
+                <span className={styles.envBadge}>Defined by env var</span>
+              )}
             </label>
-            <span className={styles.hint}>Where project folders are created. Also set via REDUBBER_WORKING_DIR.</span>
+            <span className={styles.hint}>Where project folders are created.</span>
           </div>
           <div className={styles.controlCol}>
             <input
               id={workDirId}
               type="text"
-              className={styles.input}
+              className={`${styles.input} ${isEnvLocked('working_directory') ? styles.inputReadOnly : ''}`}
               value={localSettings.working_directory}
               onChange={(e) =>
+                !isEnvLocked('working_directory') &&
                 setLocalSettings((s) => ({ ...s, working_directory: e.target.value }))
               }
+              readOnly={isEnvLocked('working_directory')}
               placeholder="/Users/you/Videos"
               spellCheck={false}
             />
