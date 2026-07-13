@@ -124,7 +124,9 @@ export const ProjectDetail = () => {
 
   const handleRedubAll = () => {
     if (!videos) return;
-    void handleBatchRedub(videos.filter((v) => !v.pipeline_status?.replaced));
+    void handleBatchRedub(
+      videos.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id))
+    );
   };
 
   const handleRedubSingle = async (videoPath: string) => {
@@ -214,7 +216,7 @@ export const ProjectDetail = () => {
 
   const hasVideos = videos && videos.length > 0;
   const selectedCount = selectedIds.size;
-  const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced).length ?? 0;
+  const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id)).length ?? 0;
 
   return (
     <div className={styles.page}>
