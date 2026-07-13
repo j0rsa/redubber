@@ -50,6 +50,11 @@ export const useSettings = (): UseSettingsResult => {
 
     try {
       const merged: SettingsData = { ...settings, ...update };
+      // Never send a masked key back — the backend already has the real one.
+      // A masked key looks like "sk-...xxxx" and would overwrite the real key with garbage.
+      if (merged.openai_api_key?.startsWith('sk-...') || merged.openai_api_key === settings.openai_api_key) {
+        delete (merged as Partial<SettingsData>).openai_api_key;
+      }
       const { data } = await apiClient.put<SettingsData>('/settings', merged);
       setSettings(data);
       setSuccessMessage('Settings saved');

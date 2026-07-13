@@ -102,6 +102,10 @@ def update_settings(update: SettingsUpdate) -> SettingsResponse:
     # Strip fields that are locked by env vars — they cannot be changed via the UI
     env_locked = set(get_env_overrides().keys())
     patch = {k: v for k, v in patch.items() if k not in env_locked}
+    # Never persist a masked API key — if the key looks masked it means the frontend
+    # sent back what it received from GET (the masked representation), not a real key.
+    if "openai_api_key" in patch and str(patch["openai_api_key"]).startswith("sk-..."):
+        del patch["openai_api_key"]
     current.update(patch)
 
     updated = Settings.model_validate(current)
