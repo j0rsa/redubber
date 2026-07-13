@@ -34,6 +34,8 @@ const mockProject: Project = {
   voice_instructions: 'Clear and professional tone',
   source_language_override: 'rus',
   target_language: 'eng',
+  total_videos: 6,
+  replaced_videos: 2,
 };
 
 const mockVideos: VideoFile[] = [

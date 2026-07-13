@@ -112,16 +112,19 @@ const mockProjects: Project[] = [
     id: 1, name: 'Tutorials', path: '/Users/jane/Videos/Tutorials',
     created_at: '2026-01-15T10:30:00Z', updated_at: '2026-06-20T14:00:00Z',
     voice: 'nova', voice_instructions: '', source_language_override: 'rus', target_language: 'eng',
+    total_videos: 12, replaced_videos: 8,
   },
   {
     id: 2, name: 'Meetings', path: '/Users/jane/Videos/Meetings',
     created_at: '2026-02-10T14:20:00Z', updated_at: '2026-07-01T09:00:00Z',
     voice: 'alloy', voice_instructions: '', source_language_override: '', target_language: 'spa',
+    total_videos: 5, replaced_videos: 0,
   },
   {
     id: 3, name: 'Conference Talks', path: '/Users/jane/Videos/Conferences',
     created_at: '2026-03-05T09:15:00Z', updated_at: '2026-07-10T11:00:00Z',
     voice: 'echo', voice_instructions: '', source_language_override: 'zho', target_language: 'fra',
+    total_videos: 3, replaced_videos: 3,
   },
 ];
 
@@ -159,6 +162,8 @@ export const ManyProjects: Story = {
       voice_instructions: '',
       source_language_override: '',
       target_language: 'eng',
+      total_videos: (i + 1) * 2,
+      replaced_videos: i,
     })),
   },
 };
