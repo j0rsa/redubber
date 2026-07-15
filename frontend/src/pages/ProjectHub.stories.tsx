@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { Project } from '../types';
+import { ProjectCard } from './ProjectHub';
 import styles from './ProjectHub.module.css';
 
 // ── Pure view (no routing/query deps) ─────────────────────────────────────
@@ -49,24 +50,12 @@ const ProjectHubView = ({
       {!isLoading && !isError && (
         projects.length > 0 ? (
           <div className={styles.grid}>
-            {projects.map((p) => (
-              <button
-                key={p.id}
-                className={styles.projectCard}
-                onClick={() => onSelectProject(p.id)}
-                type="button"
-              >
-                <span className={styles.projectIcon}>🎬</span>
-                <div className={styles.projectInfo}>
-                  <span className={styles.projectName}>{p.name}</span>
-                  <span className={styles.projectPath}>{p.path}</span>
-                </div>
-                <span className={styles.projectDate}>
-                  {new Date(p.updated_at).toLocaleDateString(undefined, {
-                    year: 'numeric', month: 'short', day: 'numeric',
-                  })}
-                </span>
-              </button>
+            {projects.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onClick={() => onSelectProject(project.id)}
+              />
             ))}
           </div>
         ) : (
@@ -96,7 +85,8 @@ const meta: Meta<typeof ProjectHubView> = {
     backgrounds: { default: 'light-gray' },
     docs: {
       description: {
-        component: 'Project hub: list of existing projects + button to create a new one.',
+        component:
+          'Project hub listing with readiness progress bars showing replaced/total video counts.',
       },
     },
   },
@@ -107,24 +97,48 @@ type Story = StoryObj<typeof ProjectHubView>;
 
 // ─── Mock data ─────────────────────────────────────────────────────────────
 
+const baseProject = {
+  voice: 'nova',
+  voice_instructions: '',
+  source_language_override: '',
+  target_language: 'eng',
+} satisfies Partial<Project>;
+
 const mockProjects: Project[] = [
   {
-    id: 1, name: 'Tutorials', path: '/Users/jane/Videos/Tutorials',
-    created_at: '2026-01-15T10:30:00Z', updated_at: '2026-06-20T14:00:00Z',
-    voice: 'nova', voice_instructions: '', source_language_override: 'rus', target_language: 'eng',
-    total_videos: 12, replaced_videos: 8,
+    ...baseProject,
+    id: 1,
+    name: 'Tutorials',
+    path: '/Users/jane/Videos/Tutorials',
+    created_at: '2026-01-15T10:30:00Z',
+    updated_at: '2026-06-20T14:00:00Z',
+    source_language_override: 'rus',
+    total_videos: 12,
+    replaced_videos: 8,
   },
   {
-    id: 2, name: 'Meetings', path: '/Users/jane/Videos/Meetings',
-    created_at: '2026-02-10T14:20:00Z', updated_at: '2026-07-01T09:00:00Z',
-    voice: 'alloy', voice_instructions: '', source_language_override: '', target_language: 'spa',
-    total_videos: 5, replaced_videos: 0,
+    ...baseProject,
+    id: 2,
+    name: 'Meetings',
+    path: '/Users/jane/Videos/Meetings',
+    created_at: '2026-02-10T14:20:00Z',
+    updated_at: '2026-07-01T09:00:00Z',
+    voice: 'alloy',
+    target_language: 'spa',
+    total_videos: 5,
+    replaced_videos: 0,
   },
   {
-    id: 3, name: 'Conference Talks', path: '/Users/jane/Videos/Conferences',
-    created_at: '2026-03-05T09:15:00Z', updated_at: '2026-07-10T11:00:00Z',
-    voice: 'echo', voice_instructions: '', source_language_override: 'zho', target_language: 'fra',
-    total_videos: 3, replaced_videos: 3,
+    ...baseProject,
+    id: 3,
+    name: 'Conference Talks',
+    path: '/Users/jane/Videos/Conferences',
+    created_at: '2026-03-05T09:15:00Z',
+    updated_at: '2026-07-10T11:00:00Z',
+    voice: 'echo',
+    target_language: 'fra',
+    total_videos: 3,
+    replaced_videos: 3,
   },
 ];
 
@@ -153,17 +167,102 @@ export const SingleProject: Story = {
 export const ManyProjects: Story = {
   args: {
     projects: Array.from({ length: 10 }, (_, i) => ({
+      ...baseProject,
       id: i + 1,
       name: `Project ${String(i + 1).padStart(2, '0')}`,
       path: `/Users/jane/Videos/Project_${i + 1}`,
       created_at: new Date(2026, 0, i + 1).toISOString(),
       updated_at: new Date(2026, 5, i + 1).toISOString(),
       voice: ['alloy', 'nova', 'echo', 'fable', 'onyx', 'shimmer'][i % 6],
-      voice_instructions: '',
-      source_language_override: '',
-      target_language: 'eng',
       total_videos: (i + 1) * 2,
       replaced_videos: i,
     })),
+  },
+};
+
+/** Side-by-side cards showing each progress bar state. */
+export const ProgressBarStates: Story = {
+  name: 'Progress Bar States',
+  args: {
+    projects: [
+      {
+        ...baseProject,
+        id: 101,
+        name: 'Not started',
+        path: '/Videos/not-started',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-07-01T00:00:00Z',
+        total_videos: 10,
+        replaced_videos: 0,
+      },
+      {
+        ...baseProject,
+        id: 102,
+        name: 'In progress (67%)',
+        path: '/Videos/in-progress',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-07-02T00:00:00Z',
+        total_videos: 12,
+        replaced_videos: 8,
+      },
+      {
+        ...baseProject,
+        id: 103,
+        name: 'Complete',
+        path: '/Videos/complete',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-07-03T00:00:00Z',
+        total_videos: 6,
+        replaced_videos: 6,
+      },
+      {
+        ...baseProject,
+        id: 104,
+        name: 'No bar (not scanned yet)',
+        path: '/Videos/legacy-project',
+        created_at: '2025-06-01T00:00:00Z',
+        updated_at: '2025-06-01T00:00:00Z',
+        total_videos: 0,
+        replaced_videos: 0,
+      },
+    ],
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'Progress bars appear when total_videos > 0. The label shows replaced/total counts; fill width reflects the percentage.',
+      },
+    },
+  },
+};
+
+/** Isolated card for Storybook controls on progress values. */
+export const ProgressBarCard: StoryObj<typeof ProjectCard> = {
+  name: 'Progress Bar Card',
+  render: (args) => (
+    <div className={styles.page}>
+      <main className={styles.content}>
+        <div className={styles.grid} style={{ maxWidth: 420 }}>
+          <ProjectCard {...args} />
+        </div>
+      </main>
+    </div>
+  ),
+  args: {
+    project: mockProjects[0],
+    onClick: () => console.log('open project'),
+  },
+  argTypes: {
+    project: { control: 'object' },
+    onClick: { action: 'clicked' },
+  },
+  parameters: {
+    layout: 'fullscreen',
+    docs: {
+      description: {
+        story: 'Single project card — tweak total_videos and replaced_videos in Controls.',
+      },
+    },
   },
 };

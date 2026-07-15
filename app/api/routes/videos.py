@@ -17,7 +17,12 @@ from app.schemas.models import (
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
-from utils import detect_subtitle_language, detect_video_language
+from utils import (
+    count_videos_in_target_state,
+    detect_subtitle_language,
+    detect_video_language,
+    is_video_in_target_state,
+)
 from video_analyzer import get_video_info_with_duration
 
 router = APIRouter()
@@ -90,6 +95,11 @@ async def _scan_project_files(
                 filename=subtitle_file.name,
                 language=language,
             )
+
+        _target_lang = db.get_target_language(project_id)
+        _video_records = db.get_video_analysis(project_id)
+        _replaced = count_videos_in_target_state(_video_records, _target_lang)
+        db.update_project_video_counts(project_id, len(video_files), _replaced)
     finally:
         # Remove from running scans tracking
         _running_scans.discard(project_id)
@@ -231,14 +241,7 @@ async def list_videos(
         # language, AND a subtitle in the target language is present.
         # Covers videos imported from a previously redubbed project with no working dir.
         target_lang = project_record.get("target_language") or ""
-        audio_langs = {s.language for s in audio_streams if s.language}
-        sub_langs = {s.language for s in subtitles if s.language}
-        pre_redubbed = (
-            bool(target_lang)
-            and len(audio_streams) >= 2
-            and target_lang in audio_langs
-            and target_lang in sub_langs
-        )
+        pre_redubbed = is_video_in_target_state(audio_streams, subtitles, target_lang)
 
         pipeline_status: PipelineStatusResponse | None = None
         if pre_redubbed and not pipeline_status_obj.final_file_exists:

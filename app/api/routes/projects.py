@@ -17,7 +17,11 @@ from app.schemas.models import (
 )
 from database import DatabaseManager
 from file_scanner import FileScanner
-from utils import detect_subtitle_language, detect_video_language
+from utils import (
+    detect_subtitle_language,
+    detect_video_language,
+    count_videos_in_target_state,
+)
 from video_analyzer import get_video_info_with_duration
 
 router = APIRouter()
@@ -107,17 +111,9 @@ async def _scan_project_files(
             db.set_source_language_override(project_id, dominant_language)
 
     # Update video count counters on the project row.
-    # replaced_videos is derived by checking each video's backup directory — a backup
-    # file present means finalize_redubbing already atomically replaced the original.
-    import os as _os
-    from app.core.project_paths import get_project_working_dir as _get_wd
-    _project = db.get_project_by_id(project_id)
-    _project_name = _project["name"] if _project else ""
-    _working_dir = str(_get_wd(project_path, _project_name))
-    _backup_dir = _os.path.join(_working_dir, "backups")
-    _replaced = 0
-    if _os.path.isdir(_backup_dir):
-        _replaced = len([f for f in _os.listdir(_backup_dir) if not f.startswith(".")])
+    _target_lang = db.get_target_language(project_id)
+    _video_records = db.get_video_analysis(project_id)
+    _replaced = count_videos_in_target_state(_video_records, _target_lang)
     db.update_project_video_counts(project_id, len(video_files), _replaced)
 
 

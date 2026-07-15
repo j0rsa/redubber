@@ -138,7 +138,7 @@ interface ProjectCardProps {
   onClick: () => void;
 }
 
-const ProjectCard = ({ project, onClick }: ProjectCardProps) => {
+export const ProjectCard = ({ project, onClick }: ProjectCardProps) => {
   const date = new Date(project.updated_at).toLocaleDateString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
   });

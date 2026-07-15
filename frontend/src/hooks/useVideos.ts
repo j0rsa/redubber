@@ -25,6 +25,7 @@ export const useScanVideos = () => {
     },
     onSuccess: (_, projectId) => {
       queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     }
   });
 };
