@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from app.core.dependencies import get_db, get_scanner
+from app.core.project_paths import count_replaced_videos_from_backups
 from app.schemas.models import (
     AudioStream,
     PipelineStatusResponse,
@@ -90,6 +91,11 @@ async def _scan_project_files(
                 filename=subtitle_file.name,
                 language=language,
             )
+
+        _project = db.get_project_by_id(project_id)
+        _project_name = _project["name"] if _project else ""
+        _replaced = count_replaced_videos_from_backups(project_path, _project_name)
+        db.update_project_video_counts(project_id, len(video_files), _replaced)
     finally:
         # Remove from running scans tracking
         _running_scans.discard(project_id)
