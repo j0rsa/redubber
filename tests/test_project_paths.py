@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from app.core.project_paths import (
-    count_replaced_videos_from_backups,
     get_project_working_dir,
     get_tts_previews_dir,
     sanitise_project_name,
@@ -134,50 +133,6 @@ class TestGetProjectWorkingDir:
 
         # sanitise_project_name("/videos/Awesome Series!") → "awesome_series"
         assert result.name == "awesome_series"
-
-
-# ---------------------------------------------------------------------------
-# count_replaced_videos_from_backups
-# ---------------------------------------------------------------------------
-
-
-class TestCountReplacedVideosFromBackups:
-    """Tests for count_replaced_videos_from_backups."""
-
-    def test_returns_zero_when_backup_dir_missing(self, tmp_path: Path) -> None:
-        """Missing backups directory should count as zero replaced videos."""
-        mock_settings = MagicMock()
-        mock_settings.working_directory = ""
-
-        project_path = tmp_path / "video_project"
-        project_path.mkdir()
-
-        with patch(
-            "app.core.project_paths.get_settings", return_value=mock_settings
-        ):
-            result = count_replaced_videos_from_backups(str(project_path), "Video Project")
-
-        assert result == 0
-
-    def test_counts_non_hidden_backup_files(self, tmp_path: Path) -> None:
-        """Non-hidden files in backups/ are counted as replaced videos."""
-        mock_settings = MagicMock()
-        mock_settings.working_directory = ""
-
-        project_path = tmp_path / "video_project"
-        project_path.mkdir()
-        backup_dir = project_path / ".redubber" / "backups"
-        backup_dir.mkdir(parents=True)
-        (backup_dir / "episode1.mp4").write_text("backup")
-        (backup_dir / "episode2.mp4").write_text("backup")
-        (backup_dir / ".hidden").write_text("ignore")
-
-        with patch(
-            "app.core.project_paths.get_settings", return_value=mock_settings
-        ):
-            result = count_replaced_videos_from_backups(str(project_path), "Video Project")
-
-        assert result == 2
 
 
 # ---------------------------------------------------------------------------

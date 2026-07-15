@@ -8,7 +8,6 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.core.dependencies import get_db, get_scanner
-from app.core.project_paths import count_replaced_videos_from_backups
 from app.schemas.models import (
     ProjectCreate,
     ProjectResponse,
@@ -18,7 +17,11 @@ from app.schemas.models import (
 )
 from database import DatabaseManager
 from file_scanner import FileScanner
-from utils import detect_subtitle_language, detect_video_language
+from utils import (
+    detect_subtitle_language,
+    detect_video_language,
+    count_videos_in_target_state,
+)
 from video_analyzer import get_video_info_with_duration
 
 router = APIRouter()
@@ -108,9 +111,9 @@ async def _scan_project_files(
             db.set_source_language_override(project_id, dominant_language)
 
     # Update video count counters on the project row.
-    _project = db.get_project_by_id(project_id)
-    _project_name = _project["name"] if _project else ""
-    _replaced = count_replaced_videos_from_backups(project_path, _project_name)
+    _target_lang = db.get_target_language(project_id)
+    _video_records = db.get_video_analysis(project_id)
+    _replaced = count_videos_in_target_state(_video_records, _target_lang)
     db.update_project_video_counts(project_id, len(video_files), _replaced)
 
 

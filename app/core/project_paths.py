@@ -97,25 +97,6 @@ def get_project_working_dir(project_path: str, project_name: str) -> Path:
     return Path(project_path) / ".redubber"
 
 
-def count_replaced_videos_from_backups(project_path: str, project_name: str) -> int:
-    """Count videos replaced by checking the project's backup directory.
-
-    Each non-hidden file in ``backups/`` indicates a video whose original was
-    replaced during finalization.
-
-    Args:
-        project_path: Absolute path to the project's video directory.
-        project_name: Display name of the project.
-
-    Returns:
-        Number of backup files found.
-    """
-    backup_dir = get_project_working_dir(project_path, project_name) / "backups"
-    if not backup_dir.is_dir():
-        return 0
-    return len([path for path in backup_dir.iterdir() if not path.name.startswith(".")])
-
-
 def get_tts_previews_dir(project_path: str, project_name: str) -> Path:
     """Return the TTS previews directory for a project, creating it if needed.
 

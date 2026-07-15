@@ -334,3 +334,52 @@ def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[st
     }
 
     return lang_code_mapping.get(language_code.lower(), language_code)
+
+
+def _item_language(item: object) -> str:
+    """Extract a language code from a dict or object with a language field."""
+    if isinstance(item, dict):
+        value = item.get("language")
+    else:
+        value = getattr(item, "language", None)
+    return (value or "").strip()
+
+
+def is_video_in_target_state(
+    audio_streams: list,
+    subtitles: list,
+    target_language: str,
+) -> bool:
+    """Return True if a video appears fully redubbed to the target language.
+
+    Matches the pre-redubbed detection used in the video list API: at least two
+    audio tracks with one in the project target language, plus a subtitle in
+    that same language. Does not rely on backup files or working-dir artifacts.
+    """
+    if not target_language:
+        return False
+
+    audio_langs = {_item_language(stream) for stream in audio_streams if _item_language(stream)}
+    sub_langs = {_item_language(subtitle) for subtitle in subtitles if _item_language(subtitle)}
+
+    return (
+        len(audio_streams) >= 2
+        and target_language in audio_langs
+        and target_language in sub_langs
+    )
+
+
+def count_videos_in_target_state(
+    video_records: list[dict],
+    target_language: str,
+) -> int:
+    """Count project videos that are in the target redubbed state."""
+    return sum(
+        1
+        for record in video_records
+        if is_video_in_target_state(
+            record.get("audio_streams") or [],
+            record.get("subtitle_matches") or [],
+            target_language,
+        )
+    )
