@@ -1101,6 +1101,26 @@ components:
           description: Auto-detected or user-overridden source language (e.g., 'rus',
             'eng')
           default: ''
+        total_videos:
+          type: integer
+          title: Total Videos
+          description: Total number of video files in the project
+          default: 0
+        replaced_videos:
+          type: integer
+          title: Replaced Videos
+          description: Number of videos that have been redubbed and replaced
+          default: 0
+        total_duration_seconds:
+          type: number
+          title: Total Duration Seconds
+          description: Sum of all video durations in the project (seconds)
+          default: 0
+        total_size_mb:
+          type: number
+          title: Total Size Mb
+          description: Sum of all video file sizes in the project (megabytes)
+          default: 0
       type: object
       required:
       - id

@@ -41,6 +41,12 @@ class ProjectResponse(BaseModel):
     )
     total_videos: int = Field(default=0, description="Total number of video files in the project")
     replaced_videos: int = Field(default=0, description="Number of videos that have been redubbed and replaced")
+    total_duration_seconds: float = Field(
+        default=0, description="Sum of all video durations in the project (seconds)"
+    )
+    total_size_mb: float = Field(
+        default=0, description="Sum of all video file sizes in the project (megabytes)"
+    )
 
     @model_validator(mode="after")
     def _set_working_directory(self) -> "ProjectResponse":
