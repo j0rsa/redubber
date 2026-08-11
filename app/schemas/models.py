@@ -197,6 +197,14 @@ class ScanTriggerResponse(BaseModel):
     message: str = Field(..., description="Human-readable status message")
 
 
+class ScanStatusResponse(BaseModel):
+    """Response schema for project scan status."""
+
+    project_id: int = Field(..., description="Project ID")
+    status: Literal["idle", "running"] = Field(
+        ..., description="Whether a background scan is currently running"
+    )
+
 class TaskCancelResponse(BaseModel):
     """Response schema for task cancellation."""
 

@@ -563,12 +563,27 @@ class DatabaseManager:
             return result[0] > 0 if result else False
 
     def clear_project_files(self, project_id: int) -> None:
-        """Delete all video files, subtitle files, and video analysis for a project."""
+        """Delete all video files, subtitle files, and video analysis for a project.
+
+        Also resets video count and duration/size aggregates to zero so a
+        subsequent rescan repopulates them from scratch.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM video_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM subtitle_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM video_analysis WHERE project_id = ?", (project_id,))
+            cursor.execute(
+                """
+                UPDATE projects
+                SET total_videos = 0,
+                    replaced_videos = 0,
+                    total_duration_seconds = 0,
+                    total_size_mb = 0
+                WHERE id = ?
+                """,
+                (project_id,),
+            )
             conn.commit()
 
     def save_video_analysis(self, project_id: int, video_data: Dict) -> None:

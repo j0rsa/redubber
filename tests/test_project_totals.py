@@ -100,6 +100,80 @@ class TestProjectTotalsDatabase:
         assert project["total_duration_seconds"] == 100
         assert project["total_size_mb"] == 10.0
 
+    def test_clear_project_files_resets_aggregates(self, tmp_path) -> None:
+        db = DatabaseManager(db_path=str(tmp_path / "clear.db"))
+        project_id = db.add_project("/videos/c", "Clear")
+        db.save_video_analysis(
+            project_id=project_id,
+            video_data={
+                "filename": "a.mp4",
+                "path": "/videos/c/a.mp4",
+                "size_mb": 50.0,
+                "duration_seconds": 200,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        db.update_project_video_counts(project_id, total=1, replaced=0)
+        db.clear_project_files(project_id)
+
+        project = db.get_project_by_id(project_id)
+        assert project["total_videos"] == 0
+        assert project["replaced_videos"] == 0
+        assert project["total_duration_seconds"] == 0
+        assert project["total_size_mb"] == 0
+        assert db.get_video_analysis(project_id) == []
+
+    def test_rescan_repopulates_aggregates(self, tmp_path) -> None:
+        """Simulates clear → re-analyze → update_project_video_counts (rescan)."""
+        db = DatabaseManager(db_path=str(tmp_path / "rescan.db"))
+        project_id = db.add_project("/videos/rs", "Rescan")
+
+        # Stale pre-rescan state
+        db.save_video_analysis(
+            project_id=project_id,
+            video_data={
+                "filename": "old.mp4",
+                "path": "/videos/rs/old.mp4",
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        db.update_project_video_counts(project_id, total=1, replaced=0)
+
+        # Rescan: clear then write fresh analysis and recount
+        db.clear_project_files(project_id)
+        db.save_video_analysis(
+            project_id=project_id,
+            video_data={
+                "filename": "new_a.mp4",
+                "path": "/videos/rs/new_a.mp4",
+                "size_mb": 120.0,
+                "duration_seconds": 600,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        db.save_video_analysis(
+            project_id=project_id,
+            video_data={
+                "filename": "new_b.mp4",
+                "path": "/videos/rs/new_b.mp4",
+                "size_mb": 80.5,
+                "duration_seconds": 300,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        db.update_project_video_counts(project_id, total=2, replaced=0)
+
+        project = db.get_project_by_id(project_id)
+        assert project["total_videos"] == 2
+        assert project["total_duration_seconds"] == 900
+        assert project["total_size_mb"] == pytest.approx(200.5)
+
     def test_migration_adds_aggregate_columns(
         self, tmp_path: pytest.TempPathFactory
     ) -> None:
