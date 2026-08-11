@@ -229,6 +229,52 @@ class TestVoiceInstructionAnalyzeEndpoint:
         assert result["generation_id"] > 0
         assert result["error"] is None
 
+    def test_analyze_uses_settings_api_key_without_env(self, client, project_id, monkeypatch):
+        """Regression: Analyze must work when the key is only in Settings (not env)."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        settings_response = client.put(
+            "/api/settings",
+            json={"openai_api_key": "sk-settings-only-key-ABCD"},
+        )
+        assert settings_response.status_code == 200
+
+        import app.services.voice_instruction_generator as vig
+
+        vig._generator_instance = None
+
+        mock_result = {
+            "voice_instructions": "Speak with a calm, clear delivery.",
+            "detected_characteristics": {
+                "tone": "calm",
+                "pace": "moderate",
+                "emotion": "neutral",
+                "style": "natural",
+            },
+            "llm_model": "gpt-4o",
+        }
+
+        request_data = {
+            "segment_id": "segment_0",
+            "original_text": "Hello from settings key test.",
+            "translated_text": "Hola desde la prueba de clave.",
+        }
+
+        with patch.object(
+            vig.VoiceInstructionGenerator,
+            "generate_instructions",
+            return_value=mock_result,
+        ):
+            response = client.post(
+                f"/api/projects/{project_id}/voice-instructions/analyze",
+                json=request_data,
+            )
+
+        assert response.status_code == 201
+        assert response.json()["voice_instructions"] == mock_result["voice_instructions"]
+        assert vig._generator_instance is not None
+        assert vig._generator_instance.api_key == "sk-settings-only-key-ABCD"
+
     def test_analyze_voice_instructions_without_context(self, client, project_id):
         """Test generation without optional context."""
         request_data = {
@@ -466,6 +512,11 @@ class TestVoicePreviewGenerateEndpoint:
 
         monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
+        # Generators resolve the key via settings service / env, not config.settings
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        import app.services.tts_preview_generator as tts_module
+        tts_module._generator_instance = None
 
         app = create_app()
         with TestClient(app) as test_client:
@@ -778,6 +829,10 @@ class TestEndpointIntegration:
 
         monkeypatch.setattr(settings, "redubber_config_path", str(storage_dir))
         monkeypatch.setattr(settings, "openai_api_key", "test-key")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+        import app.services.tts_preview_generator as tts_module
+        tts_module._generator_instance = None
 
         app = create_app()
         with TestClient(app) as test_client:

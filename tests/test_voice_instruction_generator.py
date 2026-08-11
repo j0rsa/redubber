@@ -34,9 +34,25 @@ class TestVoiceInstructionGeneratorInit:
 
         assert generator.api_key == "env-test-key"
 
+    def test_init_with_settings_api_key(self, monkeypatch):
+        """Test initialization with API key from settings service (UI/DB)."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "app.services.settings_service.get_openai_api_key",
+            lambda: "settings-db-key",
+        )
+
+        generator = VoiceInstructionGenerator()
+
+        assert generator.api_key == "settings-db-key"
+
     def test_init_without_api_key_raises_error(self, monkeypatch):
         """Test initialization without API key raises ValueError."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "app.services.settings_service.get_openai_api_key",
+            lambda: "",
+        )
 
         with pytest.raises(ValueError, match="OpenAI API key not found"):
             VoiceInstructionGenerator()
@@ -446,6 +462,22 @@ class TestSingletonPattern:
         generator2 = get_voice_instruction_generator()
 
         assert generator1 is generator2
+
+    def test_get_voice_instruction_generator_refreshes_on_key_change(self, monkeypatch):
+        """Test singleton rebuilds when the resolved API key changes."""
+        monkeypatch.setenv("OPENAI_API_KEY", "first-key")
+
+        import app.services.voice_instruction_generator as module
+        module._generator_instance = None
+
+        generator1 = get_voice_instruction_generator()
+        assert generator1.api_key == "first-key"
+
+        monkeypatch.setenv("OPENAI_API_KEY", "second-key")
+        generator2 = get_voice_instruction_generator()
+
+        assert generator2.api_key == "second-key"
+        assert generator1 is not generator2
 
 
 class TestEdgeCases:

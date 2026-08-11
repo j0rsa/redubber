@@ -43,9 +43,25 @@ class TestTTSPreviewGeneratorInit:
 
         assert generator.api_key == "env-test-key"
 
+    def test_init_with_settings_api_key(self, monkeypatch, tmp_path):
+        """Test initialization with API key from settings service (UI/DB)."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "app.services.settings_service.get_openai_api_key",
+            lambda: "settings-db-key",
+        )
+
+        generator = TTSPreviewGenerator(cache_dir=str(tmp_path))
+
+        assert generator.api_key == "settings-db-key"
+
     def test_init_without_api_key_raises_error(self, monkeypatch, tmp_path):
         """Test initialization without API key raises ValueError."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(
+            "app.services.settings_service.get_openai_api_key",
+            lambda: "",
+        )
 
         with pytest.raises(ValueError, match="OpenAI API key not found"):
             TTSPreviewGenerator(cache_dir=str(tmp_path))
