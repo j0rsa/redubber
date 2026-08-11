@@ -12,12 +12,27 @@ from typing import Dict, Optional
 from openai import OpenAI
 
 
+def _resolve_openai_api_key(api_key: Optional[str] = None) -> str:
+    """Resolve OpenAI API key from explicit arg, settings DB, or env var."""
+    if api_key:
+        return api_key
+    try:
+        from app.services.settings_service import get_openai_api_key
+
+        resolved = get_openai_api_key()
+        if resolved:
+            return resolved
+    except Exception:
+        pass
+    return os.getenv("OPENAI_API_KEY", "")
+
+
 class VoiceInstructionGenerator:
     """Generate voice instructions using LLM analysis."""
 
     def __init__(self, api_key: Optional[str] = None):
         """Initialize with OpenAI API key."""
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.api_key = _resolve_openai_api_key(api_key)
         if not self.api_key:
             raise ValueError("OpenAI API key not found")
 
@@ -336,8 +351,13 @@ _generator_instance: Optional[VoiceInstructionGenerator] = None
 
 
 def get_voice_instruction_generator() -> VoiceInstructionGenerator:
-    """Get or create the singleton voice instruction generator."""
+    """Get or create the singleton voice instruction generator.
+
+    Recreates the instance when the resolved API key changes so keys
+    saved via Settings (not only OPENAI_API_KEY env) are picked up.
+    """
     global _generator_instance
-    if _generator_instance is None:
-        _generator_instance = VoiceInstructionGenerator()
+    api_key = _resolve_openai_api_key()
+    if _generator_instance is None or _generator_instance.api_key != api_key:
+        _generator_instance = VoiceInstructionGenerator(api_key=api_key or None)
     return _generator_instance
