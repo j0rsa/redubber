@@ -16,6 +16,10 @@ export interface Project {
   working_directory?: string;
   total_videos: number;
   replaced_videos: number;
+  /** Sum of all video durations in the project (seconds). */
+  total_duration_seconds: number;
+  /** Sum of all video file sizes in the project (megabytes). */
+  total_size_mb: number;
 }
 
 export interface ProjectCreate {

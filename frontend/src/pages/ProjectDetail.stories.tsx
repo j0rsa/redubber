@@ -36,6 +36,8 @@ const mockProject: Project = {
   target_language: 'eng',
   total_videos: 6,
   replaced_videos: 2,
+  total_duration_seconds: 5100,
+  total_size_mb: 760.5,
 };
 
 const mockVideos: VideoFile[] = [

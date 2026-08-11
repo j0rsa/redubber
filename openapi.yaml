@@ -488,6 +488,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - videos
+      summary: Get Scan Status
+      description: Return whether a background scan is currently running for the project.
+      operationId: get_scan_status_api_projects__project_id__scan_get
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Project Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanStatusResponse'
+        '404':
+          description: Project not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/videos/projects/{project_id}/videos:
     get:
       tags:
@@ -1101,6 +1129,26 @@ components:
           description: Auto-detected or user-overridden source language (e.g., 'rus',
             'eng')
           default: ''
+        total_videos:
+          type: integer
+          title: Total Videos
+          description: Total number of video files in the project
+          default: 0
+        replaced_videos:
+          type: integer
+          title: Replaced Videos
+          description: Number of videos that have been redubbed and replaced
+          default: 0
+        total_duration_seconds:
+          type: number
+          title: Total Duration Seconds
+          description: Sum of all video durations in the project (seconds)
+          default: 0
+        total_size_mb:
+          type: number
+          title: Total Size Mb
+          description: Sum of all video file sizes in the project (megabytes)
+          default: 0
       type: object
       required:
       - id
@@ -1134,6 +1182,25 @@ components:
       - message
       title: ScanTriggerResponse
       description: Response schema for triggering project scan.
+    ScanStatusResponse:
+      properties:
+        project_id:
+          type: integer
+          title: Project Id
+          description: Project ID
+        status:
+          type: string
+          enum:
+          - idle
+          - running
+          title: Status
+          description: Whether a background scan is currently running
+      type: object
+      required:
+      - project_id
+      - status
+      title: ScanStatusResponse
+      description: Response schema for project scan status.
     SourceLanguageUpdate:
       properties:
         source_language:

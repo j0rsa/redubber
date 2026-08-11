@@ -10,6 +10,7 @@ from app.core.dependencies import get_db, get_scanner
 from app.schemas.models import (
     AudioStream,
     PipelineStatusResponse,
+    ScanStatusResponse,
     ScanTriggerResponse,
     SubtitleInfo,
     VideoAnalysis,
@@ -164,6 +165,24 @@ async def trigger_scan(
         project_id=project_id,
         status="started",
         message=f"Background scan started for project {project_id}",
+    )
+
+
+@router.get("/projects/{project_id}/scan", response_model=ScanStatusResponse)
+async def get_scan_status(
+    project_id: int,
+    db: Annotated[DatabaseManager, Depends(get_db)],
+) -> ScanStatusResponse:
+    """Return whether a background scan is currently running for the project."""
+    project = db.get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+    return ScanStatusResponse(
+        project_id=project_id,
+        status="running" if project_id in _running_scans else "idle",
     )
 
 

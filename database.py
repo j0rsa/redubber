@@ -142,6 +142,42 @@ class DatabaseManager:
                     "ALTER TABLE projects ADD COLUMN replaced_videos INTEGER DEFAULT 0"
                 )
 
+            # Add duration/size aggregate columns if they don't exist (migration)
+            _added_duration_col = False
+            _added_size_col = False
+            try:
+                cursor.execute("SELECT total_duration_seconds FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN total_duration_seconds REAL DEFAULT 0"
+                )
+                _added_duration_col = True
+            try:
+                cursor.execute("SELECT total_size_mb FROM projects LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute(
+                    "ALTER TABLE projects ADD COLUMN total_size_mb REAL DEFAULT 0"
+                )
+                _added_size_col = True
+
+            # Backfill aggregates once when columns are first introduced
+            if _added_duration_col or _added_size_col:
+                cursor.execute(
+                    """
+                    UPDATE projects SET
+                        total_duration_seconds = (
+                            SELECT COALESCE(SUM(duration_seconds), 0)
+                            FROM video_analysis
+                            WHERE project_id = projects.id
+                        ),
+                        total_size_mb = (
+                            SELECT COALESCE(SUM(size_mb), 0)
+                            FROM video_analysis
+                            WHERE project_id = projects.id
+                        )
+                    """
+                )
+
             # Voice instruction generations table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS voice_instruction_generations (
@@ -414,12 +450,51 @@ class DatabaseManager:
             return [dict(row) for row in cursor.fetchall()]
 
     def update_project_video_counts(self, project_id: int, total: int, replaced: int) -> None:
-        """Set total_videos and replaced_videos for a project."""
+        """Set total_videos, replaced_videos, and duration/size aggregates for a project."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE projects SET total_videos = ?, replaced_videos = ? WHERE id = ?",
-                (total, replaced, project_id),
+                """
+                SELECT COALESCE(SUM(duration_seconds), 0), COALESCE(SUM(size_mb), 0)
+                FROM video_analysis
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            )
+            total_duration, total_size = cursor.fetchone()
+            cursor.execute(
+                """
+                UPDATE projects
+                SET total_videos = ?,
+                    replaced_videos = ?,
+                    total_duration_seconds = ?,
+                    total_size_mb = ?
+                WHERE id = ?
+                """,
+                (total, replaced, total_duration, total_size, project_id),
+            )
+            conn.commit()
+
+    def refresh_project_duration_size(self, project_id: int) -> None:
+        """Recompute total_duration_seconds and total_size_mb from video_analysis."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(duration_seconds), 0), COALESCE(SUM(size_mb), 0)
+                FROM video_analysis
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            )
+            total_duration, total_size = cursor.fetchone()
+            cursor.execute(
+                """
+                UPDATE projects
+                SET total_duration_seconds = ?, total_size_mb = ?
+                WHERE id = ?
+                """,
+                (total_duration, total_size, project_id),
             )
             conn.commit()
 
@@ -488,12 +563,27 @@ class DatabaseManager:
             return result[0] > 0 if result else False
 
     def clear_project_files(self, project_id: int) -> None:
-        """Delete all video files, subtitle files, and video analysis for a project."""
+        """Delete all video files, subtitle files, and video analysis for a project.
+
+        Also resets video count and duration/size aggregates to zero so a
+        subsequent rescan repopulates them from scratch.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM video_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM subtitle_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM video_analysis WHERE project_id = ?", (project_id,))
+            cursor.execute(
+                """
+                UPDATE projects
+                SET total_videos = 0,
+                    replaced_videos = 0,
+                    total_duration_seconds = 0,
+                    total_size_mb = 0
+                WHERE id = ?
+                """,
+                (project_id,),
+            )
             conn.commit()
 
     def save_video_analysis(self, project_id: int, video_data: Dict) -> None:

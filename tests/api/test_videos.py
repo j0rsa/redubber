@@ -19,6 +19,11 @@ class TestVideosAPI:
         response = client.post("/api/projects/99999/scan")
         assert response.status_code == 404
 
+    def test_get_scan_status_not_found_returns_404(self, client: TestClient) -> None:
+        """GET /api/projects/{project_id}/scan returns 404 for unknown project."""
+        response = client.get("/api/projects/99999/scan")
+        assert response.status_code == 404
+
     def test_list_videos_validates_project_id_type(self, client: TestClient) -> None:
         """GET /api/projects/{project_id}/videos rejects non-integer project_id."""
         response = client.get("/api/projects/invalid/videos")

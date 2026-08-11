@@ -1715,6 +1715,7 @@ def sync_video_metadata(db, project_id: int, video_path: str) -> None:
 
         conn.commit()
 
+    db.refresh_project_duration_size(project_id)
     log.info("Metadata sync complete")
 
 

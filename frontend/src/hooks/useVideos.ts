@@ -16,16 +16,32 @@ export const useVideos = (projectId: number | null, hasRunningJobs = false) => {
   });
 };
 
+async function waitForScanIdle(projectId: number, timeoutMs = 120_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { data } = await apiClient.get<{ status: string }>(
+      `/projects/${projectId}/scan`,
+    );
+    if (data.status !== 'running') {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
 export const useScanVideos = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (projectId: number) => {
       const { data } = await apiClient.post(`/projects/${projectId}/scan`);
+      // Wait until background scan finishes so duration/size aggregates are ready.
+      await waitForScanIdle(projectId);
       return data;
     },
-    onSuccess: (_, projectId) => {
-      queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-    }
+    onSuccess: async (_, projectId) => {
+      await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    },
   });
 };

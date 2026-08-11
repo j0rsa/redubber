@@ -1,6 +1,7 @@
 import { type ChangeEvent } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
+import { formatDuration, formatSize } from '../utils/format';
 import styles from './FileGrid.module.css';
 
 export interface FileGridProps {
@@ -38,19 +39,12 @@ export const FileGrid = ({
   liveTaskStatuses,
   activeTasks = [],
 }: FileGridProps) => {
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatSize = (mb: number) => {
-    return mb >= 1000 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
-  };
-
   const selectableVideos = videos.filter((v) => !v.pipeline_status?.replaced);
   const allSelected = selectableVideos.length > 0 && selectableVideos.every((v) => selectedIds.has(v.id));
   const someSelected = selectableVideos.some((v) => selectedIds.has(v.id)) && !allSelected;
+
+  const totalDuration = videos.reduce((sum, v) => sum + (v.duration_seconds || 0), 0);
+  const totalSize = videos.reduce((sum, v) => sum + (v.size_mb || 0), 0);
 
   const handleSelectAll = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
@@ -220,6 +214,23 @@ export const FileGrid = ({
             );
           })}
         </tbody>
+        {videos.length > 0 && (
+          <tfoot>
+            <tr className={styles.totalsRow}>
+              <td className={styles.checkboxCell} />
+              <td className={styles.cell} data-label="Filename">
+                <span className={styles.totalsLabel}>Total</span>
+              </td>
+              <td className={styles.cell} data-label="Duration">
+                <span className={styles.duration}>{formatDuration(totalDuration)}</span>
+              </td>
+              <td className={styles.cell} data-label="Size">
+                <span className={styles.size}>{formatSize(totalSize)}</span>
+              </td>
+              <td className={styles.cell} colSpan={4} aria-hidden="true" />
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

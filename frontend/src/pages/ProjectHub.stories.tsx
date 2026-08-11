@@ -102,6 +102,8 @@ const baseProject = {
   voice_instructions: '',
   source_language_override: '',
   target_language: 'eng',
+  total_duration_seconds: 0,
+  total_size_mb: 0,
 } satisfies Partial<Project>;
 
 const mockProjects: Project[] = [
@@ -115,6 +117,8 @@ const mockProjects: Project[] = [
     source_language_override: 'rus',
     total_videos: 12,
     replaced_videos: 8,
+    total_duration_seconds: 14400,
+    total_size_mb: 3200,
   },
   {
     ...baseProject,
@@ -127,6 +131,8 @@ const mockProjects: Project[] = [
     target_language: 'spa',
     total_videos: 5,
     replaced_videos: 0,
+    total_duration_seconds: 5400,
+    total_size_mb: 890,
   },
   {
     ...baseProject,
@@ -139,6 +145,8 @@ const mockProjects: Project[] = [
     target_language: 'fra',
     total_videos: 3,
     replaced_videos: 3,
+    total_duration_seconds: 10800,
+    total_size_mb: 2100,
   },
 ];
 
@@ -176,6 +184,8 @@ export const ManyProjects: Story = {
       voice: ['alloy', 'nova', 'echo', 'fable', 'onyx', 'shimmer'][i % 6],
       total_videos: (i + 1) * 2,
       replaced_videos: i,
+      total_duration_seconds: (i + 1) * 1800,
+      total_size_mb: (i + 1) * 250,
     })),
   },
 };
@@ -194,6 +204,8 @@ export const ProgressBarStates: Story = {
         updated_at: '2026-07-01T00:00:00Z',
         total_videos: 10,
         replaced_videos: 0,
+        total_duration_seconds: 7200,
+        total_size_mb: 1500,
       },
       {
         ...baseProject,
@@ -204,6 +216,8 @@ export const ProgressBarStates: Story = {
         updated_at: '2026-07-02T00:00:00Z',
         total_videos: 12,
         replaced_videos: 8,
+        total_duration_seconds: 14400,
+        total_size_mb: 3200,
       },
       {
         ...baseProject,
@@ -214,6 +228,8 @@ export const ProgressBarStates: Story = {
         updated_at: '2026-07-03T00:00:00Z',
         total_videos: 6,
         replaced_videos: 6,
+        total_duration_seconds: 5400,
+        total_size_mb: 980,
       },
       {
         ...baseProject,
@@ -224,6 +240,8 @@ export const ProgressBarStates: Story = {
         updated_at: '2025-06-01T00:00:00Z',
         total_videos: 0,
         replaced_videos: 0,
+        total_duration_seconds: 0,
+        total_size_mb: 0,
       },
     ],
   },

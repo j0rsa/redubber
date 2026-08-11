@@ -40,6 +40,7 @@ async def _scan_project_files(
     """
     from video_analyzer import detect_dominant_language
 
+    db.clear_project_files(project_id)
     video_files, subtitle_files = scanner.scan_folder(project_path)
 
     # Collect all audio streams for language detection

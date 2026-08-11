@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Settings } from '../components/Settings/Settings';
 import { useSettings } from '../hooks/useSettings';
 import { apiClient } from '../api/client';
+import { formatDuration, formatSize } from '../utils/format';
 
 export const ProjectHub = () => {
   const navigate = useNavigate();
@@ -146,6 +147,9 @@ export const ProjectCard = ({ project, onClick }: ProjectCardProps) => {
   const total = project.total_videos ?? 0;
   const replaced = project.replaced_videos ?? 0;
   const pct = total > 0 ? Math.round((replaced / total) * 100) : 0;
+  const totalDuration = project.total_duration_seconds ?? 0;
+  const totalSize = project.total_size_mb ?? 0;
+  const hasTotals = totalDuration > 0 || totalSize > 0;
 
   return (
     <button className={styles.projectCard} onClick={onClick} type="button">
@@ -162,7 +166,14 @@ export const ProjectCard = ({ project, onClick }: ProjectCardProps) => {
           </div>
         )}
       </div>
-      <span className={styles.projectDate}>{date}</span>
+      <div className={styles.projectMeta}>
+        <span className={styles.projectDate}>{date}</span>
+        {hasTotals && (
+          <span className={styles.projectTotals}>
+            {formatDuration(totalDuration)} · {formatSize(totalSize)}
+          </span>
+        )}
+      </div>
     </button>
   );
 };
