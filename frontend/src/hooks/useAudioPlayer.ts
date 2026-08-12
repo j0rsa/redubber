@@ -34,9 +34,12 @@ export const useAudioPlayer = (audioUrl: string | undefined): UseAudioPlayerRetu
     if (audioRef.current && audioUrl) {
       audioRef.current.play()
         .then(() => setIsPlaying(true))
-        .catch((err) => {
+        .catch((err: DOMException) => {
+          // Superseded play() calls reject with AbortError; audio may still be playing.
+          if (err?.name === 'AbortError') return;
           console.error('Error playing audio:', err);
           setError('Failed to play audio');
+          setIsPlaying(false);
         });
     }
   }, [audioUrl]);
@@ -49,14 +52,16 @@ export const useAudioPlayer = (audioUrl: string | undefined): UseAudioPlayerRetu
     }
   }, []);
 
-  // Toggle play/pause
+  // Toggle play/pause — use the element state, not React state (avoids stale closures)
   const togglePlayPause = useCallback(() => {
-    if (isPlaying) {
-      pause();
-    } else {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
       play();
+    } else {
+      pause();
     }
-  }, [isPlaying, play, pause]);
+  }, [play, pause]);
 
   // Seek to specific time
   const seek = useCallback((time: number) => {
