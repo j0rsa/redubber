@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { FileGrid } from '../components/FileGrid';
 import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/ProjectSettingsPanel';
 import type { Project, VideoFile } from '../types';
+import { formatDuration } from '../utils/format';
 import styles from './ProjectDetail.module.css';
 
 // ── Shared story meta ─────────────────────────────────────────────────────────
@@ -109,6 +110,9 @@ const ProjectDetailView = ({
 
   const hasVideos = videos.length > 0;
   const selectedCount = selectedIds.size;
+  const selectedDurationSeconds = videos
+    .filter((v) => selectedIds.has(v.id))
+    .reduce((sum, v) => sum + (v.duration_seconds || 0), 0);
 
   return (
     <div className={styles.page}>
@@ -156,7 +160,11 @@ const ProjectDetailView = ({
           {hasVideos && (
             <div className={styles.bulkBar}>
               <span className={styles.bulkBarInfo}>
-                {batchProgressText ?? (selectedCount > 0 ? `${selectedCount} selected` : 'No selection')}
+                {batchProgressText ?? (
+                  selectedCount > 0
+                    ? `${selectedCount} selected · ${formatDuration(selectedDurationSeconds)}`
+                    : 'No selection'
+                )}
               </span>
               <button
                 className={styles.bulkButtonPrimary}

@@ -10,6 +10,7 @@ import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/Project
 import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
+import { formatDuration } from '../utils/format';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -216,6 +217,11 @@ export const ProjectDetail = () => {
 
   const hasVideos = videos && videos.length > 0;
   const selectedCount = selectedIds.size;
+  const selectedDurationSeconds = videos
+    ? videos
+        .filter((v) => selectedIds.has(v.id))
+        .reduce((sum, v) => sum + (v.duration_seconds || 0), 0)
+    : 0;
   const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id)).length ?? 0;
 
   return (
@@ -325,7 +331,7 @@ export const ProjectDetail = () => {
                 {batchProgress
                   ? `Submitting ${batchProgress.submitted}/${batchProgress.total}…`
                   : selectedCount > 0
-                  ? `${selectedCount} selected`
+                  ? `${selectedCount} selected · ${formatDuration(selectedDurationSeconds)}`
                   : 'No selection'}
               </span>
               <button
