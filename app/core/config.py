@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     # API
     api_title: str = "Redubber API"
-    api_version: str = "2.0.20"
+    api_version: str = "2.0.21"
     log_level: str = "INFO"
 
     # CORS (comma-separated origins)
