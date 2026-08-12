@@ -174,7 +174,7 @@ class TestGenerateInstructions:
             )
 
         # Should return fallback instructions
-        assert "Speak naturally with clear enunciation" in result["voice_instructions"]
+        assert "non-native accent" in result["voice_instructions"]
         assert result["detected_characteristics"]["tone"] == "neutral"
         assert result["detected_characteristics"]["pace"] == "moderate"
         assert result["error"] == "API connection failed"
@@ -221,20 +221,42 @@ class TestGenerateInstructions:
         prompt = generator._build_prompt(
             original_text="Original sample text",
             translated_text="Translated sample text",
-            content_type="educational",
-            speaker_gender="female",
-            speaker_age="young_adult",
+            context={
+                "content_type": "educational",
+                "speaker_gender": "female",
+                "speaker_age": "young_adult",
+                "source_language": "jpn",
+                "target_language": "eng",
+                "accent_intensity": "strong",
+            },
         )
 
-        # Verify prompt contains all key elements
         assert "Original sample text" in prompt
         assert "Translated sample text" in prompt
         assert "educational" in prompt
         assert "female" in prompt
         assert "young_adult" in prompt
-        assert "tone" in prompt.lower()
-        assert "pace" in prompt.lower()
+        assert "Japanese" in prompt
+        assert "ACCENT PLAYBOOK" in prompt
+        assert "Accent intensity: STRONG" in prompt
         assert "JSON" in prompt
+
+    def test_prompt_includes_playbook_for_korean(self, generator):
+        prompt = generator._build_prompt(
+            original_text="안녕하세요",
+            translated_text="Hello everyone",
+            context={"source_language": "kor", "target_language": "eng"},
+        )
+        assert "Korean" in prompt
+        assert "ACCENT PLAYBOOK" in prompt
+
+    def test_prompt_notes_identical_target_text(self, generator):
+        prompt = generator._build_prompt(
+            original_text="Same text",
+            translated_text="Same text",
+            context={"source_language": "jpn", "target_language": "eng"},
+        )
+        assert "identical" in prompt.lower()
 
     def test_api_call_parameters(self, generator, mock_openai_response):
         """Test that API is called with correct parameters."""
@@ -254,8 +276,8 @@ class TestGenerateInstructions:
             call_kwargs = mock_create.call_args.kwargs
 
             assert call_kwargs["model"] == "gpt-4o"
-            assert call_kwargs["temperature"] == 0.7
-            assert call_kwargs["max_tokens"] == 500
+            assert call_kwargs["temperature"] == 0.75
+            assert call_kwargs["max_tokens"] == 900
             assert call_kwargs["response_format"] == {"type": "json_object"}
             assert len(call_kwargs["messages"]) == 2
             assert call_kwargs["messages"][0]["role"] == "system"
@@ -429,8 +451,8 @@ class TestRegenerateWithFeedback:
             call_kwargs = mock_create.call_args.kwargs
 
             assert call_kwargs["model"] == "gpt-4o"
-            assert call_kwargs["temperature"] == 0.7
-            assert call_kwargs["max_tokens"] == 600  # Higher than initial generation
+            assert call_kwargs["temperature"] == 0.75
+            assert call_kwargs["max_tokens"] == 900  # Room for accent-forward instructions
             assert call_kwargs["response_format"] == {"type": "json_object"}
 
 

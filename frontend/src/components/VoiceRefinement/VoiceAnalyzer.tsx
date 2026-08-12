@@ -51,6 +51,14 @@ export const VoiceAnalyzer = ({
     }
   };
 
+  const handleQuickFeedback = async (preset: string) => {
+    setShowFeedbackInput(true);
+    setFeedback(preset);
+    await onRegenerate(preset);
+    setFeedback('');
+    setShowFeedbackInput(false);
+  };
+
   const characterCount = voiceInstructions.length;
   const isLongInstructions = characterCount > 500;
 
@@ -196,6 +204,27 @@ export const VoiceAnalyzer = ({
 
           {showFeedbackInput && (
             <div className={styles.feedbackContainer}>
+              <div className={styles.quickFeedbackRow}>
+                {[
+                  'Stronger, more authentic L1 accent with concrete phonetics — not subtle',
+                  'Make it a bit funnier and more charming while keeping the accent real',
+                  'More natural and conversational, keep the accent strong',
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={styles.quickFeedbackChip}
+                    onClick={() => void handleQuickFeedback(preset)}
+                    disabled={isAnalyzing}
+                  >
+                    {preset.startsWith('Stronger')
+                      ? 'Stronger accent'
+                      : preset.startsWith('Make it')
+                        ? 'Funnier'
+                        : 'More natural'}
+                  </button>
+                ))}
+              </div>
               <label className={styles.feedbackLabel}>
                 Optional feedback for regeneration:
               </label>
@@ -204,7 +233,7 @@ export const VoiceAnalyzer = ({
                 className={styles.feedbackInput}
                 value={feedback}
                 onChange={(e) => setFeedback(e.target.value)}
-                placeholder="e.g., Make it more energetic and engaging"
+                placeholder="e.g., Stronger Japanese accent, more playful"
               />
               <button
                 className={styles.primaryButton}

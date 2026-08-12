@@ -259,6 +259,15 @@ class DetectedCharacteristics(BaseModel):
             "storytelling, narrative",
         ],
     )
+    accent: str = Field(
+        default="",
+        description="Detected L1→target accent flavour (e.g., 'strong Japanese-accented English')",
+        examples=[
+            "strong Japanese-accented English",
+            "moderate Korean-accented English",
+            "Mandarin-influenced English",
+        ],
+    )
 
     model_config = {
         "json_schema_extra": {
