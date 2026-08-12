@@ -20,6 +20,7 @@ export interface VoiceInstructions {
     pace: string;
     energy?: string;
     style: string;
+    accent?: string;
     speaker_gender?: 'male' | 'female' | 'unknown';
   };
   generation_id: number;

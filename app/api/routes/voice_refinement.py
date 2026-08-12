@@ -536,16 +536,24 @@ async def analyze_voice_instructions(
         except Exception:
             pass
 
-        # Enrich context with project source language for accurate accent inference
+        # Enrich context with project source/target language for authentic accent inference
         source_language = ""
+        target_language = "eng"
         try:
             _proj = db.get_project_by_id(project_id)
             if _proj:
                 source_language = _proj.get("source_language_override", "") or ""
+                target_language = _proj.get("target_language", "") or "eng"
         except Exception:
             pass
 
-        base_context = {"source_language": source_language} if source_language else {}
+        base_context: dict[str, str] = {
+            "target_language": target_language,
+            "accent_intensity": "strong",
+        }
+        if source_language:
+            base_context["source_language"] = source_language
+
         context_dict: dict | None = None
         if request.context:
             context_dict = {
@@ -554,7 +562,7 @@ async def analyze_voice_instructions(
                 "speaker_gender": request.context.speaker_gender,
                 "speaker_age": request.context.speaker_age,
             }
-        elif base_context:
+        else:
             context_dict = base_context
 
         # Try to extract the audio clip for the segment so the LLM can hear the
@@ -651,10 +659,11 @@ async def analyze_voice_instructions(
         detected_characteristics = DetectedCharacteristics(
             tone=chars.get("tone", "neutral"),
             pace=chars.get("pace", "moderate"),
-            emotion=chars.get("emotion", "balanced"),
+            emotion=chars.get("emotion", chars.get("energy", "balanced")),
             energy=chars.get("energy", ""),
             style=chars.get("style", "natural"),
             speaker_gender=chars.get("speaker_gender", "unknown"),
+            accent=chars.get("accent", ""),
         )
 
         return VoiceInstructionResponse(
@@ -806,13 +815,28 @@ async def regenerate_voice_instructions(
         except Exception:
             pass
 
-        context_dict = None
+        context_dict: dict[str, str] = {
+            "target_language": "eng",
+            "accent_intensity": "strong",
+        }
+        try:
+            _proj = db.get_project_by_id(project_id)
+            if _proj:
+                if _proj.get("source_language_override"):
+                    context_dict["source_language"] = _proj["source_language_override"]
+                if _proj.get("target_language"):
+                    context_dict["target_language"] = _proj["target_language"]
+        except Exception:
+            pass
+
         if request.context:
-            context_dict = {
-                "content_type": request.context.content_type,
-                "speaker_gender": request.context.speaker_gender,
-                "speaker_age": request.context.speaker_age,
-            }
+            context_dict.update(
+                {
+                    "content_type": request.context.content_type,
+                    "speaker_gender": request.context.speaker_gender,
+                    "speaker_age": request.context.speaker_age,
+                }
+            )
 
         result = generator.regenerate_with_feedback(
             original_text=request.original_text,
@@ -840,10 +864,11 @@ async def regenerate_voice_instructions(
         detected_characteristics = DetectedCharacteristics(
             tone=chars.get("tone", "neutral"),
             pace=chars.get("pace", "moderate"),
-            emotion=chars.get("emotion", "balanced"),
+            emotion=chars.get("emotion", chars.get("energy", "balanced")),
             energy=chars.get("energy", ""),
             style=chars.get("style", "natural"),
             speaker_gender=chars.get("speaker_gender", "unknown"),
+            accent=chars.get("accent", ""),
         )
 
         return VoiceInstructionResponse(
