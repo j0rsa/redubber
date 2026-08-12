@@ -1,8 +1,35 @@
 """Application configuration using Pydantic Settings."""
 
+from __future__ import annotations
+
+from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@lru_cache(maxsize=1)
+def get_package_version() -> str:
+    """Return the app version from ``pyproject.toml`` (single source of truth).
+
+    Prefer reading ``pyproject.toml`` so bumps apply without reinstalling the
+    package (Docker also uses ``poetry install --no-root``). Fall back to
+    importlib metadata when the file is unavailable.
+    """
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    try:
+        import tomllib
+
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        return str(data["tool"]["poetry"]["version"])
+    except Exception:
+        pass
+
+    try:
+        return version("redubber")
+    except PackageNotFoundError:
+        return "0.0.0"
 
 
 class Settings(BaseSettings):
@@ -24,7 +51,8 @@ class Settings(BaseSettings):
 
     # API
     api_title: str = "Redubber API"
-    api_version: str = "2.0.20"
+    # Populated from pyproject.toml — do not hardcode a second copy here.
+    api_version: str = get_package_version()
     log_level: str = "INFO"
 
     # CORS (comma-separated origins)
