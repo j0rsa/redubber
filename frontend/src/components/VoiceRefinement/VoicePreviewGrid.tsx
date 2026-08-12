@@ -24,53 +24,90 @@ export const VoicePreviewGrid = ({
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Record<string, number>>({});
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const playingVoiceRef = useRef<string | null>(null);
 
   const getPreview = (voiceId: string): VoicePreview | undefined => {
     return previews.find((p) => p.voice === voiceId);
   };
 
-  const handlePlay = (voiceId: string, audioUrl: string) => {
-    // Stop any currently playing audio
-    if (playingVoice) {
-      const currentAudio = audioRefs.current.get(playingVoice);
-      if (currentAudio) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-    }
+  const stopVoice = (voiceId: string | null) => {
+    if (!voiceId) return;
+    const audio = audioRefs.current.get(voiceId);
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+  };
 
-    // Get or create audio element
+  const setActiveVoice = (voiceId: string | null) => {
+    playingVoiceRef.current = voiceId;
+    setPlayingVoice(voiceId);
+  };
+
+  const ensureAudio = (voiceId: string, audioUrl: string): HTMLAudioElement => {
     let audio = audioRefs.current.get(voiceId);
-    if (!audio) {
-      audio = new Audio(audioUrl);
-      audioRefs.current.set(voiceId, audio);
+    if (audio) return audio;
 
-      audio.addEventListener('ended', () => {
-        setPlayingVoice(null);
-        setCurrentTime((prev) => ({ ...prev, [voiceId]: 0 }));
-      });
+    audio = new Audio(audioUrl);
+    audioRefs.current.set(voiceId, audio);
 
-      audio.addEventListener('timeupdate', () => {
-        setCurrentTime((prev) => ({ ...prev, [voiceId]: audio!.currentTime }));
-      });
+    audio.addEventListener('play', () => {
+      setActiveVoice(voiceId);
+    });
 
-      audio.addEventListener('error', () => {
-        setPlayingVoice(null);
-        console.error('Error playing audio:', audioUrl);
-      });
+    audio.addEventListener('pause', () => {
+      // Ignore pauses from stopping a different voice or mid-replace seeks.
+      if (playingVoiceRef.current === voiceId && audio.paused) {
+        setActiveVoice(null);
+      }
+    });
+
+    audio.addEventListener('ended', () => {
+      if (playingVoiceRef.current === voiceId) {
+        setActiveVoice(null);
+      }
+      setCurrentTime((prev) => ({ ...prev, [voiceId]: 0 }));
+    });
+
+    audio.addEventListener('timeupdate', () => {
+      setCurrentTime((prev) => ({ ...prev, [voiceId]: audio.currentTime }));
+    });
+
+    audio.addEventListener('error', () => {
+      if (playingVoiceRef.current === voiceId) {
+        setActiveVoice(null);
+      }
+      console.error('Error playing audio:', audioUrl);
+    });
+
+    return audio;
+  };
+
+  const handlePlay = (voiceId: string, audioUrl: string) => {
+    const currentlyPlaying = playingVoiceRef.current;
+    const audio = ensureAudio(voiceId, audioUrl);
+
+    // Toggle off the same voice
+    if (currentlyPlaying === voiceId && !audio.paused) {
+      stopVoice(voiceId);
+      setActiveVoice(null);
+      return;
     }
 
-    if (playingVoice === voiceId) {
-      audio.pause();
-      audio.currentTime = 0;
-      setPlayingVoice(null);
-    } else {
-      audio.play().catch((err) => {
-        console.error('Error playing audio:', err);
-        setPlayingVoice(null);
-      });
-      setPlayingVoice(voiceId);
+    // Stop any other voice first
+    if (currentlyPlaying && currentlyPlaying !== voiceId) {
+      stopVoice(currentlyPlaying);
     }
+
+    // Optimistic UI update; play/pause events keep it in sync.
+    setActiveVoice(voiceId);
+    void audio.play().catch((err: DOMException) => {
+      // A superseded play() rejects with AbortError while audio may still play.
+      if (err?.name === 'AbortError') return;
+      console.error('Error playing audio:', err);
+      if (playingVoiceRef.current === voiceId) {
+        setActiveVoice(null);
+      }
+    });
   };
 
   const formatDuration = (ms: number): string => {
@@ -92,6 +129,7 @@ export const VoicePreviewGrid = ({
         audio.currentTime = 0;
       });
       audioRefs.current.clear();
+      playingVoiceRef.current = null;
     };
   }, []);
 
@@ -179,6 +217,7 @@ export const VoicePreviewGrid = ({
                     <button
                       className={styles.playButtonLarge}
                       onClick={() => handlePlay(voice.id, preview.audio_url)}
+                      aria-label={isPlaying ? 'Pause preview' : 'Play preview'}
                     >
                       {isPlaying ? '⏸' : '▶'}
                     </button>

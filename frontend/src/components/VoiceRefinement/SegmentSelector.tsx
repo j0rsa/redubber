@@ -48,7 +48,8 @@ export const SegmentSelector = ({
   transcribing = false,
 }: SegmentSelectorProps) => {
   const [playingSegment, setPlayingSegment] = useState<string | null>(null);
-  const [audioElements] = useState<Map<string, HTMLAudioElement>>(new Map());
+  const audioElements = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const playingSegmentRef = useRef<string | null>(null);
 
   // Debounced search — we hold a local draft so the input stays responsive
   const [searchDraft, setSearchDraft] = useState(filter.search);
@@ -96,40 +97,66 @@ export const SegmentSelector = ({
   const handlePlay = (segment: TranscriptionSegment, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (playingSegment) {
-      const currentAudio = audioElements.get(playingSegment);
+    const currentlyPlaying = playingSegmentRef.current;
+    let audio = audioElements.current.get(segment.id);
+    if (!audio) {
+      audio = new Audio(segment.audio_url);
+      audioElements.current.set(segment.id, audio);
+
+      audio.addEventListener('play', () => {
+        playingSegmentRef.current = segment.id;
+        setPlayingSegment(segment.id);
+      });
+
+      audio.addEventListener('pause', () => {
+        if (playingSegmentRef.current === segment.id && audio?.paused) {
+          playingSegmentRef.current = null;
+          setPlayingSegment(null);
+        }
+      });
+
+      audio.addEventListener('ended', () => {
+        if (playingSegmentRef.current === segment.id) {
+          playingSegmentRef.current = null;
+          setPlayingSegment(null);
+        }
+      });
+
+      audio.addEventListener('error', () => {
+        if (playingSegmentRef.current === segment.id) {
+          playingSegmentRef.current = null;
+          setPlayingSegment(null);
+        }
+        console.error('Error playing audio:', segment.audio_url);
+      });
+    }
+
+    if (currentlyPlaying === segment.id && !audio.paused) {
+      audio.pause();
+      audio.currentTime = 0;
+      playingSegmentRef.current = null;
+      setPlayingSegment(null);
+      return;
+    }
+
+    if (currentlyPlaying && currentlyPlaying !== segment.id) {
+      const currentAudio = audioElements.current.get(currentlyPlaying);
       if (currentAudio) {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       }
     }
 
-    let audio = audioElements.get(segment.id);
-    if (!audio) {
-      audio = new Audio(segment.audio_url);
-      audioElements.set(segment.id, audio);
-
-      audio.addEventListener('ended', () => {
+    playingSegmentRef.current = segment.id;
+    setPlayingSegment(segment.id);
+    void audio.play().catch((err: DOMException) => {
+      if (err?.name === 'AbortError') return;
+      console.error('Error playing audio:', err);
+      if (playingSegmentRef.current === segment.id) {
+        playingSegmentRef.current = null;
         setPlayingSegment(null);
-      });
-
-      audio.addEventListener('error', () => {
-        setPlayingSegment(null);
-        console.error('Error playing audio:', segment.audio_url);
-      });
-    }
-
-    if (playingSegment === segment.id) {
-      audio.pause();
-      audio.currentTime = 0;
-      setPlayingSegment(null);
-    } else {
-      audio.play().catch((err) => {
-        console.error('Error playing audio:', err);
-        setPlayingSegment(null);
-      });
-      setPlayingSegment(segment.id);
-    }
+      }
+    });
   };
 
   const showResetButton = !isDefaultFilter(filter);
