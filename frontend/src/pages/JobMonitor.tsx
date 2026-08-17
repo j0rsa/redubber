@@ -1,7 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useTask, useCancelTask, useSubmitRedub } from '../hooks/useTasks';
 import { useNotifications } from '../hooks/useNotifications';
+import { useSettings } from '../hooks/useSettings';
+import { RetryRedubDialog } from '../components/RetryRedubDialog/RetryRedubDialog';
 import type { TaskStatus } from '../types';
 import { PipelineStatus } from '../components/PipelineStatus';
 import styles from './JobMonitor.module.css';
@@ -150,6 +152,8 @@ export const JobMonitor = () => {
   const { data: task, isLoading } = useTask(taskId || null);
   const cancelTask = useCancelTask();
   const submitRedub = useSubmitRedub();
+  const { settings } = useSettings();
+  const [showRetryDialog, setShowRetryDialog] = useState(false);
   const { showNotification, requestPermission, permission } = useNotifications();
   const previousStatus = useRef<string | undefined>(undefined);
 
@@ -183,13 +187,15 @@ export const JobMonitor = () => {
     catch (err) { console.error('Failed to cancel task:', err); }
   };
 
-  const handleRetry = async () => {
+  const handleRetry = async (audioChunkDuration: number) => {
     if (!task?.video_path || task.project_id == null) return;
     try {
       const result = await submitRedub.mutateAsync({
         video_path: task.video_path,
         project_id: task.project_id,
+        audio_chunk_duration: audioChunkDuration,
       });
+      setShowRetryDialog(false);
       if (result?.task_id) {
         navigate(`/job/${result.task_id}`, { replace: true });
       }
@@ -199,16 +205,28 @@ export const JobMonitor = () => {
   };
 
   return (
-    <JobMonitorView
-      task={task}
-      isLoading={isLoading}
-      isCanceling={cancelTask.isPending}
-      cancelError={cancelTask.isError ? (cancelTask.error as Error).message : null}
-      onBack={() => navigate(-1)}
-      onCancel={handleCancel}
-      onRetry={task?.project_id != null ? handleRetry : undefined}
-      isRetrying={submitRedub.isPending}
-      retryError={submitRedub.isError ? (submitRedub.error as Error).message : null}
-    />
+    <>
+      <JobMonitorView
+        task={task}
+        isLoading={isLoading}
+        isCanceling={cancelTask.isPending}
+        cancelError={cancelTask.isError ? (cancelTask.error as Error).message : null}
+        onBack={() => navigate(-1)}
+        onCancel={handleCancel}
+        onRetry={task?.project_id != null && task.status === 'failed' ? () => setShowRetryDialog(true) : undefined}
+        isRetrying={submitRedub.isPending}
+        retryError={submitRedub.isError ? (submitRedub.error as Error).message : null}
+      />
+      {showRetryDialog && task && (
+        <RetryRedubDialog
+          videoFilename={task.video_path.split('/').pop() ?? task.video_path}
+          errorMessage={task.error ?? undefined}
+          defaultChunkDuration={settings.audio_chunk_duration}
+          isSubmitting={submitRedub.isPending}
+          onCancel={() => setShowRetryDialog(false)}
+          onConfirm={(audioChunkDuration) => void handleRetry(audioChunkDuration)}
+        />
+      )}
+    </>
   );
 };

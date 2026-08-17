@@ -160,6 +160,16 @@ class TaskCreate(BaseModel):
 
     video_path: str = Field(..., description="Absolute path to video file")
     project_id: int = Field(..., description="Associated project ID")
+    audio_chunk_duration: int | None = Field(
+        default=None,
+        ge=60,
+        le=3600,
+        description=(
+            "Optional override for audio chunk duration in seconds. "
+            "When set, existing audio chunks and downstream artefacts are cleared "
+            "and the video is re-chunked at this size before transcription."
+        ),
+    )
 
 
 class TaskStatusResponse(BaseModel):

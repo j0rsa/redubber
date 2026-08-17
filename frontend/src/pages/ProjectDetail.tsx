@@ -9,6 +9,8 @@ import { FileGrid } from '../components/FileGrid';
 import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/ProjectSettingsPanel';
 import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { SubtitleReview } from '../components/SubtitleReview/SubtitleReview';
+import { RetryRedubDialog } from '../components/RetryRedubDialog/RetryRedubDialog';
+import { useSettings } from '../hooks/useSettings';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
@@ -80,11 +82,17 @@ export const ProjectDetail = () => {
       if (runningTaskId) {
         const ts = activeTasks.find((t) => t.task_id === runningTaskId);
         if (ts) taskStatusByVideoId.set(video.id, ts);
+        continue;
       }
+      const failedTask = activeTasks.find(
+        (t) => t.video_path === video.path && t.status === 'failed',
+      );
+      if (failedTask) taskStatusByVideoId.set(video.id, failedTask);
     }
   }
   const scanVideos = useScanVideos();
   const submitRedub = useSubmitRedub();
+  const { settings } = useSettings();
 
   const setCurrentProjectId = useUIStore((state) => state.setCurrentProjectId);
   const hideCompleted = useUIStore((state) => projectId ? (state.hideCompletedByProject[projectId] ?? false) : false);
@@ -116,6 +124,7 @@ export const ProjectDetail = () => {
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
   const [resetDubError, setResetDubError] = useState<string | null>(null);
+  const [retryVideo, setRetryVideo] = useState<VideoFile | null>(null);
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -156,6 +165,28 @@ export const ProjectDetail = () => {
       await submitRedub.mutateAsync({ video_path: videoPath, project_id: projectId });
     } catch (err) {
       console.error('Failed to submit redub:', err);
+    }
+  };
+
+  const handleRetryFailed = (video: VideoFile) => {
+    setRetryVideo(video);
+  };
+
+  const handleRetryConfirm = async (audioChunkDuration: number) => {
+    if (!projectId || !retryVideo) return;
+    try {
+      const result = await submitRedub.mutateAsync({
+        video_path: retryVideo.path,
+        project_id: projectId,
+        audio_chunk_duration: audioChunkDuration,
+      });
+      setRetryVideo(null);
+      if (result?.task_id) {
+        navigate(`/job/${result.task_id}`);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (err) {
+      console.error('Failed to retry redub:', err);
     }
   };
 
@@ -370,6 +401,21 @@ export const ProjectDetail = () => {
           </div>
         )}
 
+        {retryVideo && (
+          <RetryRedubDialog
+            videoFilename={retryVideo.filename}
+            errorMessage={
+              retryVideo.pipeline_status?.error
+              ?? taskStatusByVideoId.get(retryVideo.id)?.error
+              ?? undefined
+            }
+            defaultChunkDuration={settings.audio_chunk_duration}
+            isSubmitting={submitRedub.isPending}
+            onCancel={() => setRetryVideo(null)}
+            onConfirm={(audioChunkDuration) => void handleRetryConfirm(audioChunkDuration)}
+          />
+        )}
+
         {/* ── Error banners ── */}
         {scanVideos.isError && (
           <div className={styles.errorBanner}>
@@ -442,6 +488,7 @@ export const ProjectDetail = () => {
               onSelectionChange={setSelectedIds}
               runningJobIds={runningJobs}
               onRedubSingle={handleRedubSingle}
+              onRetryFailed={handleRetryFailed}
               onFinalize={handleFinalize}
               finalizingIds={finalizingIds}
               onGenerateSubs={handleGenerateSubs}

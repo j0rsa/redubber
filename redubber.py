@@ -820,7 +820,12 @@ class Redubber(BaseModel):
         return set(result.values())
 
     def get_text_and_segments(
-        self, reproj: Reproj, compact: bool = True, progress_callback=None
+        self,
+        reproj: Reproj,
+        compact: bool = True,
+        progress_callback=None,
+        chunk_duration: int | None = None,
+        replace_audio_chunks: bool = False,
     ) -> List[TranscriptionSegment]:
         """Get the text and segments from the audio file.
 
@@ -828,6 +833,8 @@ class Redubber(BaseModel):
             reproj: The reproj object.
             compact: Whether to postprocess segments.
             progress_callback: Optional callback(progress: float) where progress is 0.0-1.0.
+            chunk_duration: Override chunk size in seconds for this run.
+            replace_audio_chunks: Re-extract audio even when chunk files already exist.
 
         Returns:
             A list of transcription segments.
@@ -839,7 +846,10 @@ class Redubber(BaseModel):
                 progress_callback(p * 0.5)
 
         audio_files = self.extract_audio_chunks(
-            reproj, progress_callback=audio_progress
+            reproj,
+            chunk_duration=chunk_duration,
+            replace=replace_audio_chunks,
+            progress_callback=audio_progress,
         )
         all_segments = []
         time_offset = 0.0
