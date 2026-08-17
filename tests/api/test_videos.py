@@ -118,7 +118,7 @@ class TestResetDubAPI:
         assert response.status_code == 422
         assert "final" in response.json()["detail"].lower()
 
-    def test_reset_dub_success(self, client: TestClient, tmp_path, monkeypatch) -> None:
+    def test_reset_dub_success(self, client: TestClient, tmp_path) -> None:
         from app.core.config import settings
         from database import DatabaseManager
 
@@ -156,20 +156,13 @@ class TestResetDubAPI:
         )
         video_id = db.get_video_analysis(project_id)[0]["id"]
 
-        monkeypatch.setattr(
-            "app.services.dub_reset.strip_first_audio_track", lambda _p: None
-        )
-        monkeypatch.setattr("redubber.sync_video_metadata", lambda *_a, **_k: None)
-
         response = client.post(
             f"/api/projects/{project_id}/videos/{video_id}/reset-dub"
         )
-        assert response.status_code == 200
+        assert response.status_code == 202
         body = response.json()
-        assert body["status"] == "reset"
-        assert body["removed_audio_track"] is True
-        assert str(srt) in body["deleted_subtitles"]
-        assert not srt.exists()
+        assert body["status"] == "queued"
+        assert "task_id" in body
 
 
 class TestListVideosPipelineStatus:
@@ -239,3 +232,94 @@ class TestListVideosPipelineStatus:
         assert status["replaced"] is True
         assert status["is_complete"] is True
         assert status["current_stage"] == "Complete"
+
+    def test_not_replaced_after_dub_reset(self, client: TestClient, tmp_path) -> None:
+        """After reset, video should no longer show as finalized (Remove dub)."""
+        import json
+        from unittest.mock import patch
+
+        from app.core.config import settings
+        from app.services.dub_reset import reset_dubbed_video
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.set_target_language(project_id, "eng")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [
+                    {"index": 0, "language": "eng", "codec": "aac"},
+                    {"index": 1, "language": "rus", "codec": "aac"},
+                ],
+                "subtitles": [
+                    {
+                        "language": "eng",
+                        "embedded": False,
+                        "path": str(srt),
+                        "filename": srt.name,
+                    }
+                ],
+            },
+        )
+        record = db.get_video_analysis(project_id)[0]
+
+        backup_dir = project_dir / ".redubber" / "backups"
+        backup_dir.mkdir(parents=True)
+        (backup_dir / "lesson.20250101.mp4").write_bytes(b"backup")
+
+        with (
+            patch("app.services.dub_reset.strip_first_audio_track"),
+            patch("redubber.sync_video_metadata"),
+        ):
+            reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(project_dir),
+                project_name="Demo",
+                target_language="eng",
+            )
+
+        # Simulate metadata sync after strip (single original audio track, no target sub)
+        import sqlite3
+
+        with sqlite3.connect(db.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE video_analysis
+                SET audio_streams = ?, subtitle_matches = ?
+                WHERE project_id = ? AND file_path = ?
+                """,
+                (
+                    json.dumps([
+                        {
+                            "index": 0,
+                            "language": "rus",
+                            "codec": "aac",
+                            "channels": 2,
+                            "sample_rate": 48000,
+                        }
+                    ]),
+                    json.dumps([]),
+                    project_id,
+                    str(video),
+                ),
+            )
+            conn.commit()
+
+        response = client.get(f"/api/projects/{project_id}/videos")
+        assert response.status_code == 200
+        status = response.json()[0]["pipeline_status"]
+        assert status is None or status.get("replaced") is not True

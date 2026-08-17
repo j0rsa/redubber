@@ -11,6 +11,7 @@ import pytest
 
 from app.services.dub_reset import (
     DubResetError,
+    clear_finalization_artifacts,
     find_generated_subtitle_paths,
     reset_dubbed_video,
     strip_first_audio_track,
@@ -200,6 +201,31 @@ def _seed_final_video(
     return db, project_id, record, video, srt
 
 
+class TestClearFinalizationArtifacts:
+    def test_removes_dubbed_file_and_backup(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+
+        working_root = project_dir / ".redubber"
+        rel_dir = working_root / "lesson.mp4"
+        rel_dir.mkdir(parents=True)
+        dubbed = rel_dir / "lesson.dubbed.mp4"
+        dubbed.write_bytes(b"dubbed")
+        backup_dir = working_root / "backups"
+        backup_dir.mkdir()
+        backup = backup_dir / "lesson.20250101.mp4"
+        backup.write_bytes(b"backup")
+
+        removed = clear_finalization_artifacts(video, str(project_dir), "project")
+
+        assert not dubbed.exists()
+        assert not backup.exists()
+        assert str(dubbed) in removed
+        assert str(backup) in removed
+
+
 class TestResetDubbedVideo:
     def test_rejects_video_not_in_target_state(self, tmp_path: Path) -> None:
         db, project_id, record, _video, _srt = _seed_final_video(
@@ -246,3 +272,25 @@ class TestResetDubbedVideo:
         assert str(working_srt) in result["deleted_subtitles"]
         remaining = db.get_subtitle_files_for_video(project_id, "lesson.mp4")
         assert remaining == []
+
+    def test_clears_finalize_backup_artifacts(self, tmp_path: Path) -> None:
+        db, project_id, record, video, _srt = _seed_final_video(tmp_path)
+        backup_dir = video.parent / ".redubber" / "backups"
+        backup_dir.mkdir(parents=True)
+        backup = backup_dir / "lesson.20250101.mp4"
+        backup.write_bytes(b"backup")
+
+        with (
+            patch("app.services.dub_reset.strip_first_audio_track"),
+            patch("redubber.sync_video_metadata"),
+        ):
+            reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+            )
+
+        assert not backup.exists()

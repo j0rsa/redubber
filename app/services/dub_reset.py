@@ -55,6 +55,36 @@ def find_generated_subtitle_paths(video_path: Path, target_language: str) -> lis
     return found
 
 
+def clear_finalization_artifacts(
+    video_path: Path, project_path: str, project_name: str
+) -> list[str]:
+    """Remove backup and mixed-output files so pipeline status no longer shows replaced.
+
+    After stripping the dubbed track the video file is no longer in the target
+    state, but leftover ``.dubbed`` files or finalize backups would still make
+    ``get_pipeline_status`` report ``replaced=True``.
+    """
+    removed: list[str] = []
+    working_root = get_project_working_dir(project_path, project_name)
+    video_stem = video_path.stem
+    video_ext = video_path.suffix
+
+    rel = os.path.relpath(str(video_path), project_path)
+    per_video_dir = working_root / rel
+    dubbed = per_video_dir / f"{video_stem}.dubbed{video_ext}"
+    if dubbed.is_file():
+        dubbed.unlink()
+        removed.append(str(dubbed))
+
+    backup_dir = working_root / "backups"
+    if backup_dir.is_dir():
+        for candidate in sorted(backup_dir.iterdir()):
+            if candidate.is_file() and candidate.name.startswith(video_stem + "."):
+                candidate.unlink()
+                removed.append(str(candidate))
+    return removed
+
+
 def working_dir_subtitle_path(
     video_path: Path, project_path: str, project_name: str
 ) -> Path:
@@ -150,6 +180,7 @@ def reset_dubbed_video(
             )
 
     strip_first_audio_track(video_path)
+    clear_finalization_artifacts(video_path, project_path, project_name)
 
     from redubber import sync_video_metadata
 

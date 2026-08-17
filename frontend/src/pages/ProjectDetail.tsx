@@ -62,6 +62,8 @@ export const ProjectDetail = () => {
 
     if (anyCompleted) {
       queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     }
 
     prevActiveTaskIds.current = currentIds;
@@ -183,15 +185,19 @@ export const ProjectDetail = () => {
     try {
       await apiClient.post(`/projects/${projectId}/videos/${videoId}/reset-dub`);
       setConfirmResetVideo(null);
-      await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
-      await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
       console.error('Reset dub failed:', err);
     } finally {
-      setResettingDubIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
+      setResettingDubIds((prev) => {
+        const s = new Set(prev);
+        s.delete(videoId);
+        return s;
+      });
     }
   };
+
+  // While a reset-dub job runs, FileGrid shows "View Job" via runningJobs.
 
   const handleBack = () => {
     setCurrentProjectId(null);
