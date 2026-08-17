@@ -8,9 +8,11 @@ import { useActiveTasks } from '../hooks/useActiveTasks';
 import { FileGrid } from '../components/FileGrid';
 import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/ProjectSettingsPanel';
 import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
+import { SubtitleReview } from '../components/SubtitleReview/SubtitleReview';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
+import { useSubtitleReview } from '../hooks/useSubtitleReview';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -96,6 +98,8 @@ export const ProjectDetail = () => {
   const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
   const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
+  const [reviewVideoId, setReviewVideoId] = useState<number | null>(null);
+  const subtitleReview = useSubtitleReview({ projectId, videoId: reviewVideoId });
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -364,6 +368,7 @@ export const ProjectDetail = () => {
               finalizingIds={finalizingIds}
               onGenerateSubs={handleGenerateSubs}
               generatingSubsIds={generatingSubsIds}
+              onReviewSubs={setReviewVideoId}
               liveTaskStatuses={taskStatusByVideoId}
               activeTasks={activeTasks}
             />
@@ -385,6 +390,17 @@ export const ProjectDetail = () => {
               queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             }}
             firstVideoPath={videos?.find((v) => !v.pipeline_status?.replaced)?.path}
+          />
+        )}
+
+        {projectId && (
+          <SubtitleReview
+            isOpen={reviewVideoId !== null}
+            onClose={() => setReviewVideoId(null)}
+            filename={videos?.find((v) => v.id === reviewVideoId)?.filename}
+            data={subtitleReview.data}
+            loading={subtitleReview.loading}
+            error={subtitleReview.error}
           />
         )}
       </div>

@@ -142,7 +142,14 @@ preserving the original speaker's tone, emotion, and delivery style.
     )
 
     # Mount API routers
-    from app.api.routes import projects, tasks, videos, voice_refinement, filesystem
+    from app.api.routes import (
+        filesystem,
+        projects,
+        subtitle_review,
+        tasks,
+        videos,
+        voice_refinement,
+    )
     from app.api.routes import settings as settings_routes
 
     app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
@@ -151,8 +158,11 @@ preserving the original speaker's tone, emotion, and delivery style.
     app.include_router(
         voice_refinement.router, prefix="/api", tags=["voice-refinement"]
     )
-    app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+    app.include_router(
+        settings_routes.router, prefix="/api/settings", tags=["settings"]
+    )
     app.include_router(filesystem.router, prefix="/api/filesystem", tags=["filesystem"])
+    app.include_router(subtitle_review.router, prefix="/api", tags=["videos"])
 
     @app.get(
         "/api/health",
