@@ -322,6 +322,15 @@ _ISO639_1_TO_2 = {
 
 _ISO639_2_TO_1 = {three: two for two, three in _ISO639_1_TO_2.items()}
 
+# Bibliographic vs terminological 639-2 codes that ffprobe/ffmpeg mix freely.
+_ISO639_2_ALIASES = {
+    "chi": "zho",
+    "ger": "deu",
+    "fre": "fra",
+    "cze": "ces",
+    "dut": "nld",
+}
+
 
 def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[str]:
     """
@@ -361,7 +370,8 @@ def normalize_lang_code(language_code: Optional[str]) -> str:
     if not language_code:
         return ""
     normalized = convert_to_three_char_lang_code(language_code.strip().lower())
-    return (normalized or "").lower()
+    code = (normalized or "").lower()
+    return _ISO639_2_ALIASES.get(code, code)
 
 
 def _item_language(item: object) -> str:
@@ -384,17 +394,24 @@ def is_video_in_target_state(
     audio tracks with one in the project target language, plus a subtitle in
     that same language. Does not rely on backup files or working-dir artifacts.
     """
-    if not target_language:
+    target = normalize_lang_code(target_language)
+    if not target:
         return False
 
-    audio_langs = {_item_language(stream) for stream in audio_streams if _item_language(stream)}
-    sub_langs = {_item_language(subtitle) for subtitle in subtitles if _item_language(subtitle)}
+    audio_langs = {
+        normalize_lang_code(_item_language(stream))
+        for stream in audio_streams
+        if _item_language(stream)
+    }
+    audio_langs.discard("")
+    sub_langs = {
+        normalize_lang_code(_item_language(subtitle))
+        for subtitle in subtitles
+        if _item_language(subtitle)
+    }
+    sub_langs.discard("")
 
-    return (
-        len(audio_streams) >= 2
-        and target_language in audio_langs
-        and target_language in sub_langs
-    )
+    return len(audio_streams) >= 2 and target in audio_langs and target in sub_langs
 
 
 def count_videos_in_target_state(

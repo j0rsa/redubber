@@ -96,6 +96,7 @@ export interface TaskStatus {
   created_at: string;
   started_at?: string;
   completed_at?: string;
+  project_id?: number | null;
   // Pipeline stage counters
   audio_chunks?: number;
   transcripts?: number;

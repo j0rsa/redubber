@@ -43,6 +43,20 @@ class TestIsVideoInTargetState:
             "eng",
         ) is True
 
+    def test_matches_two_and_three_char_language_codes(self) -> None:
+        assert is_video_in_target_state(
+            [{"language": "en"}, {"language": "ru"}],
+            [{"language": "en"}],
+            "eng",
+        ) is True
+
+    def test_matches_bibliographic_iso_aliases(self) -> None:
+        assert is_video_in_target_state(
+            [{"language": "ger"}, {"language": "eng"}],
+            [{"language": "de"}],
+            "deu",
+        ) is True
+
     def test_accepts_pydantic_like_objects(self) -> None:
         class Stream:
             def __init__(self, language: str) -> None:

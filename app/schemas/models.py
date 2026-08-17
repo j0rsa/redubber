@@ -176,6 +176,9 @@ class TaskStatusResponse(BaseModel):
         default=None, description="Error message if status is 'failed'"
     )
     created_at: datetime = Field(..., description="Task creation timestamp")
+    project_id: int | None = Field(
+        default=None, description="Project this task belongs to, if known"
+    )
     # Pipeline stage counters
     audio_chunks: int | None = Field(default=None)
     transcripts: int | None = Field(default=None)

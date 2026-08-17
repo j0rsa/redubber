@@ -11,6 +11,7 @@ import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
+import { isVideoInTargetState } from '../utils/language';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -22,9 +23,17 @@ export const ProjectDetail = () => {
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
 
+  const isFinalized = (video: VideoFile) =>
+    Boolean(video.pipeline_status?.replaced)
+    || isVideoInTargetState(
+      video.audio_streams,
+      video.subtitles,
+      project?.target_language ?? '',
+    );
+
   // activeTasks polls every 3s when jobs are running — use it as the source of truth
-  const { activeTasks } = useActiveTasks();
-  const hasRunningJobs = activeTasks.length > 0;
+  const { activeTasks, hasActive } = useActiveTasks();
+  const hasRunningJobs = hasActive;
   const { data: videos, isLoading: videosLoading } = useVideos(projectId, hasRunningJobs);
 
   // Derive runningJobs from activeTasks by matching video_path to the loaded video list
@@ -32,6 +41,7 @@ export const ProjectDetail = () => {
   const runningJobs = new Map<number, string>();
   if (videos) {
     for (const task of activeTasks) {
+      if (task.status !== 'queued' && task.status !== 'running') continue;
       const video = videos.find((v) => v.path === task.video_path);
       if (video) runningJobs.set(video.id, task.task_id);
     }
@@ -126,9 +136,9 @@ export const ProjectDetail = () => {
   };
 
   const handleRedubAll = () => {
-    if (!videos) return;
+    if (!videos || !project) return;
     void handleBatchRedub(
-      videos.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id))
+      videos.filter((v) => !isFinalized(v) && !runningJobs.has(v.id))
     );
   };
 
@@ -240,7 +250,7 @@ export const ProjectDetail = () => {
         .filter((v) => selectedIds.has(v.id))
         .reduce((sum, v) => sum + (v.duration_seconds || 0), 0)
     : 0;
-  const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id)).length ?? 0;
+  const totalCount = videos?.filter((v) => !isFinalized(v) && !runningJobs.has(v.id)).length ?? 0;
 
   return (
     <div className={styles.page}>
@@ -361,7 +371,7 @@ export const ProjectDetail = () => {
         <div className={styles.videosSection}>
           <div className={styles.videosSectionHeader}>
             <h2 className={styles.videosSectionTitle}>Video Files</h2>
-            {hasVideos && videos?.some((v) => v.pipeline_status?.replaced) && (
+            {hasVideos && videos?.some((v) => isFinalized(v)) && (
               <button
                 className={`${styles.toggleButton} ${hideCompleted ? styles.toggleButtonActive : ''}`}
                 onClick={() => projectId && setHideCompleted(projectId, !hideCompleted)}
@@ -402,7 +412,7 @@ export const ProjectDetail = () => {
             <p className={styles.loadingText}>Loading videos…</p>
           ) : hasVideos ? (
             <FileGrid
-              videos={hideCompleted ? (videos?.filter((v) => !v.pipeline_status?.replaced) ?? []) : (videos ?? [])}
+              videos={hideCompleted ? (videos?.filter((v) => !isFinalized(v)) ?? []) : (videos ?? [])}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               runningJobIds={runningJobs}
@@ -418,6 +428,7 @@ export const ProjectDetail = () => {
               resettingDubIds={resettingDubIds}
               liveTaskStatuses={taskStatusByVideoId}
               activeTasks={activeTasks}
+              targetLanguage={project.target_language}
             />
           ) : (
             <p className={styles.emptyText}>
@@ -436,7 +447,7 @@ export const ProjectDetail = () => {
               setIsVoiceRefinementOpen(false);
               queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             }}
-            firstVideoPath={videos?.find((v) => !v.pipeline_status?.replaced)?.path}
+            firstVideoPath={videos?.find((v) => !isFinalized(v))?.path}
           />
         )}
       </div>

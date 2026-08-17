@@ -2,7 +2,36 @@ import { type ChangeEvent } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
 import { formatDuration, formatSize } from '../utils/format';
+import { isVideoInTargetState } from '../utils/language';
 import styles from './FileGrid.module.css';
+
+export interface FileGridProps {
+  videos: VideoFile[];
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
+  /** Maps videoId → taskId for in-flight jobs. */
+  runningJobIds?: Map<number, string>;
+  /** Called when the user clicks "▶ View Job" for a row that has no running job yet (single-file submit). */
+  onRedubSingle?: (videoPath: string) => void;
+  /** Called when the user clicks "Replace Original" after the pipeline completes. */
+  onFinalize?: (videoId: number) => void;
+  /** Maps videoId → true while finalize is in progress. */
+  finalizingIds?: Set<number>;
+  /** Called when the user clicks "Generate Subs" to regenerate subtitles from existing segments. */
+  onGenerateSubs?: (videoId: number) => void;
+  /** Maps videoId → true while sub generation is in progress. */
+  generatingSubsIds?: Set<number>;
+  /** Called when the user clicks "Remove dub" on a finalized video. */
+  onResetDub?: (videoId: number) => void;
+  /** Maps videoId → true while dub reset is in progress. */
+  resettingDubIds?: Set<number>;
+  /** Live task statuses keyed by videoId — used to show real-time progress while a job runs. */
+  liveTaskStatuses?: Map<number, TaskStatus>;
+  /** All active tasks — used to detect queued videos not yet in liveTaskStatuses. */
+  activeTasks?: TaskStatus[];
+  /** Project target language (ISO 639-2), used to detect finalized dubs. */
+  targetLanguage?: string;
+}
 
 export interface FileGridProps {
   videos: VideoFile[];
@@ -44,6 +73,7 @@ export const FileGrid = ({
   resettingDubIds,
   liveTaskStatuses,
   activeTasks = [],
+  targetLanguage = '',
 }: FileGridProps) => {
   const selectableVideos = videos.filter((v) => !v.pipeline_status?.replaced);
   const allSelected = selectableVideos.length > 0 && selectableVideos.every((v) => selectedIds.has(v.id));
@@ -98,13 +128,15 @@ export const FileGrid = ({
         </thead>
         <tbody>
           {videos.map((video) => {
-            const isRunning = runningJobIds?.has(video.id) ?? false;
+            const liveTask = liveTaskStatuses?.get(video.id);
+            const isRunning = (runningJobIds?.has(video.id) ?? false)
+              && liveTask?.status !== 'failed';
             const taskId = runningJobIds?.get(video.id);
             const isSelected = selectedIds.has(video.id);
-            const isReplaced = video.pipeline_status?.replaced ?? false;
+            const isReplaced = (video.pipeline_status?.replaced ?? false)
+              || isVideoInTargetState(video.audio_streams, video.subtitles, targetLanguage);
             const isReadyToReplace = (video.pipeline_status?.is_complete ?? false) && !isReplaced;
             const isComplete = isReplaced; // "done done" — disable selection
-            const liveTask = liveTaskStatuses?.get(video.id);
             // Build displayStatus by layering three sources (later overrides earlier):
             // 1. disk-based pipeline_status  — baseline counters from completed stages
             // 2. live task counters          — up-to-date values while the task runs
@@ -127,9 +159,9 @@ export const FileGrid = ({
                   is_complete: liveTask.status === 'completed',
                   failed: liveTask.status === 'failed',
                   error: liveTask.error,
-                  replaced: video.pipeline_status?.replaced ?? false,
+                  replaced: isReplaced,
                 }
-              : (liveTask === undefined && !video.pipeline_status && activeTasks.some(t => t.video_path === video.path))
+              : (liveTask === undefined && !video.pipeline_status && activeTasks.some(t => t.video_path === video.path && (t.status === 'queued' || t.status === 'running')))
                 ? { progress: 0, current_stage: 'Queued', is_complete: false, failed: false, error: undefined, replaced: false }
                 : video.pipeline_status;
 
