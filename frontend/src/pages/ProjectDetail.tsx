@@ -96,6 +96,8 @@ export const ProjectDetail = () => {
   const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
   const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
+  const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
+  const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -162,6 +164,22 @@ export const ProjectDetail = () => {
       console.error('Generate subs failed:', err);
     } finally {
       setGeneratingSubsIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
+    }
+  };
+
+  const handleResetDub = async (videoId: number) => {
+    if (!projectId) return;
+    setResettingDubIds((prev) => new Set(prev).add(videoId));
+    try {
+      await apiClient.post(`/projects/${projectId}/videos/${videoId}/reset-dub`);
+      setConfirmResetVideo(null);
+      await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    } catch (err) {
+      console.error('Reset dub failed:', err);
+    } finally {
+      setResettingDubIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
     }
   };
 
@@ -288,6 +306,35 @@ export const ProjectDetail = () => {
           </div>
         )}
 
+        {/* ── Remove dub confirmation dialog ── */}
+        {confirmResetVideo && (
+          <div className={styles.confirmOverlay}>
+            <div className={styles.confirmDialog}>
+              <h2 className={styles.confirmTitle}>Remove dub?</h2>
+              <p className={styles.confirmBody}>
+                This deletes the generated subtitle and the first (dubbed) audio track of{' '}
+                <strong>{confirmResetVideo.filename}</strong>. The original audio track is kept.
+              </p>
+              <div className={styles.confirmActions}>
+                <button
+                  className={styles.confirmDeleteButton}
+                  onClick={() => void handleResetDub(confirmResetVideo.id)}
+                  disabled={resettingDubIds.has(confirmResetVideo.id)}
+                >
+                  {resettingDubIds.has(confirmResetVideo.id) ? 'Removing…' : 'Remove dub'}
+                </button>
+                <button
+                  className={styles.confirmCancelButton}
+                  onClick={() => setConfirmResetVideo(null)}
+                  disabled={resettingDubIds.has(confirmResetVideo.id)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Error banners ── */}
         {scanVideos.isError && (
           <div className={styles.errorBanner}>
@@ -364,6 +411,11 @@ export const ProjectDetail = () => {
               finalizingIds={finalizingIds}
               onGenerateSubs={handleGenerateSubs}
               generatingSubsIds={generatingSubsIds}
+              onResetDub={(videoId) => {
+                const video = videos?.find((v) => v.id === videoId) ?? null;
+                setConfirmResetVideo(video);
+              }}
+              resettingDubIds={resettingDubIds}
               liveTaskStatuses={taskStatusByVideoId}
               activeTasks={activeTasks}
             />
