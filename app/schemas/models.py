@@ -205,6 +205,21 @@ class ScanStatusResponse(BaseModel):
         ..., description="Whether a background scan is currently running"
     )
 
+
+class DubResetResponse(BaseModel):
+    """Response schema for removing a finalized dub (audio track + generated sub)."""
+
+    status: Literal["reset"] = Field(..., description="Operation result")
+    path: str = Field(..., description="Absolute path to the video file")
+    removed_audio_track: bool = Field(
+        ..., description="True if the first (dubbed) audio track was stripped"
+    )
+    deleted_subtitles: list[str] = Field(
+        default_factory=list,
+        description="Absolute paths of generated subtitle files that were deleted",
+    )
+
+
 class TaskCancelResponse(BaseModel):
     """Response schema for task cancellation."""
 

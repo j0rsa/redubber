@@ -20,6 +20,10 @@ export interface FileGridProps {
   onGenerateSubs?: (videoId: number) => void;
   /** Maps videoId → true while sub generation is in progress. */
   generatingSubsIds?: Set<number>;
+  /** Called when the user clicks "Remove dub" on a finalized video. */
+  onResetDub?: (videoId: number) => void;
+  /** Maps videoId → true while dub reset is in progress. */
+  resettingDubIds?: Set<number>;
   /** Live task statuses keyed by videoId — used to show real-time progress while a job runs. */
   liveTaskStatuses?: Map<number, TaskStatus>;
   /** All active tasks — used to detect queued videos not yet in liveTaskStatuses. */
@@ -36,6 +40,8 @@ export const FileGrid = ({
   finalizingIds,
   onGenerateSubs,
   generatingSubsIds,
+  onResetDub,
+  resettingDubIds,
   liveTaskStatuses,
   activeTasks = [],
 }: FileGridProps) => {
@@ -200,6 +206,15 @@ export const FileGrid = ({
                       disabled={generatingSubsIds?.has(video.id)}
                     >
                       {generatingSubsIds?.has(video.id) ? 'Generating…' : '📝 Generate Subs'}
+                    </button>
+                  ) : isReplaced && onResetDub ? (
+                    <button
+                      onClick={() => onResetDub(video.id)}
+                      className={styles.resetDubButton}
+                      disabled={resettingDubIds?.has(video.id)}
+                      title="Remove the dubbed audio track and generated subtitle"
+                    >
+                      {resettingDubIds?.has(video.id) ? 'Removing…' : 'Remove dub'}
                     </button>
                   ) : onRedubSingle ? (
                     <button

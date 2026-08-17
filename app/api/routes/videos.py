@@ -9,11 +9,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from app.core.dependencies import get_db, get_scanner
 from app.schemas.models import (
     AudioStream,
+    DubResetResponse,
     PipelineStatusResponse,
     ScanStatusResponse,
     ScanTriggerResponse,
     SubtitleInfo,
     VideoAnalysis,
+)
+from app.services.dub_reset import (
+    DubResetError,
+    reset_dubbed_video as reset_dubbed_video_service,
 )
 from database import DatabaseManager
 from file_scanner import FileScanner
@@ -465,3 +470,69 @@ async def generate_subtitles_for_video(
     srt_path = r.generate_subtitles(reproj, all_segments)
 
     return {"status": "generated", "path": srt_path}
+
+
+@router.post(
+    "/projects/{project_id}/videos/{video_id}/reset-dub",
+    response_model=DubResetResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reset_dubbed_video(
+    project_id: int,
+    video_id: int,
+    db: Annotated[DatabaseManager, Depends(get_db)],
+) -> DubResetResponse:
+    """Remove the generated subtitle and the first (dubbed) audio track.
+
+    Only allowed for videos already in the final redubbed state: at least two
+    audio tracks including one in the project target language, plus a matching
+    target-language subtitle. Strips audio track 0 (the dubbed track written
+    by mix) and deletes the generated sidecar subtitle.
+
+    Raises:
+        HTTPException: 404 if project or video not found.
+        HTTPException: 422 if the video is not in the final state.
+        HTTPException: 500 if remux or file deletion fails.
+    """
+    project = db.get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    video_records = db.get_video_analysis(project_id)
+    record = next((r for r in video_records if r["id"] == video_id), None)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Video {video_id} not found",
+        )
+
+    target_language = project.get("target_language") or "eng"
+
+    try:
+        result = reset_dubbed_video_service(
+            db=db,
+            project_id=project_id,
+            video_record=record,
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=target_language,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except DubResetError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset dub: {e}",
+        )
+
+    return DubResetResponse(**result)

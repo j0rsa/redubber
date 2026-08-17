@@ -114,6 +114,36 @@ export const WithPipelineStatus: Story = {
   },
 };
 
+/** Video id=4 is finalized — shows "Remove dub" instead of Redub. */
+export const WithReplacedVideo: Story = {
+  args: {
+    videos: [
+      ...fiveVideos.slice(0, 3),
+      createMockVideo({
+        id: 4,
+        filename: 'chapter_03.mp4',
+        path: '/videos/chapter_03.mp4',
+        size_mb: 210,
+        duration_seconds: 1800,
+        audio_streams: [
+          { index: 0, language: 'eng', codec: 'aac', channels: 2, sample_rate: 48000 },
+          { index: 1, language: 'rus', codec: 'aac', channels: 2, sample_rate: 48000 },
+        ],
+        subtitles: [{ language: 'eng', embedded: false, path: '/videos/chapter_03.en.srt' }],
+        pipeline_status: {
+          progress: 100,
+          current_stage: 'Complete',
+          is_complete: true,
+          replaced: true,
+        },
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+    onResetDub: (id) => console.log('Reset dub:', id),
+  },
+};
+
 /** No videos — table renders with header but empty body. */
 export const Empty: Story = {
   args: {

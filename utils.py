@@ -304,6 +304,25 @@ def get_language_flag(language_code: Optional[str]) -> str:
     return language_flags.get(lang_code, "❓")
 
 
+# ISO 639-1 (2-letter) → ISO 639-2/B (3-letter)
+_ISO639_1_TO_2 = {
+    "en": "eng",
+    "es": "spa",
+    "fr": "fra",
+    "de": "deu",
+    "it": "ita",
+    "pt": "por",
+    "ru": "rus",
+    "ja": "jpn",
+    "ko": "kor",
+    "zh": "zho",
+    "ar": "ara",
+    "hi": "hin",
+}
+
+_ISO639_2_TO_1 = {three: two for two, three in _ISO639_1_TO_2.items()}
+
+
 def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[str]:
     """
     Convert 2-character language code to 3-character equivalent.
@@ -317,23 +336,32 @@ def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[st
     if not language_code:
         return language_code
 
-    # Mapping from 2-character to 3-character language codes
-    lang_code_mapping = {
-        "en": "eng",  # English
-        "es": "spa",  # Spanish (using 'spa' as it's more standard than 'esp')
-        "fr": "fra",  # French
-        "de": "deu",  # German (using 'deu' as it's more standard than 'ger')
-        "it": "ita",  # Italian
-        "pt": "por",  # Portuguese
-        "ru": "rus",  # Russian
-        "ja": "jpn",  # Japanese
-        "ko": "kor",  # Korean
-        "zh": "zho",  # Chinese (using 'zho' as it's more standard than 'chi')
-        "ar": "ara",  # Arabic
-        "hi": "hin",  # Hindi
-    }
+    return _ISO639_1_TO_2.get(language_code.lower(), language_code)
 
-    return lang_code_mapping.get(language_code.lower(), language_code)
+
+def convert_to_two_char_lang_code(language_code: Optional[str]) -> Optional[str]:
+    """Convert an ISO 639-2/B code to ISO 639-1 when a mapping exists.
+
+    Already-2-letter codes are returned unchanged. Unknown 3-letter codes
+    fall back to the first two characters.
+    """
+    if not language_code:
+        return language_code
+
+    code = language_code.lower()
+    if code in _ISO639_2_TO_1:
+        return _ISO639_2_TO_1[code]
+    if code in _ISO639_1_TO_2:
+        return code
+    return code[:2] if len(code) >= 2 else code
+
+
+def normalize_lang_code(language_code: Optional[str]) -> str:
+    """Return a comparable ISO 639-2/B language code, or empty string."""
+    if not language_code:
+        return ""
+    normalized = convert_to_three_char_lang_code(language_code.strip().lower())
+    return (normalized or "").lower()
 
 
 def _item_language(item: object) -> str:

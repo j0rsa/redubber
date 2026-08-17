@@ -65,3 +65,108 @@ class TestVideosAPIEdgeCases:
         """GET /api/projects/0/videos handles edge case project ID."""
         response = client.get("/api/projects/0/videos")
         assert response.status_code in [200, 404, 422]
+
+
+class TestResetDubAPI:
+    """POST /api/projects/{id}/videos/{id}/reset-dub."""
+
+    def test_reset_dub_project_not_found(self, client: TestClient) -> None:
+        response = client.post("/api/projects/99999/videos/1/reset-dub")
+        assert response.status_code == 404
+
+    def test_reset_dub_video_not_found(self, client: TestClient, tmp_path) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "empty_proj"
+        project_dir.mkdir()
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Empty")
+
+        response = client.post(f"/api/projects/{project_id}/videos/1/reset-dub")
+        assert response.status_code == 404
+
+    def test_reset_dub_rejects_non_final_video(
+        self, client: TestClient, tmp_path
+    ) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.set_target_language(project_id, "eng")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [{"index": 0, "language": "rus", "codec": "aac"}],
+                "subtitles": [],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.post(
+            f"/api/projects/{project_id}/videos/{video_id}/reset-dub"
+        )
+        assert response.status_code == 422
+        assert "final" in response.json()["detail"].lower()
+
+    def test_reset_dub_success(self, client: TestClient, tmp_path, monkeypatch) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.set_target_language(project_id, "eng")
+        db.add_subtitle_file(project_id, str(srt), srt.name, "eng")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [
+                    {"index": 0, "language": "eng", "codec": "aac"},
+                    {"index": 1, "language": "rus", "codec": "aac"},
+                ],
+                "subtitles": [
+                    {
+                        "language": "eng",
+                        "embedded": False,
+                        "path": str(srt),
+                        "filename": srt.name,
+                    }
+                ],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        monkeypatch.setattr(
+            "app.services.dub_reset.strip_first_audio_track", lambda _p: None
+        )
+        monkeypatch.setattr("redubber.sync_video_metadata", lambda *_a, **_k: None)
+
+        response = client.post(
+            f"/api/projects/{project_id}/videos/{video_id}/reset-dub"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "reset"
+        assert body["removed_audio_track"] is True
+        assert str(srt) in body["deleted_subtitles"]
+        assert not srt.exists()
