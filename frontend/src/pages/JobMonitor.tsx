@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRef, useEffect } from 'react';
-import { useTask, useCancelTask } from '../hooks/useTasks';
+import { useTask, useCancelTask, useSubmitRedub } from '../hooks/useTasks';
 import { useNotifications } from '../hooks/useNotifications';
 import type { TaskStatus } from '../types';
 import { PipelineStatus } from '../components/PipelineStatus';
@@ -15,6 +15,9 @@ export interface JobMonitorViewProps {
   cancelError: string | null;
   onBack: () => void;
   onCancel: () => void;
+  onRetry?: () => void;
+  isRetrying?: boolean;
+  retryError?: string | null;
 }
 
 export const JobMonitorView = ({
@@ -24,6 +27,9 @@ export const JobMonitorView = ({
   cancelError,
   onBack,
   onCancel,
+  onRetry,
+  isRetrying = false,
+  retryError = null,
 }: JobMonitorViewProps) => {
   if (isLoading) {
     return (
@@ -107,9 +113,27 @@ export const JobMonitorView = ({
             </div>
           )}
 
+          {task.status === 'failed' && onRetry && (
+            <div className={styles.actions}>
+              <button
+                className={styles.retryButton}
+                onClick={onRetry}
+                disabled={isRetrying}
+              >
+                {isRetrying ? 'Retrying…' : 'Retry redub'}
+              </button>
+            </div>
+          )}
+
           {cancelError && (
             <div className={styles.errorBox}>
               Failed to cancel: {cancelError}
+            </div>
+          )}
+
+          {retryError && (
+            <div className={styles.errorBox}>
+              Failed to retry: {retryError}
             </div>
           )}
         </div>
@@ -125,6 +149,7 @@ export const JobMonitor = () => {
   const navigate = useNavigate();
   const { data: task, isLoading } = useTask(taskId || null);
   const cancelTask = useCancelTask();
+  const submitRedub = useSubmitRedub();
   const { showNotification, requestPermission, permission } = useNotifications();
   const previousStatus = useRef<string | undefined>(undefined);
 
@@ -158,6 +183,21 @@ export const JobMonitor = () => {
     catch (err) { console.error('Failed to cancel task:', err); }
   };
 
+  const handleRetry = async () => {
+    if (!task?.video_path || task.project_id == null) return;
+    try {
+      const result = await submitRedub.mutateAsync({
+        video_path: task.video_path,
+        project_id: task.project_id,
+      });
+      if (result?.task_id) {
+        navigate(`/job/${result.task_id}`, { replace: true });
+      }
+    } catch (err) {
+      console.error('Failed to retry redub:', err);
+    }
+  };
+
   return (
     <JobMonitorView
       task={task}
@@ -166,6 +206,9 @@ export const JobMonitor = () => {
       cancelError={cancelTask.isError ? (cancelTask.error as Error).message : null}
       onBack={() => navigate(-1)}
       onCancel={handleCancel}
+      onRetry={task?.project_id != null ? handleRetry : undefined}
+      isRetrying={submitRedub.isPending}
+      retryError={submitRedub.isError ? (submitRedub.error as Error).message : null}
     />
   );
 };

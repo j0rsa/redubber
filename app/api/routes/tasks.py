@@ -27,6 +27,7 @@ def _task_to_response(t) -> TaskStatusResponse:
         progress=t.progress,
         error=t.error,
         created_at=t.created_at,
+        project_id=t.project_id,
         audio_chunks=t.audio_chunks,
         transcripts=t.transcripts,
         tts_segments=t.tts_segments,

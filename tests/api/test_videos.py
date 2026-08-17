@@ -170,3 +170,72 @@ class TestResetDubAPI:
         assert body["removed_audio_track"] is True
         assert str(srt) in body["deleted_subtitles"]
         assert not srt.exists()
+
+
+class TestListVideosPipelineStatus:
+    """GET /api/projects/{id}/videos pipeline_status.replaced for finalized dubs."""
+
+    def test_target_state_is_replaced_even_with_leftover_dubbed_file(
+        self, client: TestClient, tmp_path
+    ) -> None:
+        from app.core.config import settings
+        from app.core.project_paths import get_project_working_dir
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.set_target_language(project_id, "eng")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [
+                    {
+                        "index": 0,
+                        "language": "en",
+                        "codec": "aac",
+                        "channels": 2,
+                        "sample_rate": 48000,
+                    },
+                    {
+                        "index": 1,
+                        "language": "rus",
+                        "codec": "aac",
+                        "channels": 2,
+                        "sample_rate": 48000,
+                    },
+                ],
+                "subtitles": [
+                    {
+                        "language": "eng",
+                        "embedded": False,
+                        "path": str(srt),
+                        "filename": srt.name,
+                    }
+                ],
+            },
+        )
+
+        working_dir = get_project_working_dir(str(project_dir), "Demo")
+        dubbed = working_dir / "lesson.mp4" / "lesson.dubbed.mp4"
+        dubbed.parent.mkdir(parents=True)
+        dubbed.write_bytes(b"leftover-dubbed")
+
+        response = client.get(f"/api/projects/{project_id}/videos")
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        status = body[0]["pipeline_status"]
+        assert status["replaced"] is True
+        assert status["is_complete"] is True
+        assert status["current_stage"] == "Complete"

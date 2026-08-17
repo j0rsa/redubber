@@ -93,9 +93,10 @@ export const Failed: Story = {
       status: 'failed', stage: 'Generating TTS', progress: 65,
       error: 'OpenAI API rate limit exceeded. Please try again in a few minutes.',
       completed_at: new Date().toISOString(),
+      project_id: 1,
     }),
     isLoading: false, isCanceling: false, cancelError: null,
-    onBack: noop, onCancel: noop,
+    onBack: noop, onCancel: noop, onRetry: noop,
   },
 };
 
@@ -105,9 +106,10 @@ export const FailedLongError: Story = {
       status: 'failed', stage: 'Extracting audio', progress: 5,
       error: 'FFmpeg error: Invalid video codec. The input file may be corrupted or in an unsupported format. Supported formats include: mp4, mkv, avi, mov, webm. Please check the video file and try again.',
       completed_at: new Date().toISOString(),
+      project_id: 1,
     }),
     isLoading: false, isCanceling: false, cancelError: null,
-    onBack: noop, onCancel: noop,
+    onBack: noop, onCancel: noop, onRetry: noop,
   },
 };
 

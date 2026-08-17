@@ -65,18 +65,21 @@ async def _scan_project_files(
             # Find subtitle files that belong to this video (same stem, any sub extension)
             video_stem = video_file.stem
             matched_subs = [
-                s for s in subtitle_files
+                s
+                for s in subtitle_files
                 if s.stem == video_stem or s.stem.startswith(video_stem + ".")
             ]
             subtitle_info = []
             for sub in matched_subs:
                 sub_lang = detect_subtitle_language(sub)
-                subtitle_info.append({
-                    "language": sub_lang or "",
-                    "embedded": False,
-                    "path": str(sub),
-                    "filename": sub.name,
-                })
+                subtitle_info.append(
+                    {
+                        "language": sub_lang or "",
+                        "embedded": False,
+                        "path": str(sub),
+                        "filename": sub.name,
+                    }
+                )
 
             # Analyze video and store results
             video_info = get_video_info_with_duration(video_file)
@@ -225,12 +228,14 @@ async def list_videos(
     project_path = project_record["path"]
 
     from app.core.project_paths import get_project_working_dir
+
     working_dir = str(get_project_working_dir(project_path, project_record["name"]))
 
     # Build a map of video_path → most-recent failed task so we can surface errors
     failed_tasks: dict[str, str] = {}  # video_path → error message
     try:
         from app.infrastructure.task_queue import TaskQueueManager
+
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
         for t in all_tasks:
@@ -268,7 +273,11 @@ async def list_videos(
         pre_redubbed = is_video_in_target_state(audio_streams, subtitles, target_lang)
 
         pipeline_status: PipelineStatusResponse | None = None
-        if pre_redubbed and not pipeline_status_obj.final_file_exists:
+        if pre_redubbed:
+            # File is already in the final dubbed state (2+ audio tracks +
+            # target-language sub). Show as replaced even when a leftover
+            # `.dubbed` file or working-dir artifacts would otherwise make
+            # pipeline_status look like "awaiting Replace Original".
             pipeline_status = PipelineStatusResponse(
                 progress=100,
                 current_stage="Complete",
@@ -313,7 +322,9 @@ async def list_videos(
     return results
 
 
-@router.post("/projects/{project_id}/videos/{video_id}/finalize", status_code=status.HTTP_200_OK)
+@router.post(
+    "/projects/{project_id}/videos/{video_id}/finalize", status_code=status.HTTP_200_OK
+)
 async def finalize_video(
     project_id: int,
     video_id: int,
@@ -336,19 +347,26 @@ async def finalize_video(
 
     project = db.get_project_by_id(project_id)
     if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
 
     # Find the video record
     video_records = db.get_video_analysis(project_id)
     record = next((r for r in video_records if r["id"] == video_id), None)
     if not record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Video {video_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Video {video_id} not found"
+        )
 
     video_path = record["file_path"]
     working_dir = get_project_working_dir(project["path"], project["name"])
     stem = _Path(video_path).stem
     ext = _Path(video_path).suffix
-    video_filename = _Path(video_path).name  # e.g. "16. Structure of the Chest Area.mp4"
+    video_filename = _Path(
+        video_path
+    ).name  # e.g. "16. Structure of the Chest Area.mp4"
     # Reproj puts per-video artefacts under <working_dir>/<video_filename>/
     dubbed_path = str(working_dir / video_filename / f"{stem}.dubbed{ext}")
 
@@ -367,6 +385,7 @@ async def finalize_video(
 
     # Replace original
     from reproj import Reproj
+
     reproj = Reproj(
         source=str(_Path(video_path).parent),
         file_path=video_path,
@@ -396,7 +415,10 @@ async def finalize_video(
     return {"status": "replaced", "path": result_path}
 
 
-@router.post("/projects/{project_id}/videos/{video_id}/generate-subtitles", status_code=status.HTTP_200_OK)
+@router.post(
+    "/projects/{project_id}/videos/{video_id}/generate-subtitles",
+    status_code=status.HTTP_200_OK,
+)
 async def generate_subtitles_for_video(
     project_id: int,
     video_id: int,
@@ -420,12 +442,17 @@ async def generate_subtitles_for_video(
 
     project = db.get_project_by_id(project_id)
     if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
 
     video_records = db.get_video_analysis(project_id)
     record = next((r for r in video_records if r["id"] == video_id), None)
     if not record:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Video {video_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Video {video_id} not found"
+        )
 
     video_path = record["file_path"]
     working_dir = get_project_working_dir(project["path"], project["name"])
@@ -448,6 +475,7 @@ async def generate_subtitles_for_video(
 
     from pydantic import TypeAdapter
     from typing import List
+
     ta = TypeAdapter(List[TranscriptionSegment])
 
     all_segments: list = []

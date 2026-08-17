@@ -141,6 +141,64 @@ export const WithReplacedVideo: Story = {
     selectedIds: new Set<number>(),
     onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
     onResetDub: (id) => console.log('Reset dub:', id),
+    targetLanguage: 'eng',
+  },
+};
+
+/** Finalized dub without pipeline_status.replaced — still shows Remove dub. */
+export const TargetStateWithoutReplacedFlag: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 4,
+        filename: 'chapter_03.mp4',
+        path: '/videos/chapter_03.mp4',
+        size_mb: 210,
+        duration_seconds: 1800,
+        audio_streams: [
+          { index: 0, language: 'en', codec: 'aac', channels: 2, sample_rate: 48000 },
+          { index: 1, language: 'rus', codec: 'aac', channels: 2, sample_rate: 48000 },
+        ],
+        subtitles: [{ language: 'eng', embedded: false, path: '/videos/chapter_03.en.srt' }],
+        pipeline_status: {
+          progress: 100,
+          current_stage: 'Complete',
+          is_complete: true,
+        },
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+    onResetDub: (id) => console.log('Reset dub:', id),
+    onRedubSingle: (path) => console.log('Redub:', path),
+    targetLanguage: 'eng',
+  },
+};
+
+/** Failed extract — Redub stays available so the row is not soft-locked. */
+export const FailedExtract: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 6,
+        filename: 'hairstyles.mp4',
+        path: '/videos/hairstyles.mp4',
+        duration_seconds: 0,
+        audio_streams: [],
+        subtitles: [{ language: '', embedded: false, path: '/videos/hairstyles.sub' }],
+        pipeline_status: {
+          progress: 0,
+          current_stage: 'Extract Audio',
+          is_complete: false,
+          failed: true,
+          error: "ffprobe could not read duration for /videos/hairstyles.mp4: Invalid data found",
+          replaced: false,
+        },
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+    onRedubSingle: (path) => console.log('Redub:', path),
   },
 };
 
