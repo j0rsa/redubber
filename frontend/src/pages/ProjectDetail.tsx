@@ -11,6 +11,7 @@ import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
+import { getApiErrorMessage } from '../utils/apiError';
 import { isVideoInTargetState } from '../utils/language';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
@@ -110,6 +111,7 @@ export const ProjectDetail = () => {
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
+  const [resetDubError, setResetDubError] = useState<string | null>(null);
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -181,13 +183,18 @@ export const ProjectDetail = () => {
 
   const handleResetDub = async (videoId: number) => {
     if (!projectId) return;
+    setResetDubError(null);
     setResettingDubIds((prev) => new Set(prev).add(videoId));
     try {
       await apiClient.post(`/projects/${projectId}/videos/${videoId}/reset-dub`);
       setConfirmResetVideo(null);
+      setResetDubError(null);
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
-      console.error('Reset dub failed:', err);
+      const message = getApiErrorMessage(err, 'Failed to remove dub');
+      setResetDubError(message);
+      await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
     } finally {
       setResettingDubIds((prev) => {
         const s = new Set(prev);
@@ -331,6 +338,11 @@ export const ProjectDetail = () => {
                 This deletes the generated subtitle and the first (dubbed) audio track of{' '}
                 <strong>{confirmResetVideo.filename}</strong>. The original audio track is kept.
               </p>
+              {resetDubError && (
+                <div className={styles.confirmError} role="alert">
+                  {resetDubError}
+                </div>
+              )}
               <div className={styles.confirmActions}>
                 <button
                   className={styles.confirmDeleteButton}
@@ -341,7 +353,10 @@ export const ProjectDetail = () => {
                 </button>
                 <button
                   className={styles.confirmCancelButton}
-                  onClick={() => setConfirmResetVideo(null)}
+                  onClick={() => {
+                    setConfirmResetVideo(null);
+                    setResetDubError(null);
+                  }}
                   disabled={resettingDubIds.has(confirmResetVideo.id)}
                 >
                   Cancel
@@ -428,6 +443,7 @@ export const ProjectDetail = () => {
               onGenerateSubs={handleGenerateSubs}
               generatingSubsIds={generatingSubsIds}
               onResetDub={(videoId) => {
+                setResetDubError(null);
                 const video = videos?.find((v) => v.id === videoId) ?? null;
                 setConfirmResetVideo(video);
               }}
