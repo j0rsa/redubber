@@ -488,6 +488,23 @@ async def generate_subtitles_for_video(
 
     all_segments.sort(key=lambda s: s.start)
 
+    from stt_hallucination import STTHallucinationError, assert_segments_acceptable
+
+    span = max((s.end for s in all_segments), default=0.0) - min(
+        (s.start for s in all_segments), default=0.0
+    )
+    try:
+        assert_segments_acceptable(
+            all_segments,
+            audio_duration=span,
+            source_label=video_path,
+        )
+    except STTHallucinationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.report.summary(),
+        ) from exc
+
     r = Redubber(openai_token="x", interactive=False)  # no API calls needed
     srt_path = r.generate_subtitles(reproj, all_segments)
 
