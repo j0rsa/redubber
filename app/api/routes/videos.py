@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from app.core.dependencies import get_db, get_scanner
+from app.infrastructure.task_queue import TaskQueueManager
 from app.schemas.models import (
     AudioStream,
     PipelineStatusResponse,
@@ -15,8 +16,6 @@ from app.schemas.models import (
     SubtitleInfo,
     VideoAnalysis,
 )
-from app.services.dub_reset import DubResetError
-from app.infrastructure.task_queue import TaskQueueManager
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
@@ -231,8 +230,6 @@ async def list_videos(
     # Build a map of video_path → most-recent failed task so we can surface errors
     failed_tasks: dict[str, str] = {}  # video_path → error message
     try:
-        from app.infrastructure.task_queue import TaskQueueManager
-
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
         for t in all_tasks:
