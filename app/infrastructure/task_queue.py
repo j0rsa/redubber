@@ -861,6 +861,125 @@ class TaskQueueManager:
             logger.exception("Transcription task %s failed", task_id)
             await self._mark_task_failed(task_id, str(e))
 
+    async def submit_reset_dub_task(
+        self,
+        video_path: str,
+        project_id: int,
+        video_id: int,
+    ) -> str:
+        """Submit an async job to remove a finalized dub (strip track + delete subs).
+
+        Args:
+            video_path: Absolute path to the video file.
+            project_id: Project the video belongs to.
+            video_id: Database ID of the video record.
+
+        Returns:
+            Unique task ID for status polling.
+        """
+        task_id = str(uuid4())
+
+        initial_status = TaskStatus(
+            task_id=task_id,
+            video_path=video_path,
+            stage="queued",
+            progress=0,
+            status="queued",
+            project_id=project_id,
+        )
+
+        async with self._lock:
+            self._tasks[task_id] = initial_status
+
+        asyncio.ensure_future(
+            self._process_reset_dub_task(task_id, project_id, video_id)
+        )
+
+        logger.info(
+            "Reset-dub task %s submitted for video %s (project %s)",
+            task_id,
+            video_path,
+            project_id,
+        )
+        return task_id
+
+    async def _process_reset_dub_task(
+        self,
+        task_id: str,
+        project_id: int,
+        video_id: int,
+    ) -> None:
+        """Run dub reset in the thread pool (ffmpeg remux can take a while)."""
+        from app.core.config import settings
+        from app.services.dub_reset import DubResetError, reset_dubbed_video
+        from database import DatabaseManager
+
+        task = self._tasks.get(task_id)
+        if task is None:
+            return
+
+        await self._update_task_status(
+            task_id,
+            stage="Removing dub",
+            progress=10,
+            status="running",
+            started_at=datetime.now(),
+        )
+
+        loop = asyncio.get_event_loop()
+
+        try:
+            def run_reset() -> dict:
+                db = DatabaseManager(settings.database_url)
+                project = db.get_project_by_id(project_id)
+                if not project:
+                    raise DubResetError(f"Project {project_id} not found")
+
+                records = db.get_video_analysis(project_id)
+                record = next((r for r in records if r["id"] == video_id), None)
+                if not record:
+                    raise DubResetError(f"Video {video_id} not found")
+
+                target_language = project.get("target_language") or "eng"
+                return reset_dubbed_video(
+                    db=db,
+                    project_id=project_id,
+                    video_record=record,
+                    project_path=project["path"],
+                    project_name=project["name"],
+                    target_language=target_language,
+                )
+
+            await self._update_task_status(
+                task_id,
+                stage="Stripping dubbed audio track",
+                progress=40,
+                status="running",
+            )
+
+            result = await loop.run_in_executor(self._executor, run_reset)
+
+            await self._update_task_status(
+                task_id,
+                stage="Done — dub removed",
+                progress=100,
+                status="completed",
+                completed_at=datetime.now(),
+            )
+            logger.info(
+                "Reset-dub task %s completed for %s: %s",
+                task_id,
+                task.video_path,
+                result.get("deleted_subtitles", []),
+            )
+
+        except DubResetError as e:
+            logger.exception("Reset-dub task %s rejected", task_id)
+            await self._mark_task_failed(task_id, str(e))
+        except Exception as e:
+            logger.exception("Reset-dub task %s failed", task_id)
+            await self._mark_task_failed(task_id, str(e))
+
     async def _mark_task_failed(
         self,
         task_id: str,
