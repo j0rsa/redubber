@@ -136,16 +136,31 @@ class Redubber(BaseModel):
         cmd = [
             "ffprobe",
             "-v",
-            "quiet",
+            "error",
             "-print_format",
             "json",
             "-show_format",
             "-show_streams",
             file_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip() or (
+                f"exit {result.returncode}"
+            )
+            raise RuntimeError(
+                f"ffprobe could not read duration for {file_path}: {detail}"
+            )
         probe_data = json.loads(result.stdout)
-        return float(probe_data["format"]["duration"])
+        duration = probe_data.get("format", {}).get("duration")
+        if duration is None:
+            for stream in probe_data.get("streams") or []:
+                if stream.get("duration"):
+                    duration = stream["duration"]
+                    break
+        if duration is None:
+            raise RuntimeError(f"ffprobe returned no duration for {file_path}")
+        return float(duration)
 
     def get_media_audio_streams(self, file_path) -> List[str]:
         log.debug(f"Getting media audio streams for {file_path}")

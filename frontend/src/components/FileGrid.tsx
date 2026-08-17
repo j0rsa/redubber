@@ -2,6 +2,7 @@ import { type ChangeEvent } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
 import { formatDuration, formatSize } from '../utils/format';
+import { isVideoInTargetState } from '../utils/language';
 import styles from './FileGrid.module.css';
 
 export interface FileGridProps {
@@ -22,10 +23,16 @@ export interface FileGridProps {
   generatingSubsIds?: Set<number>;
   /** Open the generated-subtitle review screen for a video. */
   onReviewSubs?: (videoId: number) => void;
+  /** Called when the user clicks "Remove dub" on a finalized video. */
+  onResetDub?: (videoId: number) => void;
+  /** Maps videoId → true while dub reset is in progress. */
+  resettingDubIds?: Set<number>;
   /** Live task statuses keyed by videoId — used to show real-time progress while a job runs. */
   liveTaskStatuses?: Map<number, TaskStatus>;
   /** All active tasks — used to detect queued videos not yet in liveTaskStatuses. */
   activeTasks?: TaskStatus[];
+  /** Project target language (ISO 639-2), used to detect finalized dubs. */
+  targetLanguage?: string;
 }
 
 export const FileGrid = ({
@@ -39,8 +46,11 @@ export const FileGrid = ({
   onGenerateSubs,
   generatingSubsIds,
   onReviewSubs,
+  onResetDub,
+  resettingDubIds,
   liveTaskStatuses,
   activeTasks = [],
+  targetLanguage = '',
 }: FileGridProps) => {
   const selectableVideos = videos.filter((v) => !v.pipeline_status?.replaced);
   const allSelected = selectableVideos.length > 0 && selectableVideos.every((v) => selectedIds.has(v.id));
@@ -95,13 +105,15 @@ export const FileGrid = ({
         </thead>
         <tbody>
           {videos.map((video) => {
-            const isRunning = runningJobIds?.has(video.id) ?? false;
+            const liveTask = liveTaskStatuses?.get(video.id);
+            const isRunning = (runningJobIds?.has(video.id) ?? false)
+              && liveTask?.status !== 'failed';
             const taskId = runningJobIds?.get(video.id);
             const isSelected = selectedIds.has(video.id);
-            const isReplaced = video.pipeline_status?.replaced ?? false;
+            const isReplaced = (video.pipeline_status?.replaced ?? false)
+              || isVideoInTargetState(video.audio_streams, video.subtitles, targetLanguage);
             const isReadyToReplace = (video.pipeline_status?.is_complete ?? false) && !isReplaced;
             const isComplete = isReplaced; // "done done" — disable selection
-            const liveTask = liveTaskStatuses?.get(video.id);
             const canReviewSubs =
               Boolean(onReviewSubs) &&
               (
@@ -131,9 +143,9 @@ export const FileGrid = ({
                   is_complete: liveTask.status === 'completed',
                   failed: liveTask.status === 'failed',
                   error: liveTask.error,
-                  replaced: video.pipeline_status?.replaced ?? false,
+                  replaced: isReplaced,
                 }
-              : (liveTask === undefined && !video.pipeline_status && activeTasks.some(t => t.video_path === video.path))
+              : (liveTask === undefined && !video.pipeline_status && activeTasks.some(t => t.video_path === video.path && (t.status === 'queued' || t.status === 'running')))
                 ? { progress: 0, current_stage: 'Queued', is_complete: false, failed: false, error: undefined, replaced: false }
                 : video.pipeline_status;
 
@@ -211,6 +223,15 @@ export const FileGrid = ({
                       disabled={generatingSubsIds?.has(video.id)}
                     >
                       {generatingSubsIds?.has(video.id) ? 'Generating…' : '📝 Generate Subs'}
+                    </button>
+                  ) : isReplaced && onResetDub ? (
+                    <button
+                      onClick={() => onResetDub(video.id)}
+                      className={styles.resetDubButton}
+                      disabled={resettingDubIds?.has(video.id)}
+                      title="Remove the dubbed audio track and generated subtitle"
+                    >
+                      {resettingDubIds?.has(video.id) ? 'Removing…' : 'Remove dub'}
                     </button>
                   ) : onRedubSingle ? (
                     <button

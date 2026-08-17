@@ -176,6 +176,9 @@ class TaskStatusResponse(BaseModel):
         default=None, description="Error message if status is 'failed'"
     )
     created_at: datetime = Field(..., description="Task creation timestamp")
+    project_id: int | None = Field(
+        default=None, description="Project this task belongs to, if known"
+    )
     # Pipeline stage counters
     audio_chunks: int | None = Field(default=None)
     transcripts: int | None = Field(default=None)
@@ -204,6 +207,21 @@ class ScanStatusResponse(BaseModel):
     status: Literal["idle", "running"] = Field(
         ..., description="Whether a background scan is currently running"
     )
+
+
+class DubResetResponse(BaseModel):
+    """Response schema for removing a finalized dub (audio track + generated sub)."""
+
+    status: Literal["reset"] = Field(..., description="Operation result")
+    path: str = Field(..., description="Absolute path to the video file")
+    removed_audio_track: bool = Field(
+        ..., description="True if the first (dubbed) audio track was stripped"
+    )
+    deleted_subtitles: list[str] = Field(
+        default_factory=list,
+        description="Absolute paths of generated subtitle files that were deleted",
+    )
+
 
 class TaskCancelResponse(BaseModel):
     """Response schema for task cancellation."""

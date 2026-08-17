@@ -391,6 +391,16 @@ class DatabaseManager:
 
             conn.commit()
 
+    def delete_subtitle_file(self, project_id: int, file_path: str) -> None:
+        """Remove a subtitle file row for a project by absolute path."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM subtitle_files WHERE project_id = ? AND file_path = ?",
+                (project_id, file_path),
+            )
+            conn.commit()
+
     def get_video_files(self, project_id: int) -> List[Dict]:
         """Get all video files for a project."""
         with sqlite3.connect(self.db_path) as conn:

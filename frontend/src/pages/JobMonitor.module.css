@@ -166,6 +166,27 @@
   cursor: not-allowed;
 }
 
+.retryButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.retryButton:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.retryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ── Full-page centered states ───────────────────────────────────────────── */
 
 .centered {

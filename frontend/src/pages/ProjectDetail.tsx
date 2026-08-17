@@ -13,6 +13,7 @@ import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { useSubtitleReview } from '../hooks/useSubtitleReview';
+import { isVideoInTargetState } from '../utils/language';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -24,9 +25,17 @@ export const ProjectDetail = () => {
 
   const { data: project, isLoading: projectLoading } = useProject(projectId);
 
+  const isFinalized = (video: VideoFile) =>
+    Boolean(video.pipeline_status?.replaced)
+    || isVideoInTargetState(
+      video.audio_streams,
+      video.subtitles,
+      project?.target_language ?? '',
+    );
+
   // activeTasks polls every 3s when jobs are running — use it as the source of truth
-  const { activeTasks } = useActiveTasks();
-  const hasRunningJobs = activeTasks.length > 0;
+  const { activeTasks, hasActive } = useActiveTasks();
+  const hasRunningJobs = hasActive;
   const { data: videos, isLoading: videosLoading } = useVideos(projectId, hasRunningJobs);
 
   // Derive runningJobs from activeTasks by matching video_path to the loaded video list
@@ -34,6 +43,7 @@ export const ProjectDetail = () => {
   const runningJobs = new Map<number, string>();
   if (videos) {
     for (const task of activeTasks) {
+      if (task.status !== 'queued' && task.status !== 'running') continue;
       const video = videos.find((v) => v.path === task.video_path);
       if (video) runningJobs.set(video.id, task.task_id);
     }
@@ -100,6 +110,8 @@ export const ProjectDetail = () => {
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
   const [reviewVideoId, setReviewVideoId] = useState<number | null>(null);
   const subtitleReview = useSubtitleReview({ projectId, videoId: reviewVideoId });
+  const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
+  const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -128,9 +140,9 @@ export const ProjectDetail = () => {
   };
 
   const handleRedubAll = () => {
-    if (!videos) return;
+    if (!videos || !project) return;
     void handleBatchRedub(
-      videos.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id))
+      videos.filter((v) => !isFinalized(v) && !runningJobs.has(v.id))
     );
   };
 
@@ -166,6 +178,22 @@ export const ProjectDetail = () => {
       console.error('Generate subs failed:', err);
     } finally {
       setGeneratingSubsIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
+    }
+  };
+
+  const handleResetDub = async (videoId: number) => {
+    if (!projectId) return;
+    setResettingDubIds((prev) => new Set(prev).add(videoId));
+    try {
+      await apiClient.post(`/projects/${projectId}/videos/${videoId}/reset-dub`);
+      setConfirmResetVideo(null);
+      await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    } catch (err) {
+      console.error('Reset dub failed:', err);
+    } finally {
+      setResettingDubIds((prev) => { const s = new Set(prev); s.delete(videoId); return s; });
     }
   };
 
@@ -226,7 +254,7 @@ export const ProjectDetail = () => {
         .filter((v) => selectedIds.has(v.id))
         .reduce((sum, v) => sum + (v.duration_seconds || 0), 0)
     : 0;
-  const totalCount = videos?.filter((v) => !v.pipeline_status?.replaced && !runningJobs.has(v.id)).length ?? 0;
+  const totalCount = videos?.filter((v) => !isFinalized(v) && !runningJobs.has(v.id)).length ?? 0;
 
   return (
     <div className={styles.page}>
@@ -292,6 +320,35 @@ export const ProjectDetail = () => {
           </div>
         )}
 
+        {/* ── Remove dub confirmation dialog ── */}
+        {confirmResetVideo && (
+          <div className={styles.confirmOverlay}>
+            <div className={styles.confirmDialog}>
+              <h2 className={styles.confirmTitle}>Remove dub?</h2>
+              <p className={styles.confirmBody}>
+                This deletes the generated subtitle and the first (dubbed) audio track of{' '}
+                <strong>{confirmResetVideo.filename}</strong>. The original audio track is kept.
+              </p>
+              <div className={styles.confirmActions}>
+                <button
+                  className={styles.confirmDeleteButton}
+                  onClick={() => void handleResetDub(confirmResetVideo.id)}
+                  disabled={resettingDubIds.has(confirmResetVideo.id)}
+                >
+                  {resettingDubIds.has(confirmResetVideo.id) ? 'Removing…' : 'Remove dub'}
+                </button>
+                <button
+                  className={styles.confirmCancelButton}
+                  onClick={() => setConfirmResetVideo(null)}
+                  disabled={resettingDubIds.has(confirmResetVideo.id)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Error banners ── */}
         {scanVideos.isError && (
           <div className={styles.errorBanner}>
@@ -318,7 +375,7 @@ export const ProjectDetail = () => {
         <div className={styles.videosSection}>
           <div className={styles.videosSectionHeader}>
             <h2 className={styles.videosSectionTitle}>Video Files</h2>
-            {hasVideos && videos?.some((v) => v.pipeline_status?.replaced) && (
+            {hasVideos && videos?.some((v) => isFinalized(v)) && (
               <button
                 className={`${styles.toggleButton} ${hideCompleted ? styles.toggleButtonActive : ''}`}
                 onClick={() => projectId && setHideCompleted(projectId, !hideCompleted)}
@@ -359,7 +416,7 @@ export const ProjectDetail = () => {
             <p className={styles.loadingText}>Loading videos…</p>
           ) : hasVideos ? (
             <FileGrid
-              videos={hideCompleted ? (videos?.filter((v) => !v.pipeline_status?.replaced) ?? []) : (videos ?? [])}
+              videos={hideCompleted ? (videos?.filter((v) => !isFinalized(v)) ?? []) : (videos ?? [])}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               runningJobIds={runningJobs}
@@ -369,8 +426,14 @@ export const ProjectDetail = () => {
               onGenerateSubs={handleGenerateSubs}
               generatingSubsIds={generatingSubsIds}
               onReviewSubs={setReviewVideoId}
+              onResetDub={(videoId) => {
+                const video = videos?.find((v) => v.id === videoId) ?? null;
+                setConfirmResetVideo(video);
+              }}
+              resettingDubIds={resettingDubIds}
               liveTaskStatuses={taskStatusByVideoId}
               activeTasks={activeTasks}
+              targetLanguage={project.target_language}
             />
           ) : (
             <p className={styles.emptyText}>
@@ -389,7 +452,7 @@ export const ProjectDetail = () => {
               setIsVoiceRefinementOpen(false);
               queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             }}
-            firstVideoPath={videos?.find((v) => !v.pipeline_status?.replaced)?.path}
+            firstVideoPath={videos?.find((v) => !isFinalized(v))?.path}
           />
         )}
 
