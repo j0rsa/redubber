@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import which
 from subprocess import run as run_cmd
 from unittest.mock import MagicMock, patch
 
@@ -111,6 +112,7 @@ class TestStripFirstAudioTrack:
 
         assert video.read_bytes() == b"stripped"
 
+    @pytest.mark.skipif(which("ffmpeg") is None, reason="ffmpeg not installed")
     def test_ffmpeg_drops_first_audio_stream(self, tmp_path: Path) -> None:
         video = tmp_path / "two_tracks.mp4"
         create = [
