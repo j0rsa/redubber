@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from reproj import Reproj
 from tqdm import tqdm
 from seg_postprocessor import postprocess_segments
+from stt_hallucination import STTHallucinationError, assert_segments_acceptable
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -396,6 +397,15 @@ class Redubber(BaseModel):
             with open(segments_file, "r") as f:
                 ta = TypeAdapter(List[TranscriptionSegment])
                 segments = ta.validate_json(f.read())
+            chunk_duration = max((s.end for s in segments), default=0.0) - min(
+                (s.start for s in segments), default=0.0
+            )
+            assert_segments_acceptable(
+                segments,
+                audio_duration=chunk_duration,
+                source_label=reproj.file_path,
+                chunk_label=audio_filename,
+            )
             return text, segments
 
         # # transcript
@@ -493,6 +503,26 @@ class Redubber(BaseModel):
         for segment in transcript_segments:
             segment.start += float(time_offset)
             segment.end += float(time_offset)
+
+        chunk_duration = (
+            float(transcript.duration)
+            if getattr(transcript, "duration", None)
+            else max((s.end for s in transcript_segments), default=0.0)
+            - min((s.start for s in transcript_segments), default=0.0)
+        )
+        try:
+            assert_segments_acceptable(
+                transcript_segments,
+                audio_duration=chunk_duration,
+                source_label=reproj.file_path,
+                chunk_label=audio_filename,
+            )
+        except STTHallucinationError:
+            log.error(
+                "STT hallucination detected in chunk %s — aborting before TTS",
+                audio_filename,
+            )
+            raise
 
         with open(text_file, "w") as f:
             f.write(transcript.text)
@@ -825,13 +855,23 @@ class Redubber(BaseModel):
         total_files = len(audio_files)
         for i, audio_file in enumerate(audio_file_iter):
             _text, segments = self.transcribe_audio(reproj, audio_file, time_offset)
-            time_offset = segments[-1].end
+            if segments:
+                time_offset = segments[-1].end
             all_segments.extend(segments)
             if progress_callback:
                 progress_callback(0.5 + ((i + 1) / total_files) * 0.5)
 
         if compact:
             all_segments = postprocess_segments(all_segments)
+
+        total_duration = max((s.end for s in all_segments), default=0.0) - min(
+            (s.start for s in all_segments), default=0.0
+        )
+        assert_segments_acceptable(
+            all_segments,
+            audio_duration=total_duration,
+            source_label=reproj.file_path,
+        )
         return all_segments
 
     def generate_subtitles(
