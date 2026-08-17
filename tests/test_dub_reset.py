@@ -13,6 +13,7 @@ from app.services.dub_reset import (
     DubResetError,
     clear_finalization_artifacts,
     find_generated_subtitle_paths,
+    reconcile_video_with_disk,
     reset_dubbed_video,
     strip_first_audio_track,
     working_dir_subtitle_path,
@@ -226,21 +227,77 @@ class TestClearFinalizationArtifacts:
         assert str(backup) in removed
 
 
-class TestResetDubbedVideo:
-    def test_rejects_video_not_in_target_state(self, tmp_path: Path) -> None:
-        db, project_id, record, _video, _srt = _seed_final_video(
+class TestReconcileVideoWithDisk:
+    def test_clears_stale_backup_when_file_not_in_target_state(
+        self, tmp_path: Path
+    ) -> None:
+        db, project_id, record, video, _srt = _seed_final_video(
             tmp_path, in_target_state=False
         )
+        backup_dir = video.parent / ".redubber" / "backups"
+        backup_dir.mkdir(parents=True)
+        backup = backup_dir / "lesson.20250101.mp4"
+        backup.write_bytes(b"backup")
 
-        with pytest.raises(DubResetError, match="final redubbed state"):
+        with patch("redubber.sync_video_metadata") as sync:
+            result = reconcile_video_with_disk(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+            )
+
+        sync.assert_called_once()
+        assert not backup.exists()
+        assert result["reconciled"] is True
+        assert any("backups" in fix or "backup" in fix for fix in result["fixes"])
+
+    def test_removes_stale_target_subtitle_db_row(self, tmp_path: Path) -> None:
+        db, project_id, record, video, srt = _seed_final_video(
+            tmp_path, in_target_state=False
+        )
+        srt.unlink()
+        db.add_subtitle_file(project_id, str(srt), srt.name, "eng")
+
+        with patch("redubber.sync_video_metadata"):
+            reconcile_video_with_disk(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+            )
+
+        assert db.get_subtitle_files_for_video(project_id, "lesson.mp4") == []
+
+
+class TestResetDubbedVideo:
+    def test_rejects_video_not_in_target_state(self, tmp_path: Path) -> None:
+        db, project_id, record, video, _srt = _seed_final_video(
+            tmp_path, in_target_state=False
+        )
+        backup_dir = video.parent / ".redubber" / "backups"
+        backup_dir.mkdir(parents=True)
+        backup = backup_dir / "lesson.20250101.mp4"
+        backup.write_bytes(b"backup")
+
+        with (
+            patch("redubber.sync_video_metadata"),
+            pytest.raises(DubResetError, match="final redubbed state"),
+        ):
             reset_dubbed_video(
                 db=db,
                 project_id=project_id,
                 video_record=record,
-                project_path=str(_video.parent),
+                project_path=str(video.parent),
                 project_name="Demo",
                 target_language="eng",
             )
+
+        assert not backup.exists()
 
     def test_deletes_generated_sub_and_strips_audio(self, tmp_path: Path) -> None:
         db, project_id, record, video, srt = _seed_final_video(tmp_path)

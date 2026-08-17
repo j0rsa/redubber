@@ -151,6 +151,16 @@
   line-height: 1.5;
 }
 
+.confirmError {
+  padding: var(--spacing-md);
+  background: var(--color-error-light);
+  color: var(--color-error);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  margin: calc(-1 * var(--spacing-md)) 0 var(--spacing-xl);
+}
+
 .confirmActions {
   display: flex;
   gap: var(--spacing-sm);

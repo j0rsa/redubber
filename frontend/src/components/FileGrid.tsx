@@ -21,6 +21,8 @@ export interface FileGridProps {
   onGenerateSubs?: (videoId: number) => void;
   /** Maps videoId → true while sub generation is in progress. */
   generatingSubsIds?: Set<number>;
+  /** Open the generated-subtitle review screen for a video. */
+  onReviewSubs?: (videoId: number) => void;
   /** Called when the user clicks "Remove dub" on a finalized video. */
   onResetDub?: (videoId: number) => void;
   /** Maps videoId → true while dub reset is in progress. */
@@ -33,32 +35,6 @@ export interface FileGridProps {
   targetLanguage?: string;
 }
 
-export interface FileGridProps {
-  videos: VideoFile[];
-  selectedIds: Set<number>;
-  onSelectionChange: (ids: Set<number>) => void;
-  /** Maps videoId → taskId for in-flight jobs. */
-  runningJobIds?: Map<number, string>;
-  /** Called when the user clicks "▶ View Job" for a row that has no running job yet (single-file submit). */
-  onRedubSingle?: (videoPath: string) => void;
-  /** Called when the user clicks "Replace Original" after the pipeline completes. */
-  onFinalize?: (videoId: number) => void;
-  /** Maps videoId → true while finalize is in progress. */
-  finalizingIds?: Set<number>;
-  /** Called when the user clicks "Generate Subs" to regenerate subtitles from existing segments. */
-  onGenerateSubs?: (videoId: number) => void;
-  /** Maps videoId → true while sub generation is in progress. */
-  generatingSubsIds?: Set<number>;
-  /** Called when the user clicks "Remove dub" on a finalized video. */
-  onResetDub?: (videoId: number) => void;
-  /** Maps videoId → true while dub reset is in progress. */
-  resettingDubIds?: Set<number>;
-  /** Live task statuses keyed by videoId — used to show real-time progress while a job runs. */
-  liveTaskStatuses?: Map<number, TaskStatus>;
-  /** All active tasks — used to detect queued videos not yet in liveTaskStatuses. */
-  activeTasks?: TaskStatus[];
-}
-
 export const FileGrid = ({
   videos,
   selectedIds,
@@ -69,6 +45,7 @@ export const FileGrid = ({
   finalizingIds,
   onGenerateSubs,
   generatingSubsIds,
+  onReviewSubs,
   onResetDub,
   resettingDubIds,
   liveTaskStatuses,
@@ -137,6 +114,13 @@ export const FileGrid = ({
               || isVideoInTargetState(video.audio_streams, video.subtitles, targetLanguage);
             const isReadyToReplace = (video.pipeline_status?.is_complete ?? false) && !isReplaced;
             const isComplete = isReplaced; // "done done" — disable selection
+            const canReviewSubs =
+              Boolean(onReviewSubs) &&
+              (
+                video.subtitles.length > 0
+                || (video.pipeline_status?.subtitles ?? 0) > 0
+                || (video.pipeline_status?.transcripts ?? 0) > 0
+              );
             // Build displayStatus by layering three sources (later overrides earlier):
             // 1. disk-based pipeline_status  — baseline counters from completed stages
             // 2. live task counters          — up-to-date values while the task runs
@@ -219,6 +203,7 @@ export const FileGrid = ({
                   )}
                 </td>
                 <td className={styles.cell} data-label="Actions">
+                  <div className={styles.actions}>
                   {isRunning && taskId ? (
                     <a href={`/job/${taskId}`} className={styles.viewJobLink}>
                       ▶ View Job
@@ -256,6 +241,16 @@ export const FileGrid = ({
                       Redub
                     </button>
                   ) : null}
+                  {canReviewSubs && (
+                    <button
+                      type="button"
+                      className={styles.reviewButton}
+                      onClick={() => onReviewSubs?.(video.id)}
+                    >
+                      Review subs
+                    </button>
+                  )}
+                  </div>
                 </td>
               </tr>
             );

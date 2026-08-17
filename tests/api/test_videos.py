@@ -89,7 +89,10 @@ class TestResetDubAPI:
     def test_reset_dub_rejects_non_final_video(
         self, client: TestClient, tmp_path
     ) -> None:
+        from unittest.mock import patch
+
         from app.core.config import settings
+        from app.core.project_paths import get_project_working_dir
         from database import DatabaseManager
 
         project_dir = tmp_path / "proj"
@@ -106,17 +109,39 @@ class TestResetDubAPI:
                 "path": str(video),
                 "size_mb": 1.0,
                 "duration_seconds": 10,
-                "audio_streams": [{"index": 0, "language": "rus", "codec": "aac"}],
+                "audio_streams": [
+                    {
+                        "index": 0,
+                        "language": "rus",
+                        "codec": "aac",
+                        "channels": 2,
+                        "sample_rate": "48000",
+                    }
+                ],
                 "subtitles": [],
             },
         )
         video_id = db.get_video_analysis(project_id)[0]["id"]
 
-        response = client.post(
-            f"/api/projects/{project_id}/videos/{video_id}/reset-dub"
-        )
+        working_dir = get_project_working_dir(str(project_dir), "Demo")
+        backup_dir = working_dir / "backups"
+        backup_dir.mkdir(parents=True)
+        backup = backup_dir / "lesson.20250101.mp4"
+        backup.write_bytes(b"backup")
+
+        with patch("redubber.sync_video_metadata"):
+            response = client.post(
+                f"/api/projects/{project_id}/videos/{video_id}/reset-dub"
+            )
+
         assert response.status_code == 422
         assert "final" in response.json()["detail"].lower()
+        assert not backup.exists()
+
+        list_response = client.get(f"/api/projects/{project_id}/videos")
+        assert list_response.status_code == 200
+        status = list_response.json()[0]["pipeline_status"]
+        assert status is None or status.get("replaced") is False
 
     def test_reset_dub_success(self, client: TestClient, tmp_path) -> None:
         from app.core.config import settings

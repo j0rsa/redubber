@@ -127,6 +127,70 @@ def strip_first_audio_track(video_path: Path) -> None:
     os.replace(tmp_path, video_path)
 
 
+_RESET_REJECTED_MSG = (
+    "Video is not in the final redubbed state. "
+    "Reset is only allowed when the file has a dubbed audio track "
+    "and a generated subtitle in the project target language."
+)
+
+
+def reconcile_video_with_disk(
+    db: DatabaseManager,
+    project_id: int,
+    video_record: dict,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+) -> dict:
+    """Align DB metadata and working-dir artifacts with the on-disk video file.
+
+    When the video file is no longer in the final redubbed state but leftover
+    backup/dubbed files or stale subtitle rows still imply completion, remove
+    those artifacts and refresh analysis from disk.
+    """
+    from pipeline_status import get_pipeline_status
+    from redubber import sync_video_metadata
+
+    video_path = Path(video_record["file_path"])
+    if not video_path.exists():
+        return {"reconciled": False, "fixes": []}
+
+    fixes: list[str] = []
+    working_root = str(get_project_working_dir(project_path, project_name))
+    target = normalize_lang_code(target_language)
+
+    sync_video_metadata(db, project_id, str(video_path))
+    fixes.append("refreshed video metadata from disk")
+
+    records = db.get_video_analysis(project_id)
+    record = next((r for r in records if r["id"] == video_record["id"]), video_record)
+    audio_streams = record.get("audio_streams") or []
+    subtitles = record.get("subtitle_matches") or []
+
+    if is_video_in_target_state(audio_streams, subtitles, target_language):
+        replaced = count_videos_in_target_state(records, target_language)
+        db.update_project_video_counts(project_id, len(records), replaced)
+        return {"reconciled": bool(fixes), "fixes": fixes}
+
+    pipeline = get_pipeline_status(str(video_path), project_path, working_root)
+    if pipeline.replaced or pipeline.final_file_exists:
+        removed = clear_finalization_artifacts(video_path, project_path, project_name)
+        fixes.extend(removed)
+
+    for sub in db.get_subtitle_files_for_video(project_id, video_path.name):
+        sub_path = sub.get("file_path") or ""
+        sub_lang = normalize_lang_code(sub.get("language") or "")
+        if target and sub_lang == target and not Path(sub_path).exists():
+            db.delete_subtitle_file(project_id, sub_path)
+            fixes.append(f"removed stale subtitle record: {sub_path}")
+
+    records = db.get_video_analysis(project_id)
+    replaced = count_videos_in_target_state(records, target_language)
+    db.update_project_video_counts(project_id, len(records), replaced)
+
+    return {"reconciled": bool(fixes), "fixes": fixes}
+
+
 def reset_dubbed_video(
     db: DatabaseManager,
     project_id: int,
@@ -149,11 +213,15 @@ def reset_dubbed_video(
     audio_streams = video_record.get("audio_streams") or []
     subtitles = video_record.get("subtitle_matches") or []
     if not is_video_in_target_state(audio_streams, subtitles, target_language):
-        raise DubResetError(
-            "Video is not in the final redubbed state. "
-            "Reset is only allowed when the file has a dubbed audio track "
-            "and a generated subtitle in the project target language."
+        reconcile_video_with_disk(
+            db,
+            project_id,
+            video_record,
+            project_path,
+            project_name,
+            target_language,
         )
+        raise DubResetError(_RESET_REJECTED_MSG)
 
     if len(audio_streams) < 2:
         raise DubResetError(
