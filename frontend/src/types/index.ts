@@ -111,4 +111,6 @@ export interface TaskStatus {
 export interface RedubRequest {
   video_path: string;
   project_id: number;
+  /** When set, re-chunks audio at this size and clears downstream artefacts. */
+  audio_chunk_duration?: number;
 }

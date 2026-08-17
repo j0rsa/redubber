@@ -103,6 +103,7 @@ async def submit_redub_task(
         task_id = await task_manager.submit_task(
             video_path=task.video_path,
             project_id=str(task.project_id),
+            audio_chunk_duration=task.audio_chunk_duration,
         )
     except Exception as e:
         # Queue full or other error

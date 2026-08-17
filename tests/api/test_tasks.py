@@ -27,17 +27,29 @@ class TestTasksAPI:
         )
         assert response.status_code in [202, 400]
 
-    def test_submit_redub_extra_fields_ignored(self, client: TestClient) -> None:
-        """POST /api/redub ignores unknown fields."""
+    def test_submit_redub_accepts_audio_chunk_duration(self, client: TestClient) -> None:
+        """POST /api/redub accepts optional audio_chunk_duration override."""
+        response = client.post(
+            "/api/redub",
+            json={
+                "video_path": "/nonexistent/video.mp4",
+                "project_id": 1,
+                "audio_chunk_duration": 600,
+            },
+        )
+        assert response.status_code in [202, 400]
+
+    def test_submit_redub_rejects_invalid_chunk_duration(self, client: TestClient) -> None:
+        """POST /api/redub rejects out-of-range audio_chunk_duration."""
         response = client.post(
             "/api/redub",
             json={
                 "video_path": "/test/video.mp4",
                 "project_id": 1,
-                "unknown_field": "ignored",
+                "audio_chunk_duration": 30,
             },
         )
-        assert response.status_code in [202, 400]
+        assert response.status_code == 422
 
     def test_get_task_status_not_found_returns_404(self, client: TestClient) -> None:
         """GET /api/tasks/{task_id} returns 404 for unknown task."""

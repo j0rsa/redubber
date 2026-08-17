@@ -53,6 +53,7 @@ class TaskStatus:
     audio_assembled: int | None = None
     audio_assembled_total: int | None = None
     video_mixed: bool | None = None
+    audio_chunk_duration: int | None = None
 
 
 class AsyncRedubberServiceProtocol(Protocol):
@@ -121,12 +122,14 @@ class TaskQueueManager:
         self,
         video_path: str,
         project_id: str | int,
+        audio_chunk_duration: int | None = None,
     ) -> str:
         """Submit a new redubbing task to the queue.
 
         Args:
             video_path: Absolute path to video file to redub.
             project_id: ID of the project this video belongs to.
+            audio_chunk_duration: Optional per-job chunk size override (seconds).
 
         Returns:
             Unique task ID for tracking status.
@@ -143,6 +146,7 @@ class TaskQueueManager:
             progress=0,
             status="queued",
             project_id=int(project_id),
+            audio_chunk_duration=audio_chunk_duration,
         )
 
         async with self._lock:
@@ -317,6 +321,50 @@ class TaskQueueManager:
         wd.mkdir(parents=True, exist_ok=True)
         return str(wd)
 
+    @staticmethod
+    def _resolve_tool_settings() -> tuple[str, str, float, int, int]:
+        """Return STT/TTS settings from tool settings with safe defaults."""
+        try:
+            from app.services.settings_service import get_settings as _get_settings
+
+            s = _get_settings()
+            return (
+                s.stt_model,
+                s.openai_base_url,
+                s.tts_speed,
+                s.audio_chunk_duration,
+                s.tts_concurrency,
+            )
+        except Exception:
+            return ("whisper-1", "", 1.25, 900, 20)
+
+    @staticmethod
+    def _clear_pipeline_for_chunk_override(
+        video_path: str,
+        project_id: int | None,
+    ) -> None:
+        """Remove audio chunks and downstream artefacts before a re-chunk retry."""
+        if project_id is None:
+            return
+
+        from app.core.config import settings as _config_settings
+        from app.core.project_paths import get_project_working_dir
+        from database import DatabaseManager
+        from pipeline_status import clear_downstream_stages
+
+        db = DatabaseManager(_config_settings.database_url)
+        project = db.get_project_by_id(project_id)
+        if not project:
+            return
+
+        working_dir = str(get_project_working_dir(project["path"], project["name"]))
+        clear_downstream_stages(
+            video_path=video_path,
+            project_path=project["path"],
+            from_stage="audio",
+            tmp_root=working_dir,
+        )
+
     async def _process_task(self, task_id: str) -> None:
         """Process a single redubbing task with hybrid async/sync execution.
 
@@ -380,21 +428,16 @@ class TaskQueueManager:
                     root=reproj_root,
                 )
 
-                # Pull operational settings from tool settings
-                try:
-                    from app.services.settings_service import get_settings as _get_settings
-                    _tool_settings = _get_settings()
-                    _stt_model = _tool_settings.stt_model
-                    _base_url = _tool_settings.openai_base_url
-                    _tts_speed = _tool_settings.tts_speed
-                    _audio_chunk_duration = _tool_settings.audio_chunk_duration
-                    _tts_concurrency = _tool_settings.tts_concurrency
-                except Exception:
-                    _stt_model = "whisper-1"
-                    _base_url = ""
-                    _tts_speed = 1.25
-                    _audio_chunk_duration = 900
-                    _tts_concurrency = 20
+                _stt_model, _base_url, _tts_speed, _default_chunk_duration, _tts_concurrency = (
+                    self._resolve_tool_settings()
+                )
+                _audio_chunk_duration = (
+                    task.audio_chunk_duration
+                    if task.audio_chunk_duration is not None
+                    else _default_chunk_duration
+                )
+                if task.audio_chunk_duration is not None:
+                    self._clear_pipeline_for_chunk_override(video_path, project_id)
 
                 # Look up target language from project settings
                 _target_language = "eng"
@@ -421,7 +464,13 @@ class TaskQueueManager:
                 )
 
                 # Extract and transcribe segments
-                segments = redubber.get_text_and_segments(reproj, compact=True)
+                replace_chunks = task.audio_chunk_duration is not None
+                segments = redubber.get_text_and_segments(
+                    reproj,
+                    compact=True,
+                    chunk_duration=_audio_chunk_duration,
+                    replace_audio_chunks=replace_chunks,
+                )
 
                 return reproj, segments
 

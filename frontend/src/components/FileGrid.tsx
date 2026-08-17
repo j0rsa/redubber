@@ -11,8 +11,10 @@ export interface FileGridProps {
   onSelectionChange: (ids: Set<number>) => void;
   /** Maps videoId → taskId for in-flight jobs. */
   runningJobIds?: Map<number, string>;
-  /** Called when the user clicks "▶ View Job" for a row that has no running job yet (single-file submit). */
+  /** Called when the user clicks "Redub" on a row that has not failed. */
   onRedubSingle?: (videoPath: string) => void;
+  /** Called when the user clicks "Retry" on a failed row. */
+  onRetryFailed?: (video: VideoFile) => void;
   /** Called when the user clicks "Replace Original" after the pipeline completes. */
   onFinalize?: (videoId: number) => void;
   /** Maps videoId → true while finalize is in progress. */
@@ -41,6 +43,7 @@ export const FileGrid = ({
   onSelectionChange,
   runningJobIds,
   onRedubSingle,
+  onRetryFailed,
   onFinalize,
   finalizingIds,
   onGenerateSubs,
@@ -149,6 +152,8 @@ export const FileGrid = ({
                 ? { progress: 0, current_stage: 'Queued', is_complete: false, failed: false, error: undefined, replaced: false }
                 : video.pipeline_status;
 
+            const isFailed = Boolean(displayStatus?.failed) && !isRunning;
+
             return (
               <tr
                 key={video.id}
@@ -232,6 +237,14 @@ export const FileGrid = ({
                       title="Remove the dubbed audio track and generated subtitle"
                     >
                       {resettingDubIds?.has(video.id) ? 'Removing…' : 'Remove dub'}
+                    </button>
+                  ) : isFailed && onRetryFailed ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetryFailed(video)}
+                      className={styles.retryButton}
+                    >
+                      Retry
                     </button>
                   ) : onRedubSingle ? (
                     <button

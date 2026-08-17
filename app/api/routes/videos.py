@@ -232,9 +232,8 @@ async def list_videos(
     try:
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
-        for t in all_tasks:
+        for t in sorted(all_tasks, key=lambda x: x.created_at, reverse=True):
             if t.status == "failed" and t.video_path and t.error:
-                # Keep only the most-recent failure per video path
                 if t.video_path not in failed_tasks:
                     failed_tasks[t.video_path] = t.error
     except Exception:
