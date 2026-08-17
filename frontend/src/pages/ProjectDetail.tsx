@@ -8,10 +8,12 @@ import { useActiveTasks } from '../hooks/useActiveTasks';
 import { FileGrid } from '../components/FileGrid';
 import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/ProjectSettingsPanel';
 import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
+import { SubtitleReview } from '../components/SubtitleReview/SubtitleReview';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { getApiErrorMessage } from '../utils/apiError';
+import { useSubtitleReview } from '../hooks/useSubtitleReview';
 import { isVideoInTargetState } from '../utils/language';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
@@ -109,6 +111,8 @@ export const ProjectDetail = () => {
   const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
   const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
+  const [reviewVideoId, setReviewVideoId] = useState<number | null>(null);
+  const subtitleReview = useSubtitleReview({ projectId, videoId: reviewVideoId });
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
   const [resetDubError, setResetDubError] = useState<string | null>(null);
@@ -442,6 +446,7 @@ export const ProjectDetail = () => {
               finalizingIds={finalizingIds}
               onGenerateSubs={handleGenerateSubs}
               generatingSubsIds={generatingSubsIds}
+              onReviewSubs={setReviewVideoId}
               onResetDub={(videoId) => {
                 setResetDubError(null);
                 const video = videos?.find((v) => v.id === videoId) ?? null;
@@ -470,6 +475,17 @@ export const ProjectDetail = () => {
               queryClient.invalidateQueries({ queryKey: ['project', projectId] });
             }}
             firstVideoPath={videos?.find((v) => !isFinalized(v))?.path}
+          />
+        )}
+
+        {projectId && (
+          <SubtitleReview
+            isOpen={reviewVideoId !== null}
+            onClose={() => setReviewVideoId(null)}
+            filename={videos?.find((v) => v.id === reviewVideoId)?.filename}
+            data={subtitleReview.data}
+            loading={subtitleReview.loading}
+            error={subtitleReview.error}
           />
         )}
       </div>
