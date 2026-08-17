@@ -7,18 +7,14 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from app.core.dependencies import get_db, get_scanner
+from app.infrastructure.task_queue import TaskQueueManager
 from app.schemas.models import (
     AudioStream,
-    DubResetResponse,
     PipelineStatusResponse,
     ScanStatusResponse,
     ScanTriggerResponse,
     SubtitleInfo,
     VideoAnalysis,
-)
-from app.services.dub_reset import (
-    DubResetError,
-    reset_dubbed_video as reset_dubbed_video_service,
 )
 from database import DatabaseManager
 from file_scanner import FileScanner
@@ -234,8 +230,6 @@ async def list_videos(
     # Build a map of video_path → most-recent failed task so we can surface errors
     failed_tasks: dict[str, str] = {}  # video_path → error message
     try:
-        from app.infrastructure.task_queue import TaskQueueManager
-
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
         for t in all_tasks:
@@ -502,25 +496,23 @@ async def generate_subtitles_for_video(
 
 @router.post(
     "/projects/{project_id}/videos/{video_id}/reset-dub",
-    response_model=DubResetResponse,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 async def reset_dubbed_video(
     project_id: int,
     video_id: int,
+    request: Request,
     db: Annotated[DatabaseManager, Depends(get_db)],
-) -> DubResetResponse:
-    """Remove the generated subtitle and the first (dubbed) audio track.
+) -> dict[str, str]:
+    """Queue a job to remove the generated subtitle and first (dubbed) audio track.
 
-    Only allowed for videos already in the final redubbed state: at least two
-    audio tracks including one in the project target language, plus a matching
-    target-language subtitle. Strips audio track 0 (the dubbed track written
-    by mix) and deletes the generated sidecar subtitle.
+    Only allowed for videos already in the final redubbed state. The actual ffmpeg
+    remux runs asynchronously — poll ``GET /api/tasks/{task_id}`` for progress.
 
     Raises:
         HTTPException: 404 if project or video not found.
+        HTTPException: 409 if another job for this video is already queued/running.
         HTTPException: 422 if the video is not in the final state.
-        HTTPException: 500 if remux or file deletion fails.
     """
     project = db.get_project_by_id(project_id)
     if not project:
@@ -538,29 +530,33 @@ async def reset_dubbed_video(
         )
 
     target_language = project.get("target_language") or "eng"
-
-    try:
-        result = reset_dubbed_video_service(
-            db=db,
-            project_id=project_id,
-            video_record=record,
-            project_path=project["path"],
-            project_name=project["name"],
-            target_language=target_language,
-        )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except DubResetError as e:
+    audio_streams = record.get("audio_streams") or []
+    subtitles = record.get("subtitle_matches") or []
+    if not is_video_in_target_state(audio_streams, subtitles, target_language):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reset dub: {e}",
+            detail=(
+                "Video is not in the final redubbed state. "
+                "Reset is only allowed when the file has a dubbed audio track "
+                "and a generated subtitle in the project target language."
+            ),
         )
 
-    return DubResetResponse(**result)
+    video_path = record["file_path"]
+    task_manager: TaskQueueManager = request.app.state.task_manager
+    for t in await task_manager.list_tasks():
+        if t.video_path == video_path and t.status in ("queued", "running"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"A job for this video is already {t.status} "
+                    f"(task_id={t.task_id})"
+                ),
+            )
+
+    task_id = await task_manager.submit_reset_dub_task(
+        video_path=video_path,
+        project_id=project_id,
+        video_id=video_id,
+    )
+    return {"task_id": task_id, "status": "queued"}
