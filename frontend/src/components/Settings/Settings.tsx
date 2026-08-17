@@ -525,6 +525,11 @@ export const Settings = ({
             <label className={styles.label} htmlFor={autoProcessId}>
               Auto-process
             </label>
+            <span className={styles.hint}>
+              When enabled, redub finishes by replacing the original file immediately. That
+              clears pipeline working files (source audio chunks and TTS segments), so the
+              “Review subs” screen cannot play original or dubbed audio per cue afterward.
+            </span>
           </div>
           <div className={styles.controlCol}>
             <div className={styles.toggleWrapper}>

@@ -210,3 +210,27 @@ export const Empty: Story = {
     onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
   },
 };
+
+/** Generated subs available — shows Review subs next to Redub. */
+export const WithGeneratedSubs: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 1,
+        filename: 'with_subs.mp4',
+        subtitles: [{ language: 'eng', embedded: false, path: '/videos/with_subs.en.srt' }],
+        pipeline_status: {
+          progress: 100,
+          current_stage: 'Complete',
+          is_complete: true,
+          transcripts: 12,
+          subtitles: 1,
+        },
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+    onRedubSingle: (path) => console.log('redub', path),
+    onReviewSubs: (id) => console.log('review', id),
+  },
+};
