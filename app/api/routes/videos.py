@@ -533,13 +533,19 @@ async def reset_dubbed_video(
     audio_streams = record.get("audio_streams") or []
     subtitles = record.get("subtitle_matches") or []
     if not is_video_in_target_state(audio_streams, subtitles, target_language):
+        from app.services.dub_reset import _RESET_REJECTED_MSG, reconcile_video_with_disk
+
+        reconcile_video_with_disk(
+            db,
+            project_id,
+            record,
+            project["path"],
+            project["name"],
+            target_language,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Video is not in the final redubbed state. "
-                "Reset is only allowed when the file has a dubbed audio track "
-                "and a generated subtitle in the project target language."
-            ),
+            detail=_RESET_REJECTED_MSG,
         )
 
     video_path = record["file_path"]
