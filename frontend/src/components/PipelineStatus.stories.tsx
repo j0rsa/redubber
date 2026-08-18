@@ -225,3 +225,21 @@ export const Stage9_Complete: Story = {
     } as PipelineStatusType,
   },
 };
+
+export const FailedWithHallucinationError: Story = {
+  args: {
+    status: {
+      progress: 30,
+      current_stage: 'Transcribing',
+      is_complete: false,
+      failed: true,
+      error: [
+        'STT quality check failed for chunk_003.wav:',
+        '- known_hallucination_phrase [chunk_003.wav]: contains common STT hallucination phrase(s): thank you for watching',
+        '- excessive_cps [segment 4]: text too dense for duration',
+      ].join('\n'),
+      audio_chunks: 3,
+      transcripts: 2,
+    } as PipelineStatusType,
+  },
+};

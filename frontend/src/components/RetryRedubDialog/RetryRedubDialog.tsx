@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatPipelineError } from '../../utils/formatError';
 import styles from './RetryRedubDialog.module.css';
 
 const MIN_CHUNK_SECONDS = 60;
@@ -48,7 +49,7 @@ export const RetryRedubDialog = ({
 
         {errorMessage && (
           <div className={styles.errorBox} role="alert">
-            {errorMessage}
+            {formatPipelineError(errorMessage)}
           </div>
         )}
 
