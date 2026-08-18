@@ -4,6 +4,7 @@ import { useTask, useCancelTask, useSubmitRedub } from '../hooks/useTasks';
 import { useNotifications } from '../hooks/useNotifications';
 import { useSettings } from '../hooks/useSettings';
 import { RetryRedubDialog } from '../components/RetryRedubDialog/RetryRedubDialog';
+import { formatPipelineError } from '../utils/formatError';
 import type { TaskStatus } from '../types';
 import { PipelineStatus } from '../components/PipelineStatus';
 import styles from './JobMonitor.module.css';
@@ -93,7 +94,7 @@ export const JobMonitorView = ({
           {task.error && (
             <div className={styles.errorBox}>
               <p className={styles.errorBoxTitle}>Error</p>
-              <p className={styles.errorBoxBody}>{task.error}</p>
+              <p className={styles.errorBoxBody}>{formatPipelineError(task.error)}</p>
             </div>
           )}
 

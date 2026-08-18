@@ -122,6 +122,8 @@
 .errorBoxBody {
   margin: 0;
   font-size: var(--font-size-sm);
+  white-space: pre-line;
+  text-align: left;
 }
 
 /* ── Timestamps ──────────────────────────────────────────────────────────── */

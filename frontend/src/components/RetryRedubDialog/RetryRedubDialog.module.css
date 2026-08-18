@@ -40,8 +40,10 @@
   font-size: var(--font-size-sm);
   line-height: 1.5;
   margin-bottom: var(--spacing-lg);
-  max-height: 120px;
+  max-height: 160px;
   overflow-y: auto;
+  white-space: pre-line;
+  text-align: left;
 }
 
 .fieldLabel {

@@ -1,4 +1,5 @@
 import type { PipelineStatus as PipelineStatusType } from '../types';
+import { formatPipelineError, truncatePipelineError } from '../utils/formatError';
 import styles from './PipelineStatus.module.css';
 
 interface PipelineStatusProps {
@@ -63,9 +64,21 @@ export const PipelineStatus = ({ status }: PipelineStatusProps) => {
           <span className={styles.stageName}>{status.current_stage}</span>
         )}
         {status.failed && status.error && (
-          <span className={styles.errorText} title={status.error}>
-            {status.error.length > 80 ? status.error.slice(0, 80) + '…' : status.error}
-          </span>
+          <>
+            <span
+              className={styles.errorIndicator}
+              tabIndex={0}
+              aria-label={`Error: ${truncatePipelineError(status.error, 120)}`}
+            >
+              <span className={styles.errorIndicatorIcon} aria-hidden="true">!</span>
+              <span className={styles.errorTooltip} role="tooltip">
+                {formatPipelineError(status.error)}
+              </span>
+            </span>
+            <span className={styles.errorText} title={formatPipelineError(status.error)}>
+              {truncatePipelineError(status.error)}
+            </span>
+          </>
         )}
       </div>
 
