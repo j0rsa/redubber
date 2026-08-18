@@ -14,9 +14,3 @@ export function formatPipelineError(error: string): string {
   }
   return normalized;
 }
-
-/** Short single-line preview for narrow layouts (mobile). */
-export function truncatePipelineError(error: string, maxLength = 80): string {
-  const singleLine = formatPipelineError(error).replace(/\s*\n+\s*/g, ' ').trim();
-  return singleLine.length > maxLength ? `${singleLine.slice(0, maxLength)}…` : singleLine;
-}
