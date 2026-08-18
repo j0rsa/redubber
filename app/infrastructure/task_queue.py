@@ -24,6 +24,7 @@ def _get_openai_key() -> str:
 
 
 TaskStatusType = Literal["queued", "running", "completed", "failed"]
+TaskKind = Literal["redub", "reset_dub", "transcribe"]
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class TaskStatus:
     audio_assembled_total: int | None = None
     video_mixed: bool | None = None
     audio_chunk_duration: int | None = None
+    task_type: TaskKind = "redub"
 
 
 class AsyncRedubberServiceProtocol(Protocol):
@@ -147,6 +149,7 @@ class TaskQueueManager:
             status="queued",
             project_id=int(project_id),
             audio_chunk_duration=audio_chunk_duration,
+            task_type="redub",
         )
 
         async with self._lock:
@@ -811,13 +814,12 @@ class TaskQueueManager:
             progress=0,
             status="queued",
             project_id=int(project_id),
+            task_type="transcribe",
         )
 
         async with self._lock:
             self._tasks[task_id] = initial_status
 
-        # Run directly in the executor — don't go through the redub queue
-        asyncio.get_event_loop()
         asyncio.ensure_future(self._process_transcription_task(task_id))
 
         logger.info(
@@ -935,6 +937,7 @@ class TaskQueueManager:
             progress=0,
             status="queued",
             project_id=project_id,
+            task_type="reset_dub",
         )
 
         async with self._lock:
@@ -990,6 +993,7 @@ class TaskQueueManager:
                     raise DubResetError(f"Video {video_id} not found")
 
                 target_language = project.get("target_language") or "eng"
+                source_language = project.get("source_language_override") or None
                 return reset_dubbed_video(
                     db=db,
                     project_id=project_id,
@@ -997,6 +1001,7 @@ class TaskQueueManager:
                     project_path=project["path"],
                     project_name=project["name"],
                     target_language=target_language,
+                    source_language=source_language,
                 )
 
             await self._update_task_status(

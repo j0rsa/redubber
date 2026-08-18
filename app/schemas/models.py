@@ -198,6 +198,10 @@ class TaskStatusResponse(BaseModel):
     audio_assembled: int | None = Field(default=None)
     audio_assembled_total: int | None = Field(default=None)
     video_mixed: bool | None = Field(default=None)
+    task_type: Literal["redub", "reset_dub", "transcribe"] = Field(
+        default="redub",
+        description="Kind of background job (redub pipeline, remove dub, or STT-only).",
+    )
 
 
 class ScanTriggerResponse(BaseModel):

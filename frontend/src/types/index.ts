@@ -106,6 +106,7 @@ export interface TaskStatus {
   audio_assembled?: number;
   audio_assembled_total?: number;
   video_mixed?: boolean;
+  task_type?: 'redub' | 'reset_dub' | 'transcribe';
 }
 
 export interface RedubRequest {

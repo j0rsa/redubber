@@ -1,4 +1,4 @@
-"""Tests for dub-reset (remove generated sub + first dubbed audio track)."""
+"""Tests for dub-reset (remove generated sub + language-verified dubbed audio track)."""
 
 from __future__ import annotations
 
@@ -11,15 +11,26 @@ import pytest
 
 from app.services.dub_reset import (
     DubResetError,
+    backup_video_before_reset,
     clear_finalization_artifacts,
     find_generated_subtitle_paths,
+    identify_dubbed_stream_index,
     reconcile_video_with_disk,
     reset_dubbed_video,
+    strip_dubbed_audio_track,
     strip_first_audio_track,
     working_dir_subtitle_path,
 )
 from database import DatabaseManager
 from utils import convert_to_two_char_lang_code, normalize_lang_code
+
+TWO_TRACK_STREAMS = [
+    {"index": 1, "language": "eng", "codec": "aac"},
+    {"index": 2, "language": "rus", "codec": "aac"},
+]
+ONE_TRACK_STREAMS = [
+    {"index": 2, "language": "rus", "codec": "aac"},
+]
 
 
 def _write(path: Path, content: str = "sub") -> Path:
@@ -85,17 +96,63 @@ class TestWorkingDirSubtitlePath:
         )
 
 
+class TestIdentifyDubbedStreamIndex:
+    def test_returns_target_language_track(self) -> None:
+        index = identify_dubbed_stream_index(TWO_TRACK_STREAMS, "eng", "rus")
+        assert index == 1
+
+    def test_rejects_single_track(self) -> None:
+        with pytest.raises(DubResetError, match="at least two audio tracks"):
+            identify_dubbed_stream_index(ONE_TRACK_STREAMS, "eng")
+
+    def test_rejects_untagged_tracks(self) -> None:
+        streams = [
+            {"index": 1, "language": "eng", "codec": "aac"},
+            {"index": 2, "language": "unknown", "codec": "aac"},
+        ]
+        with pytest.raises(DubResetError, match="missing language tags"):
+            identify_dubbed_stream_index(streams, "eng")
+
+    def test_rejects_when_no_target_language_track(self) -> None:
+        streams = [
+            {"index": 1, "language": "rus", "codec": "aac"},
+            {"index": 2, "language": "deu", "codec": "aac"},
+        ]
+        with pytest.raises(DubResetError, match="No audio track is tagged"):
+            identify_dubbed_stream_index(streams, "eng")
+
+    def test_rejects_when_source_would_be_removed(self) -> None:
+        streams = [
+            {"index": 1, "language": "eng", "codec": "aac"},
+            {"index": 2, "language": "eng", "codec": "aac"},
+        ]
+        with pytest.raises(DubResetError, match="Multiple audio tracks"):
+            identify_dubbed_stream_index(streams, "eng", "rus")
+
+
 class TestStripFirstAudioTrack:
+    def test_deprecated_alias_is_disabled(self, tmp_path: Path) -> None:
+        video = tmp_path / "lesson.mp4"
+        video.write_bytes(b"fake")
+        with pytest.raises(DubResetError, match="Unsafe track removal"):
+            strip_first_audio_track(video)
+
+
+class TestStripDubbedAudioTrack:
     def test_raises_when_ffmpeg_fails(self, tmp_path: Path) -> None:
         video = tmp_path / "lesson.mp4"
         video.write_bytes(b"fake")
 
         failed = MagicMock(returncode=1, stderr="boom", stdout="")
         with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
             patch("app.services.dub_reset.subprocess.run", return_value=failed),
             pytest.raises(DubResetError, match="ffmpeg failed"),
         ):
-            strip_first_audio_track(video)
+            strip_dubbed_audio_track(video, "eng", "rus")
 
         assert video.exists()
         assert not list(tmp_path.glob(".lesson.undub*"))
@@ -109,13 +166,20 @@ class TestStripFirstAudioTrack:
             out.write_bytes(b"stripped")
             return MagicMock(returncode=0, stderr="", stdout="")
 
-        with patch("app.services.dub_reset.subprocess.run", side_effect=fake_run):
-            strip_first_audio_track(video)
+        with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                side_effect=[TWO_TRACK_STREAMS, ONE_TRACK_STREAMS],
+            ),
+            patch("app.services.dub_reset.subprocess.run", side_effect=fake_run),
+        ):
+            removed = strip_dubbed_audio_track(video, "eng", "rus")
 
+        assert removed == 1
         assert video.read_bytes() == b"stripped"
 
     @pytest.mark.skipif(which("ffmpeg") is None, reason="ffmpeg not installed")
-    def test_ffmpeg_drops_first_audio_stream(self, tmp_path: Path) -> None:
+    def test_ffmpeg_drops_target_language_stream(self, tmp_path: Path) -> None:
         video = tmp_path / "two_tracks.mp4"
         create = [
             "ffmpeg",
@@ -138,6 +202,10 @@ class TestStripFirstAudioTrack:
             "1:a",
             "-map",
             "2:a",
+            "-metadata:s:a:0",
+            "language=eng",
+            "-metadata:s:a:1",
+            "language=rus",
             "-c:v",
             "mpeg4",
             "-c:a",
@@ -154,10 +222,26 @@ class TestStripFirstAudioTrack:
         before = get_video_info_with_duration(video)
         assert len(before["audio_streams"]) == 2
 
-        strip_first_audio_track(video)
+        strip_dubbed_audio_track(video, "eng", "rus")
 
         after = get_video_info_with_duration(video)
         assert len(after["audio_streams"]) == 1
+        assert normalize_lang_code(after["audio_streams"][0]["language"]) == "rus"
+
+
+class TestBackupVideoBeforeReset:
+    def test_creates_timestamped_backup(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"original")
+
+        backup = backup_video_before_reset(video, str(project), "project")
+
+        assert backup.exists()
+        assert backup.read_bytes() == b"original"
+        assert backup.parent == project / ".redubber" / "backups"
+        assert "pre-undub" in backup.name
 
 
 def _seed_final_video(
@@ -174,6 +258,7 @@ def _seed_final_video(
     db = DatabaseManager(str(tmp_path / "test.db"))
     project_id = db.add_project(str(project_dir), "Demo")
     db.set_target_language(project_id, "eng")
+    db.set_source_language_override(project_id, "rus")
     db.add_subtitle_file(project_id, str(srt), srt.name, "eng")
 
     audio_streams = (
@@ -239,7 +324,7 @@ class TestReconcileVideoWithDisk:
         backup = backup_dir / "lesson.20250101.mp4"
         backup.write_bytes(b"backup")
 
-        with patch("redubber.sync_video_metadata") as sync:
+        with patch("app.services.dub_reset.sync_video_metadata") as sync:
             result = reconcile_video_with_disk(
                 db=db,
                 project_id=project_id,
@@ -261,7 +346,7 @@ class TestReconcileVideoWithDisk:
         srt.unlink()
         db.add_subtitle_file(project_id, str(srt), srt.name, "eng")
 
-        with patch("redubber.sync_video_metadata"):
+        with patch("app.services.dub_reset.sync_video_metadata"):
             reconcile_video_with_disk(
                 db=db,
                 project_id=project_id,
@@ -285,7 +370,11 @@ class TestResetDubbedVideo:
         backup.write_bytes(b"backup")
 
         with (
-            patch("redubber.sync_video_metadata"),
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch("app.services.dub_reset.sync_video_metadata"),
             pytest.raises(DubResetError, match="final redubbed state"),
         ):
             reset_dubbed_video(
@@ -295,6 +384,7 @@ class TestResetDubbedVideo:
                 project_path=str(video.parent),
                 project_name="Demo",
                 target_language="eng",
+                source_language="rus",
             )
 
         assert not backup.exists()
@@ -308,8 +398,19 @@ class TestResetDubbedVideo:
         working_srt.write_text("generated", encoding="utf-8")
 
         with (
-            patch("app.services.dub_reset.strip_first_audio_track") as strip,
-            patch("redubber.sync_video_metadata") as sync,
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch(
+                "app.services.dub_reset.backup_video_before_reset",
+                return_value=video.parent / ".redubber" / "backups" / "lesson.pre-undub.mp4",
+            ),
+            patch(
+                "app.services.dub_reset.strip_dubbed_audio_track",
+                return_value=1,
+            ) as strip,
+            patch("app.services.dub_reset.sync_video_metadata") as sync,
         ):
             result = reset_dubbed_video(
                 db=db,
@@ -318,13 +419,15 @@ class TestResetDubbedVideo:
                 project_path=str(video.parent),
                 project_name="Demo",
                 target_language="eng",
+                source_language="rus",
             )
 
-        strip.assert_called_once_with(video)
-        sync.assert_called_once()
+        strip.assert_called_once_with(video, "eng", "rus")
+        assert sync.call_count == 2
         assert not srt.exists()
         assert not working_srt.exists()
         assert result["removed_audio_track"] is True
+        assert result["removed_stream_index"] == 1
         assert str(srt) in result["deleted_subtitles"]
         assert str(working_srt) in result["deleted_subtitles"]
         remaining = db.get_subtitle_files_for_video(project_id, "lesson.mp4")
@@ -338,8 +441,16 @@ class TestResetDubbedVideo:
         backup.write_bytes(b"backup")
 
         with (
-            patch("app.services.dub_reset.strip_first_audio_track"),
-            patch("redubber.sync_video_metadata"),
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch(
+                "app.services.dub_reset.backup_video_before_reset",
+                return_value=backup_dir / "lesson.pre-undub.mp4",
+            ),
+            patch("app.services.dub_reset.strip_dubbed_audio_track", return_value=1),
+            patch("app.services.dub_reset.sync_video_metadata"),
         ):
             reset_dubbed_video(
                 db=db,
@@ -348,6 +459,30 @@ class TestResetDubbedVideo:
                 project_path=str(video.parent),
                 project_name="Demo",
                 target_language="eng",
+                source_language="rus",
             )
 
         assert not backup.exists()
+
+    def test_rejects_when_disk_has_fewer_than_two_audio_streams(
+        self, tmp_path: Path
+    ) -> None:
+        db, project_id, record, video, _srt = _seed_final_video(tmp_path)
+
+        with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=ONE_TRACK_STREAMS,
+            ),
+            patch("app.services.dub_reset.sync_video_metadata"),
+            pytest.raises(DubResetError, match="does not have two audio tracks"),
+        ):
+            reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+                source_language="rus",
+            )

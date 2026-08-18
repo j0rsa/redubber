@@ -168,6 +168,25 @@ export const ProjectDetail = () => {
     }
   };
 
+  const handleRetryResetDub = async (video: VideoFile) => {
+    if (!projectId) return;
+    setResettingDubIds((prev) => new Set(prev).add(video.id));
+    try {
+      await apiClient.post(`/projects/${projectId}/videos/${video.id}/reset-dub`);
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (err) {
+      const message = getApiErrorMessage(err, 'Failed to retry remove dub');
+      setResetDubError(message);
+      console.error('Failed to retry remove dub:', err);
+    } finally {
+      setResettingDubIds((prev) => {
+        const s = new Set(prev);
+        s.delete(video.id);
+        return s;
+      });
+    }
+  };
+
   const handleRetryFailed = (video: VideoFile) => {
     setRetryVideo(video);
   };
@@ -370,8 +389,11 @@ export const ProjectDetail = () => {
             <div className={styles.confirmDialog}>
               <h2 className={styles.confirmTitle}>Remove dub?</h2>
               <p className={styles.confirmBody}>
-                This deletes the generated subtitle and the first (dubbed) audio track of{' '}
-                <strong>{confirmResetVideo.filename}</strong>. The original audio track is kept.
+                This deletes the generated subtitle and the dubbed audio track
+                (identified by language tag) of{' '}
+                <strong>{confirmResetVideo.filename}</strong>. The original-language
+                track is kept. A backup is saved under{' '}
+                <code>.redubber/backups/</code> before any change.
               </p>
               {resetDubError && (
                 <div className={styles.confirmError} role="alert">
@@ -489,6 +511,7 @@ export const ProjectDetail = () => {
               runningJobIds={runningJobs}
               onRedubSingle={handleRedubSingle}
               onRetryFailed={handleRetryFailed}
+              onRetryResetDub={handleRetryResetDub}
               onFinalize={handleFinalize}
               finalizingIds={finalizingIds}
               onGenerateSubs={handleGenerateSubs}

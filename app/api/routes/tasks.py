@@ -36,6 +36,7 @@ def _task_to_response(t) -> TaskStatusResponse:
         audio_assembled=t.audio_assembled,
         audio_assembled_total=t.audio_assembled_total,
         video_mixed=t.video_mixed,
+        task_type=t.task_type,
     )
 
 
