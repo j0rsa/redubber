@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 from app.core.project_paths import get_project_working_dir
+from app.services.video_metadata import sync_video_metadata
 from database import DatabaseManager
 from utils import (
     count_videos_in_target_state,
@@ -26,12 +29,7 @@ class DubResetError(Exception):
 
 
 def find_generated_subtitle_paths(video_path: Path, target_language: str) -> list[Path]:
-    """Return sidecar subtitle files next to the video that match the target language.
-
-    Matches ``video.en.srt`` / ``video.eng.srt`` style names produced by
-    finalization. Leaves original-language sidecars (e.g. ``video.ru.srt``)
-    and unsuffixed ``video.srt`` files alone.
-    """
+    """Return sidecar subtitle files next to the video that match the target language."""
     target = normalize_lang_code(target_language)
     if not target or not video_path.exists():
         return []
@@ -58,12 +56,7 @@ def find_generated_subtitle_paths(video_path: Path, target_language: str) -> lis
 def clear_finalization_artifacts(
     video_path: Path, project_path: str, project_name: str
 ) -> list[str]:
-    """Remove backup and mixed-output files so pipeline status no longer shows replaced.
-
-    After stripping the dubbed track the video file is no longer in the target
-    state, but leftover ``.dubbed`` files or finalize backups would still make
-    ``get_pipeline_status`` report ``replaced=True``.
-    """
+    """Remove backup and mixed-output files so pipeline status no longer shows replaced."""
     removed: list[str] = []
     working_root = get_project_working_dir(project_path, project_name)
     video_stem = video_path.stem
@@ -94,12 +87,115 @@ def working_dir_subtitle_path(
     return working_dir / rel / "03_subtitles" / f"{video_path.stem}.en.srt"
 
 
-def strip_first_audio_track(video_path: Path) -> None:
-    """Remux ``video_path`` without its first audio stream (the dubbed track).
+def probe_audio_streams(video_path: Path) -> list[dict]:
+    """Return audio streams from the file on disk (ffprobe, not DB)."""
+    from video_analyzer import get_video_info_with_duration
 
-    Writes to a sibling temp file, then atomically replaces the original.
-    Video, remaining audio, and any other streams are copied without re-encoding.
+    info = get_video_info_with_duration(video_path)
+    return list(info.get("audio_streams") or [])
+
+
+def identify_dubbed_stream_index(
+    audio_streams: list[dict],
+    target_language: str,
+    source_language: str | None = None,
+) -> int:
+    """Return the global ffprobe stream index of the dubbed (target-language) track.
+
+    Raises DubResetError when the dubbed track cannot be identified unambiguously.
     """
+    target = normalize_lang_code(target_language)
+    if not target:
+        raise DubResetError("Project target language is not configured.")
+
+    if len(audio_streams) < 2:
+        raise DubResetError(
+            "Video must have at least two audio tracks to remove a dub safely."
+        )
+
+    unknown_langs = [
+        s for s in audio_streams
+        if normalize_lang_code(s.get("language")) in ("", "unknown", "und")
+    ]
+    if unknown_langs:
+        raise DubResetError(
+            "Audio tracks are missing language tags — cannot safely identify "
+            "which track is the dub. Restore from backup or re-tag the file manually."
+        )
+
+    target_matches = [
+        s for s in audio_streams
+        if normalize_lang_code(s.get("language")) == target
+    ]
+    if not target_matches:
+        raise DubResetError(
+            f"No audio track is tagged with the project target language ({target_language}). "
+            "Refusing to remove a track by position alone."
+        )
+    if len(target_matches) > 1:
+        raise DubResetError(
+            f"Multiple audio tracks are tagged with target language {target_language}. "
+            "Manual cleanup is required."
+        )
+
+    dubbed_stream = target_matches[0]
+    dubbed_index = int(dubbed_stream["index"])
+
+    if source_language:
+        source = normalize_lang_code(source_language)
+        if source:
+            source_matches = [
+                s for s in audio_streams
+                if normalize_lang_code(s.get("language")) == source
+            ]
+            if not source_matches:
+                raise DubResetError(
+                    f"No audio track is tagged with the source language ({source_language}). "
+                    "Refusing to strip a track until the original can be verified."
+                )
+            if all(int(s["index"]) == dubbed_index for s in source_matches):
+                raise DubResetError(
+                    "The only source-language track matches the dub track — refusing to strip."
+                )
+            remaining_source = [
+                s for s in source_matches if int(s["index"]) != dubbed_index
+            ]
+            if not remaining_source:
+                raise DubResetError(
+                    "Removing the dubbed track would leave no source-language audio."
+                )
+
+    return dubbed_index
+
+
+def backup_video_before_reset(
+    video_path: Path, project_path: str, project_name: str
+) -> Path:
+    """Copy the video to the project working-dir backups folder before mutating it."""
+    backup_dir = get_project_working_dir(project_path, project_name) / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = backup_dir / f"{video_path.stem}.pre-undub.{stamp}{video_path.suffix}"
+    shutil.copy2(video_path, dest)
+    log.info("Created pre-undub backup at %s", dest)
+    return dest
+
+
+def strip_dubbed_audio_track(
+    video_path: Path,
+    target_language: str,
+    source_language: str | None = None,
+) -> int:
+    """Remux ``video_path`` without the target-language (dubbed) audio stream.
+
+    Returns:
+        The global stream index that was removed.
+    """
+    streams = probe_audio_streams(video_path)
+    stream_index = identify_dubbed_stream_index(
+        streams, target_language, source_language
+    )
+
     tmp_path = video_path.with_name(f".{video_path.stem}.undub{video_path.suffix}")
     cmd = [
         "ffmpeg",
@@ -109,12 +205,12 @@ def strip_first_audio_track(video_path: Path) -> None:
         "-map",
         "0",
         "-map",
-        "-0:a:0",
+        f"-0:{stream_index}",
         "-c",
         "copy",
         str(tmp_path),
     ]
-    log.info("Stripping first audio track: %s", " ".join(cmd))
+    log.info("Stripping dubbed audio stream %s: %s", stream_index, " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         tmp_path.unlink(missing_ok=True)
@@ -124,7 +220,32 @@ def strip_first_audio_track(video_path: Path) -> None:
     if not tmp_path.exists() or tmp_path.stat().st_size == 0:
         tmp_path.unlink(missing_ok=True)
         raise DubResetError("ffmpeg produced an empty output while stripping audio")
+
+    remaining = probe_audio_streams(tmp_path)
+    if len(remaining) < 1:
+        tmp_path.unlink(missing_ok=True)
+        raise DubResetError(
+            "Stripping the dubbed track would leave the video with no audio."
+        )
+    if normalize_lang_code(target_language) in {
+        normalize_lang_code(s.get("language")) for s in remaining
+    } and len(remaining) == 1:
+        tmp_path.unlink(missing_ok=True)
+        raise DubResetError(
+            "Output still contains only target-language audio — aborting."
+        )
+
     os.replace(tmp_path, video_path)
+    return stream_index
+
+
+# Backward-compatible alias used in older tests/callers.
+def strip_first_audio_track(video_path: Path) -> None:
+    """Deprecated: strips by position only. Prefer ``strip_dubbed_audio_track``."""
+    raise DubResetError(
+        "Unsafe track removal by position is disabled. "
+        "Use language-verified dub removal instead."
+    )
 
 
 _RESET_REJECTED_MSG = (
@@ -142,14 +263,8 @@ def reconcile_video_with_disk(
     project_name: str,
     target_language: str,
 ) -> dict:
-    """Align DB metadata and working-dir artifacts with the on-disk video file.
-
-    When the video file is no longer in the final redubbed state but leftover
-    backup/dubbed files or stale subtitle rows still imply completion, remove
-    those artifacts and refresh analysis from disk.
-    """
+    """Align DB metadata and working-dir artifacts with the on-disk video file."""
     from pipeline_status import get_pipeline_status
-    from redubber import sync_video_metadata
 
     video_path = Path(video_record["file_path"])
     if not video_path.exists():
@@ -198,35 +313,40 @@ def reset_dubbed_video(
     project_path: str,
     project_name: str,
     target_language: str,
+    source_language: str | None = None,
 ) -> dict:
-    """Delete generated target-language subtitles and strip the first audio track.
-
-    Only valid for videos already in the target (final) redubbed state.
-
-    Returns:
-        Dict with ``video_path``, ``removed_audio_track``, and ``deleted_subtitles``.
-    """
+    """Delete generated target-language subtitles and strip the dubbed audio track."""
     video_path = Path(video_record["file_path"])
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    audio_streams = video_record.get("audio_streams") or []
-    subtitles = video_record.get("subtitle_matches") or []
+    # Always refresh DB from disk before making safety decisions.
+    sync_video_metadata(db, project_id, str(video_path))
+    records = db.get_video_analysis(project_id)
+    record = next((r for r in records if r["id"] == video_record["id"]), video_record)
+
+    audio_streams = record.get("audio_streams") or []
+    subtitles = record.get("subtitle_matches") or []
+
+    disk_streams = probe_audio_streams(video_path)
+    if len(disk_streams) < 2:
+        reconcile_video_with_disk(
+            db, project_id, record, project_path, project_name, target_language,
+        )
+        raise DubResetError(
+            "Video file on disk does not have two audio tracks. "
+            "If a previous remove-dub job failed partway, restore from "
+            "`.redubber/backups/` and scan the project."
+        )
+
     if not is_video_in_target_state(audio_streams, subtitles, target_language):
         reconcile_video_with_disk(
-            db,
-            project_id,
-            video_record,
-            project_path,
-            project_name,
-            target_language,
+            db, project_id, record, project_path, project_name, target_language,
         )
         raise DubResetError(_RESET_REJECTED_MSG)
 
-    if len(audio_streams) < 2:
-        raise DubResetError(
-            "Video does not have a separate dubbed audio track to remove"
-        )
+    # Validate dubbed track identity on disk before touching the file.
+    identify_dubbed_stream_index(disk_streams, target_language, source_language)
 
     deleted: list[str] = []
     for sub_path in find_generated_subtitle_paths(video_path, target_language):
@@ -247,11 +367,18 @@ def reset_dubbed_video(
                 "Could not delete working-dir subtitle %s: %s", working_srt, exc
             )
 
-    strip_first_audio_track(video_path)
+    backup_path = backup_video_before_reset(video_path, project_path, project_name)
+
+    try:
+        removed_index = strip_dubbed_audio_track(
+            video_path, target_language, source_language
+        )
+    except DubResetError:
+        raise
+    except Exception as exc:
+        raise DubResetError(f"Dub removal failed: {exc}") from exc
+
     clear_finalization_artifacts(video_path, project_path, project_name)
-
-    from redubber import sync_video_metadata
-
     sync_video_metadata(db, project_id, str(video_path))
 
     records = db.get_video_analysis(project_id)
@@ -262,5 +389,7 @@ def reset_dubbed_video(
         "status": "reset",
         "path": str(video_path),
         "removed_audio_track": True,
+        "removed_stream_index": removed_index,
+        "backup_path": str(backup_path),
         "deleted_subtitles": deleted,
     }

@@ -305,8 +305,19 @@ class TestListVideosPipelineStatus:
         (backup_dir / "lesson.20250101.mp4").write_bytes(b"backup")
 
         with (
-            patch("app.services.dub_reset.strip_first_audio_track"),
-            patch("redubber.sync_video_metadata"),
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=[
+                    {"index": 1, "language": "eng", "codec": "aac"},
+                    {"index": 2, "language": "rus", "codec": "aac"},
+                ],
+            ),
+            patch(
+                "app.services.dub_reset.backup_video_before_reset",
+                return_value=backup_dir / "lesson.pre-undub.mp4",
+            ),
+            patch("app.services.dub_reset.strip_dubbed_audio_track", return_value=1),
+            patch("app.services.dub_reset.sync_video_metadata"),
         ):
             reset_dubbed_video(
                 db=db,
@@ -315,6 +326,7 @@ class TestListVideosPipelineStatus:
                 project_path=str(project_dir),
                 project_name="Demo",
                 target_language="eng",
+                source_language="rus",
             )
 
         # Simulate metadata sync after strip (single original audio track, no target sub)

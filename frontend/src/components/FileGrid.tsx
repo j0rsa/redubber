@@ -13,8 +13,10 @@ export interface FileGridProps {
   runningJobIds?: Map<number, string>;
   /** Called when the user clicks "Redub" on a row that has not failed. */
   onRedubSingle?: (videoPath: string) => void;
-  /** Called when the user clicks "Retry" on a failed row. */
+  /** Called when the user clicks "Retry" on a failed redub row. */
   onRetryFailed?: (video: VideoFile) => void;
+  /** Called when the user clicks "Retry remove dub" on a failed reset-dub row. */
+  onRetryResetDub?: (video: VideoFile) => void;
   /** Called when the user clicks "Replace Original" after the pipeline completes. */
   onFinalize?: (videoId: number) => void;
   /** Maps videoId → true while finalize is in progress. */
@@ -44,6 +46,7 @@ export const FileGrid = ({
   runningJobIds,
   onRedubSingle,
   onRetryFailed,
+  onRetryResetDub,
   onFinalize,
   finalizingIds,
   onGenerateSubs,
@@ -153,6 +156,14 @@ export const FileGrid = ({
                 : video.pipeline_status;
 
             const isFailed = Boolean(displayStatus?.failed) && !isRunning;
+            const failedTaskType = liveTask?.task_type;
+            const isFailedResetDub =
+              isFailed
+              && (
+                failedTaskType === 'reset_dub'
+                || (failedTaskType === undefined && isReplaced)
+              );
+            const isFailedRedub = isFailed && !isFailedResetDub;
 
             return (
               <tr
@@ -238,7 +249,16 @@ export const FileGrid = ({
                     >
                       {resettingDubIds?.has(video.id) ? 'Removing…' : 'Remove dub'}
                     </button>
-                  ) : isFailed && onRetryFailed ? (
+                  ) : isFailedResetDub && onRetryResetDub ? (
+                    <button
+                      type="button"
+                      onClick={() => onRetryResetDub(video)}
+                      className={styles.retryButton}
+                      disabled={resettingDubIds?.has(video.id)}
+                    >
+                      {resettingDubIds?.has(video.id) ? 'Retrying…' : 'Retry remove dub'}
+                    </button>
+                  ) : isFailedRedub && onRetryFailed ? (
                     <button
                       type="button"
                       onClick={() => onRetryFailed(video)}

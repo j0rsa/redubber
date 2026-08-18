@@ -520,10 +520,12 @@ async def reset_dubbed_video(
     request: Request,
     db: Annotated[DatabaseManager, Depends(get_db)],
 ) -> dict[str, str]:
-    """Queue a job to remove the generated subtitle and first (dubbed) audio track.
+    """Queue a job to remove the generated subtitle and dubbed audio track.
 
-    Only allowed for videos already in the final redubbed state. The actual ffmpeg
-    remux runs asynchronously — poll ``GET /api/tasks/{task_id}`` for progress.
+    The dubbed track is identified by its language tag (project target language),
+    not by stream position. A pre-undub backup is written before the file is
+    modified. Only allowed for videos already in the final redubbed state. Poll
+    ``GET /api/tasks/{task_id}`` for progress.
 
     Raises:
         HTTPException: 404 if project or video not found.

@@ -216,6 +216,18 @@ class Redubber(BaseModel):
         if chunk_duration is None:
             chunk_duration = self.audio_chunk_duration
 
+        from pathlib import Path
+        from video_analyzer import get_video_info_with_duration
+
+        stream_count = len(
+            get_video_info_with_duration(Path(reproj.file_path)).get("audio_streams") or []
+        )
+        if stream_count < 1:
+            raise RuntimeError(
+                "Video has no audio stream — cannot extract audio for transcription. "
+                "If a remove-dub job failed partway, restore the file from backup or re-scan the project."
+            )
+
         log.info(f"Extracting audio from {reproj.file_path}")
         target_rel_dir = reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS)
         total_duration = self.get_media_duration(reproj.file_path)
@@ -1682,106 +1694,10 @@ def replace_original_video_file(
 
 
 def sync_video_metadata(db, project_id: int, video_path: str) -> None:
-    """
-    Re-detect and sync video metadata to database after redubbing.
+    """Re-export for callers that import from ``redubber``."""
+    from app.services.video_metadata import sync_video_metadata as _sync
 
-    Updates video language, audio streams, and project timestamp in the database.
-
-    Args:
-        db: DatabaseManager instance.
-        project_id: Project ID in the database.
-        video_path: Path to the video file to analyze.
-
-    Raises:
-        Exception: If language detection or database update fails.
-    """
-    from utils import detect_video_language
-    from pathlib import Path
-
-    log.info(f"Syncing metadata for video: {video_path}")
-
-    from video_analyzer import get_video_info_with_duration
-
-    # Re-detect language from filename
-    detected_lang = detect_video_language(Path(video_path))
-    log.info(f"Detected language: {detected_lang}")
-
-    from utils import detect_subtitle_language
-
-    # Get full video info (audio streams, duration, size)
-    video_info = get_video_info_with_duration(Path(video_path))
-    audio_streams = video_info["audio_streams"]
-    duration_seconds = video_info["duration_seconds"]
-    size_mb = round(Path(video_path).stat().st_size / (1024 * 1024), 2)
-    log.info(f"Audio streams: {audio_streams}, duration: {duration_seconds:.2f}s, size: {size_mb} MB")
-
-    # Detect subtitle files alongside the video (e.g. <name>.en.srt placed by finalization)
-    video_dir = Path(video_path).parent
-    video_stem = Path(video_path).stem
-    subtitle_exts = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
-    found_subs = [
-        f for f in video_dir.iterdir()
-        if f.stem.startswith(video_stem) and f.suffix.lower() in subtitle_exts
-    ]
-    subtitle_matches = []
-    for sub_path in sorted(found_subs):
-        sub_lang = detect_subtitle_language(sub_path)
-        subtitle_matches.append({
-            "language": sub_lang or "",
-            "embedded": False,
-            "path": str(sub_path),
-            "filename": sub_path.name,
-        })
-        # Register in subtitle_files table if not already present
-        db.add_subtitle_file(
-            project_id=project_id,
-            file_path=str(sub_path),
-            filename=sub_path.name,
-            language=sub_lang,
-        )
-    log.info(f"Subtitle files: {[s['filename'] for s in subtitle_matches]}")
-
-    # Update database
-    import sqlite3
-
-    with sqlite3.connect(db.db_path) as conn:
-        cursor = conn.cursor()
-
-        # Update video_files table
-        cursor.execute(
-            """
-            UPDATE video_files
-            SET language = ?
-            WHERE project_id = ? AND file_path = ?
-        """,
-            (detected_lang, project_id, video_path),
-        )
-
-        # Update video_analysis table — refresh all mutable fields including subtitle_matches
-        cursor.execute(
-            """
-            UPDATE video_analysis
-            SET audio_streams = ?, duration_seconds = ?, size_mb = ?, subtitle_matches = ?
-            WHERE project_id = ? AND file_path = ?
-        """,
-            (json.dumps(audio_streams), duration_seconds, size_mb,
-             json.dumps(subtitle_matches), project_id, video_path),
-        )
-
-        # Update projects table timestamp
-        cursor.execute(
-            """
-            UPDATE projects
-            SET updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """,
-            (project_id,),
-        )
-
-        conn.commit()
-
-    db.refresh_project_duration_size(project_id)
-    log.info("Metadata sync complete")
+    _sync(db, project_id, video_path)
 
 
 def cleanup_temp_files(reproj: Reproj) -> None:
