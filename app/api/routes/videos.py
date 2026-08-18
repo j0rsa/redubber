@@ -105,6 +105,17 @@ async def _scan_project_files(
         _video_records = db.get_video_analysis(project_id)
         _replaced = count_videos_in_target_state(_video_records, _target_lang)
         db.update_project_video_counts(project_id, len(video_files), _replaced)
+
+        project = db.get_project_by_id(project_id)
+        if project:
+            from app.services.existing_subtitles import stage_target_subtitles_for_videos
+
+            stage_target_subtitles_for_videos(
+                video_files,
+                project_path=project_path,
+                project_name=project["name"],
+                target_language=_target_lang,
+            )
     finally:
         # Remove from running scans tracking
         _running_scans.discard(project_id)
@@ -255,6 +266,7 @@ async def list_videos(
             video_path=record["file_path"],
             project_path=project_path,
             tmp_root=working_dir,
+            target_language=project_record.get("target_language") or "eng",
         )
 
         task_error = failed_tasks.get(record["file_path"], "")
@@ -285,6 +297,7 @@ async def list_videos(
                 pipeline_status_obj.has_audio_chunks
                 or pipeline_status_obj.has_transcripts
                 or pipeline_status_obj.subtitles_generated
+                or pipeline_status_obj.has_external_subs
                 or pipeline_status_obj.has_tts
                 or pipeline_status_obj.has_target_audio
                 or pipeline_status_obj.final_file_exists

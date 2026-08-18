@@ -91,6 +91,15 @@ async def _scan_project_files(
         matched_subs = db.get_subtitle_files_for_video(project_id, video_file.name)
         if matched_subs:
             info = video_info_cache[video_file.name]
+            subtitle_info = [
+                {
+                    "language": sub.get("language") or "",
+                    "embedded": False,
+                    "path": sub.get("file_path") or "",
+                    "filename": sub.get("filename") or "",
+                }
+                for sub in matched_subs
+            ]
             db.save_video_analysis(
                 project_id=project_id,
                 video_data={
@@ -99,7 +108,7 @@ async def _scan_project_files(
                     "size_mb": round(video_file.stat().st_size / (1024 * 1024), 2),
                     "duration_seconds": info["duration_seconds"],
                     "audio_streams": info["audio_streams"],
-                    "subtitles": matched_subs,
+                    "subtitles": subtitle_info,
                 },
             )
 
@@ -116,6 +125,17 @@ async def _scan_project_files(
     _video_records = db.get_video_analysis(project_id)
     _replaced = count_videos_in_target_state(_video_records, _target_lang)
     db.update_project_video_counts(project_id, len(video_files), _replaced)
+
+    project = db.get_project_by_id(project_id)
+    if project:
+        from app.services.existing_subtitles import stage_target_subtitles_for_videos
+
+        stage_target_subtitles_for_videos(
+            video_files,
+            project_path=project_path,
+            project_name=project["name"],
+            target_language=_target_lang,
+        )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)

@@ -28,6 +28,8 @@ backups/                           # Original video backups (created at finaliza
 Triggered by **"Transcribe First Video"** in Voice Refinement when no segments exist yet.  
 Purpose: obtain real transcription segments cheaply so voice customisation can happen before any TTS spend.
 
+If a sidecar subtitle already exists for the video, transcription is skipped and cues are loaded from that file. A second **Transcribe First Video** click while a transcription job is already queued or running reuses the existing job instead of starting another.
+
 | Stage name | What it does | Output | Progress |
 |---|---|---|---|
 | `Extracting audio` | Split video audio into chunks | `01_source_audio_chunks/*.m4a` | 5 % |
@@ -41,7 +43,9 @@ After this pipeline completes, Voice Refinement can load real segments, play aud
 ## Pipeline 2 — Full Redub
 
 Triggered by **"Redub"** on a video file.  
-Steps 1–2 are skipped if the transcription pipeline already ran (`.seg` files present on disk).
+Steps 1–3 (extract, STT, subtitle generation) are skipped when a **target-language** subtitle already exists next to the video (or in `03_subtitles/`). A file scan copies that sidecar into the workdir and sets pipeline progress to **38 %** (the post-STT / post-sub-gen mark) so the next Redub starts at existing-sub parsing / TTS.
+
+Steps 1–2 are also skipped if the transcription pipeline already ran (`.seg` files present on disk).
 
 | Stage name | What it does | Output | Progress |
 |---|---|---|---|

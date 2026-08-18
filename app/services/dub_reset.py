@@ -287,7 +287,12 @@ def reconcile_video_with_disk(
         db.update_project_video_counts(project_id, len(records), replaced)
         return {"reconciled": bool(fixes), "fixes": fixes}
 
-    pipeline = get_pipeline_status(str(video_path), project_path, working_root)
+    pipeline = get_pipeline_status(
+        str(video_path),
+        project_path,
+        working_root,
+        target_language=target_language,
+    )
     if pipeline.replaced or pipeline.final_file_exists:
         removed = clear_finalization_artifacts(video_path, project_path, project_name)
         fixes.extend(removed)
