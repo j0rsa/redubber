@@ -48,7 +48,7 @@ RUN poetry install --only main --no-interaction --no-ansi --no-root
 # Copy application code
 COPY app/ ./app/
 COPY redubber.py database.py file_scanner.py video_analyzer.py ./
-COPY reproj.py seg_postprocessor.py utils.py pipeline_status.py ./
+COPY reproj.py seg_postprocessor.py utils.py pipeline_status.py stt_hallucination.py ./
 
 # Copy frontend build artifacts from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./app/static
