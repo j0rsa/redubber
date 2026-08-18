@@ -381,6 +381,9 @@ export const useVoiceRefinement = ({
       setError('No video available to transcribe');
       return;
     }
+    if (transcribing) {
+      return;
+    }
     setTranscribing(true);
     setError(null);
     try {
@@ -411,7 +414,7 @@ export const useVoiceRefinement = ({
     } finally {
       setTranscribing(false);
     }
-  }, [firstVideoPath, projectId, fetchSegments]);
+  }, [firstVideoPath, projectId, fetchSegments, transcribing]);
 
   return {
     // State

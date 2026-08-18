@@ -5,7 +5,13 @@ Checks the redubber_tmp directory to determine which pipeline stages are complet
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
+
+from app.services.existing_subtitles import (
+    SUBTITLES_READY_PROGRESS,
+    find_sidecar_subtitles,
+)
 
 
 @dataclass
@@ -61,11 +67,21 @@ class PipelineStatus:
         if self.final_file_exists:
             return 100
 
+        # Existing target-language subs mean STT + sub generation are done.
+        # Use the live-task percentage so pressing Redub does not jump backwards.
+        if (
+            (self.has_external_subs or self.subtitles_generated)
+            and not self.has_tts
+            and not self.has_target_audio
+            and not self.final_file_exists
+        ):
+            return SUBTITLES_READY_PROGRESS
+
         stages_complete = 0
         total_stages = 5
 
-        # If external subs exist, first 3 stages are effectively complete
-        if self.has_external_subs:
+        # If external / staged subs exist, first 3 stages are effectively complete
+        if self.has_external_subs or self.subtitles_generated:
             stages_complete = 3  # Audio, STT, Subtitles all skipped
         else:
             if self.has_audio_chunks:
@@ -85,8 +101,8 @@ class PipelineStatus:
         """Return the current/next stage to process."""
         if self.final_file_exists:
             return "Complete"
-        # If external subs exist, skip to TTS
-        if self.has_external_subs:
+        # If external / staged subs exist, skip to TTS
+        if self.has_external_subs or self.subtitles_generated:
             if not self.has_tts:
                 return "Generate TTS"
             if not self.has_target_audio:
@@ -112,11 +128,11 @@ class PipelineStatus:
         Stages: 'audio', 'stt', 'subtitles', 'tts', 'assemble', 'final'
         """
         if stage == "audio":
-            if self.has_external_subs:
+            if self.has_external_subs or self.subtitles_generated:
                 return "skipped"
             return "done" if self.has_audio_chunks else "pending"
         elif stage == "stt":
-            if self.has_external_subs:
+            if self.has_external_subs or self.subtitles_generated:
                 return "skipped"
             return "done" if self.has_transcripts else "pending"
         elif stage == "subtitles":
@@ -134,13 +150,17 @@ class PipelineStatus:
     def can_run_stage(self, stage: str) -> bool:
         """Check if a stage can be run (dependencies are met)."""
         if stage == "audio":
-            return not self.has_external_subs
+            return not self.has_external_subs and not self.subtitles_generated
         elif stage == "stt":
-            return not self.has_external_subs and self.has_audio_chunks
+            return (
+                not self.has_external_subs
+                and not self.subtitles_generated
+                and self.has_audio_chunks
+            )
         elif stage == "subtitles":
             return not self.has_external_subs and self.has_transcripts
         elif stage == "tts":
-            # Can run if we have external subs OR generated subtitles
+            # Can run if we have external subs OR generated/staged subtitles
             return self.has_external_subs or self.subtitles_generated
         elif stage == "assemble":
             return self.has_tts
@@ -150,7 +170,10 @@ class PipelineStatus:
 
 
 def get_pipeline_status(
-    video_path: str, project_path: str, tmp_root: str = "redubber_tmp"
+    video_path: str,
+    project_path: str,
+    tmp_root: str = "redubber_tmp",
+    target_language: str | None = None,
 ) -> PipelineStatus:
     """
     Check the pipeline status for a video file.
@@ -159,12 +182,13 @@ def get_pipeline_status(
         video_path: Full path to the video file
         project_path: Root path of the project
         tmp_root: Root directory for temporary files (default: redubber_tmp)
+        target_language: Optional ISO language code. When set, only sidecar
+            subtitles in this language count as ``has_external_subs``.
 
     Returns:
         PipelineStatus object with completion information
     """
     video_filename = os.path.splitext(os.path.basename(video_path))[0]
-    video_dir = os.path.dirname(video_path)
 
     # Calculate relative path from project to video
     rel_path = os.path.relpath(video_path, project_path)
@@ -172,20 +196,14 @@ def get_pipeline_status(
 
     status = PipelineStatus(video_path=video_path, video_filename=video_filename)
 
-    # Check for external subtitle files (e.g., video.srt, video.en.srt)
-    subtitle_extensions = [".srt", ".vtt", ".ass", ".ssa"]
-    for ext in subtitle_extensions:
-        # Check for exact match (video.srt)
-        if os.path.exists(os.path.join(video_dir, video_filename + ext)):
-            status.has_external_subs = True
-            break
-        # Check for language-suffixed (video.en.srt, video.eng.srt)
-        for f in os.listdir(video_dir):
-            if f.startswith(video_filename + ".") and f.endswith(ext):
-                status.has_external_subs = True
-                break
-        if status.has_external_subs:
-            break
+    # Sidecar subtitles in the target language (or any sidecar if unspecified)
+    status.has_external_subs = bool(
+        find_sidecar_subtitles(
+            Path(video_path),
+            language=target_language,
+            include_unsuffixed=True,
+        )
+    )
 
     # Check source audio chunks (01_source_audio_chunks)
     audio_chunks_dir = os.path.join(working_dir, "01_source_audio_chunks")
@@ -326,7 +344,10 @@ def clear_downstream_stages(
 
 
 def get_all_pipeline_statuses(
-    project_path: str, video_paths: list[str], tmp_root: str = "redubber_tmp"
+    project_path: str,
+    video_paths: list[str],
+    tmp_root: str = "redubber_tmp",
+    target_language: str | None = None,
 ) -> dict[str, PipelineStatus]:
     """
     Get pipeline status for all videos in a project.
@@ -335,11 +356,14 @@ def get_all_pipeline_statuses(
         project_path: Root path of the project
         video_paths: List of video file paths
         tmp_root: Root directory for temporary files
+        target_language: Optional ISO language code for sidecar matching
 
     Returns:
         Dictionary mapping video paths to their PipelineStatus
     """
     statuses = {}
     for video_path in video_paths:
-        statuses[video_path] = get_pipeline_status(video_path, project_path, tmp_root)
+        statuses[video_path] = get_pipeline_status(
+            video_path, project_path, tmp_root, target_language=target_language
+        )
     return statuses

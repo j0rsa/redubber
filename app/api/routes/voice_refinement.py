@@ -102,28 +102,39 @@ _MOCK_VIDEO_FILENAMES: list[str] = [
 ]
 
 
-def _load_real_segments(project_id: int, project_path: str) -> list[TranscriptionSegment]:
-    """Load real transcription segments from pipeline output (.seg files).
-
-    Scans the project working directory for *.seg files written by the STT stage
-    and assembles them into TranscriptionSegment objects. Falls back to an empty
-    list if no pipeline output exists yet.
-
-    Args:
-        project_id: Project identifier, used to namespace segment IDs.
-        project_path: Absolute path to the project directory.
-
-    Returns:
-        List of TranscriptionSegment instances ordered by start time.
-    """
+def _cues_from_seg_file(seg_file: Path) -> list[tuple[float, float, str]]:
+    """Load (start, end, text) cues from a pipeline ``.seg`` JSON file."""
     import json
+
+    try:
+        with open(seg_file) as f:
+            raw = json.load(f)
+    except Exception:
+        return []
+    cues: list[tuple[float, float, str]] = []
+    for item in raw:
+        start = float(item.get("start", 0.0))
+        end = float(item.get("end", 0.0))
+        text = item.get("text", "").strip()
+        if not text or end <= start:
+            continue
+        cues.append((start, end, text))
+    return cues
+
+
+def _iter_project_cues(project_id: int, project_path: str) -> list[tuple[str, float, float, str]]:
+    """Yield (video_filename, start, end, text) from STT output, else from subtitles.
+
+    Prefers ``.seg`` files so timestamps match extracted audio. When no STT
+    output exists, falls back to workdir / sidecar subtitle files so voice
+    analysis can run without a transcription job.
+    """
     from app.core.project_paths import get_project_working_dir
+    from app.services.existing_subtitles import find_sidecar_subtitles
+    from app.services.subtitle_review import parse_srt
 
-    segments: list[TranscriptionSegment] = []
+    cues: list[tuple[str, float, float, str]] = []
 
-    # The pipeline writes .seg files under <working_dir>/<relative_video_path>/02_stt/
-    # get_project_working_dir returns e.g. /path/to/project/.redubber
-    # We scan recursively from that root for all *.seg files.
     from database import DatabaseManager as _DM
     try:
         from app.core.config import settings as _cfg
@@ -132,52 +143,95 @@ def _load_real_segments(project_id: int, project_path: str) -> list[Transcriptio
         _pname = _project["name"] if _project else ""
     except Exception:
         _pname = ""
+        _project = None
 
     stt_root = get_project_working_dir(project_path, _pname)
 
     import logging as _log
     _log.getLogger(__name__).info(
-        "Scanning for .seg files: project_id=%s name=%r path=%r working_dir=%s exists=%s",
+        "Scanning for segment sources: project_id=%s name=%r path=%r working_dir=%s exists=%s",
         project_id, _pname, project_path, stt_root, stt_root.exists()
     )
 
-    if not stt_root.exists():
-        return segments
+    if stt_root.exists():
+        for seg_file in sorted(stt_root.rglob("*.seg")):
+            video_filename = seg_file.parent.parent.name
+            for start, end, text in _cues_from_seg_file(seg_file):
+                cues.append((video_filename, start, end, text))
 
-    seg_id = 0
-    # Walk all subdirectories looking for *.seg files.
-    # Path layout: <working_dir>/<video.mp4>/02_stt/<chunk>.seg
-    # so the video filename is seg_file.parent.parent.name
-    for seg_file in sorted(stt_root.rglob("*.seg")):
-        video_filename = seg_file.parent.parent.name  # e.g. "16. Structure of the Chest Area.mp4"
-        try:
-            with open(seg_file) as f:
-                raw = json.load(f)
-        except Exception:
-            continue
+    if cues:
+        return cues
 
-        for item in raw:
-            start = float(item.get("start", 0.0))
-            end = float(item.get("end", 0.0))
-            text = item.get("text", "").strip()
-            if not text or end <= start:
+    # No STT output — reuse existing subtitles (workdir first, then sidecars).
+    if stt_root.exists():
+        for srt_file in sorted(stt_root.rglob("*.srt")):
+            if "03_subtitles" not in srt_file.parts:
                 continue
-            duration = round(end - start, 3)
-            sid = f"project_{project_id}_seg_{seg_id}"
-            segments.append(
-                TranscriptionSegment(
-                    id=sid,
-                    video_filename=video_filename,
-                    start_time=round(start, 3),
-                    end_time=round(end, 3),
-                    duration=duration,
-                    original_text=text,
-                    translated_text=text,
-                    audio_url=f"/api/projects/{project_id}/segments/{sid}/audio",
-                )
-            )
-            seg_id += 1
+            video_filename = srt_file.parent.parent.name
+            try:
+                parsed = parse_srt(srt_file.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            for start, end, text in parsed:
+                cues.append((video_filename, start, end, text))
 
+    if cues:
+        return cues
+
+    video_records = []
+    if _project is not None:
+        try:
+            video_records = _db.get_video_analysis(project_id)
+        except Exception:
+            video_records = []
+
+    for rec in video_records:
+        video_path = Path(rec.get("file_path") or "")
+        if not video_path.exists():
+            continue
+        for sub in find_sidecar_subtitles(video_path, language=None, include_unsuffixed=True):
+            try:
+                parsed = parse_srt(sub.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            for start, end, text in parsed:
+                cues.append((video_path.name, start, end, text))
+            if parsed:
+                break  # one subtitle file per video is enough
+
+    return cues
+
+
+def _load_real_segments(project_id: int, project_path: str) -> list[TranscriptionSegment]:
+    """Load transcription segments from pipeline output or existing subtitles.
+
+    Prefers ``.seg`` files written by the STT stage. If none exist, parses
+    existing subtitle files so voice refinement can skip transcription.
+
+    Args:
+        project_id: Project identifier, used to namespace segment IDs.
+        project_path: Absolute path to the project directory.
+
+    Returns:
+        List of TranscriptionSegment instances ordered by start time.
+    """
+    segments: list[TranscriptionSegment] = []
+    for seg_id, (video_filename, start, end, text) in enumerate(
+        _iter_project_cues(project_id, project_path)
+    ):
+        duration = round(end - start, 3)
+        segments.append(
+            TranscriptionSegment(
+                id=f"project_{project_id}_seg_{seg_id}",
+                video_filename=video_filename,
+                start_time=round(start, 3),
+                end_time=round(end, 3),
+                duration=duration,
+                original_text=text,
+                translated_text=text,
+                audio_url=f"/api/projects/{project_id}/segments/project_{project_id}_seg_{seg_id}/audio",
+            )
+        )
     segments.sort(key=lambda s: s.start_time)
     return segments
 
@@ -569,47 +623,31 @@ async def analyze_voice_instructions(
         # speaker directly — this gives much more accurate gender / pitch detection.
         audio_bytes: bytes | None = None
         try:
-            import json as _json
             import subprocess
-            from app.core.project_paths import get_project_working_dir
 
             project_rec = db.get_project_by_id(project_id)
             if project_rec:
-                stt_root = get_project_working_dir(project_rec["path"], project_rec["name"])
-                seg_counter = 0
                 found_start: float | None = None
                 found_end: float | None = None
                 found_video: str | None = None
 
-                for seg_file in sorted(stt_root.rglob("*.seg")):
-                    video_name = seg_file.parent.parent.name
-                    try:
-                        with open(seg_file) as f:
-                            raw = _json.load(f)
-                    except Exception:
+                for seg_counter, (video_name, start, end, _text) in enumerate(
+                    _iter_project_cues(project_id, project_rec["path"])
+                ):
+                    if f"project_{project_id}_seg_{seg_counter}" != request.segment_id:
                         continue
-                    for item in raw:
-                        start = float(item.get("start", 0.0))
-                        end = float(item.get("end", 0.0))
-                        if not item.get("text", "").strip() or end <= start:
-                            continue
-                        if f"project_{project_id}_seg_{seg_counter}" == request.segment_id:
-                            recs = db.get_video_analysis(project_id)
-                            for rec in recs:
-                                if rec["filename"] == video_name:
-                                    found_video = rec["file_path"]
-                                    break
-                            if not found_video:
-                                from pathlib import Path as _Path
-                                c = _Path(project_rec["path"]) / video_name
-                                if c.exists():
-                                    found_video = str(c)
-                            found_start = start
-                            found_end = end
+                    recs = db.get_video_analysis(project_id)
+                    for rec in recs:
+                        if rec["filename"] == video_name:
+                            found_video = rec["file_path"]
                             break
-                        seg_counter += 1
-                    if found_start is not None:
-                        break
+                    if not found_video:
+                        c = Path(project_rec["path"]) / video_name
+                        if c.exists():
+                            found_video = str(c)
+                    found_start = start
+                    found_end = end
+                    break
 
                 if found_video and found_start is not None and found_end is not None:
                     cmd = [
@@ -1334,10 +1372,7 @@ async def get_segment_audio(
         HTTPException: 500 if ffmpeg extraction fails.
     """
     import io
-    import json
     import subprocess
-
-    from app.core.project_paths import get_project_working_dir
 
     project = db.get_project_by_id(project_id)
     if not project:
@@ -1345,46 +1380,27 @@ async def get_segment_audio(
 
     project_path = project["path"]
 
-    # Locate the .seg file and find the segment by walking the pipeline output
-    stt_root = get_project_working_dir(project_path, project["name"])
-
-    seg_id_counter = 0
     found_video: str | None = None
     found_start: float | None = None
     found_end: float | None = None
 
-    for seg_file in sorted(stt_root.rglob("*.seg")):
-        # Path layout: <working_dir>/<video.mp4>/02_stt/<chunk>.seg
-        video_name = seg_file.parent.parent.name  # e.g. "16. Structure of the Chest Area.mp4"
-        try:
-            with open(seg_file) as f:
-                raw = json.load(f)
-        except Exception:
+    for seg_id_counter, (video_name, start, end, _text) in enumerate(
+        _iter_project_cues(project_id, project_path)
+    ):
+        if f"project_{project_id}_seg_{seg_id_counter}" != segment_id:
             continue
-        for item in raw:
-            start = float(item.get("start", 0.0))
-            end = float(item.get("end", 0.0))
-            text = item.get("text", "").strip()
-            if not text or end <= start:
-                continue
-            sid = f"project_{project_id}_seg_{seg_id_counter}"
-            if sid == segment_id:
-                # Resolve video path: check DB first, then project dir directly
-                video_records = db.get_video_analysis(project_id)
-                for rec in video_records:
-                    if rec["filename"] == video_name:
-                        found_video = rec["file_path"]
-                        break
-                if not found_video:
-                    candidate = Path(project_path) / video_name
-                    if candidate.exists():
-                        found_video = str(candidate)
-                found_start = start
-                found_end = end
+        video_records = db.get_video_analysis(project_id)
+        for rec in video_records:
+            if rec["filename"] == video_name:
+                found_video = rec["file_path"]
                 break
-            seg_id_counter += 1
-        if found_start is not None:
-            break
+        if not found_video:
+            candidate = Path(project_path) / video_name
+            if candidate.exists():
+                found_video = str(candidate)
+        found_start = start
+        found_end = end
+        break
 
     if found_start is None or found_video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Segment {segment_id} not found")

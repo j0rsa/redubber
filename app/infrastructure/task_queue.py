@@ -397,34 +397,73 @@ class TaskQueueManager:
         video_path = task.video_path
         project_id = task.project_id
 
-        # Update status to running
-        await self._update_task_status(
-            task_id,
-            stage="Initializing",
-            progress=5,
-            status="running",
-            started_at=datetime.now(),
+        from app.services.existing_subtitles import (
+            SUBTITLES_READY_PROGRESS,
+            find_reusable_subtitle,
         )
+
+        _skip_stt_hint = False
+        if project_id is not None:
+            try:
+                from database import DatabaseManager as _HintDB
+
+                _hint_db = _HintDB(settings.database_url)
+                _hint_project = _hint_db.get_project_by_id(project_id)
+                if _hint_project:
+                    _skip_stt_hint = (
+                        find_reusable_subtitle(
+                            Path(video_path),
+                            project_path=_hint_project["path"],
+                            project_name=_hint_project["name"],
+                            language=_hint_project.get("target_language") or "eng",
+                            include_unsuffixed=True,
+                        )
+                        is not None
+                    )
+            except Exception:
+                _skip_stt_hint = False
+
+        # Update status to running — jump to post-STT progress when subs already exist
+        if _skip_stt_hint:
+            await self._update_task_status(
+                task_id,
+                stage="Using existing subtitles",
+                progress=SUBTITLES_READY_PROGRESS,
+                status="running",
+                started_at=datetime.now(),
+                subtitles=1,
+            )
+        else:
+            await self._update_task_status(
+                task_id,
+                stage="Initializing",
+                progress=5,
+                status="running",
+                started_at=datetime.now(),
+            )
 
         # Get event loop for running blocking operations
         loop = asyncio.get_event_loop()
 
         try:
-            # Stage 1-3: Extract audio, transcribe, translate (blocking operations)
-            # These use ThreadPoolExecutor to avoid blocking the event loop
-
-            await self._update_task_status(
-                task_id,
-                stage="Extracting and transcribing audio",
-                progress=10,
-                status="running",
-            )
+            if not _skip_stt_hint:
+                await self._update_task_status(
+                    task_id,
+                    stage="Extracting and transcribing audio",
+                    progress=10,
+                    status="running",
+                )
 
             # Create Reproj for working directories
             reproj_root = self._resolve_reproj_root(video_path, task.project_id if task else None)
 
-            def create_reproj_and_extract() -> tuple[Reproj, list]:
-                """Blocking operation: create reproj and extract segments."""
+            def create_reproj_and_extract() -> tuple[Reproj, list, bool]:
+                """Blocking operation: create reproj and extract segments.
+
+                Returns:
+                    reproj, segments, skipped_stt — skipped_stt is True when
+                    target-language subtitles were reused instead of running STT.
+                """
                 reproj = Reproj(
                     source=str(Path(video_path).parent),
                     file_path=video_path,
@@ -442,18 +481,45 @@ class TaskQueueManager:
                 if task.audio_chunk_duration is not None:
                     self._clear_pipeline_for_chunk_override(video_path, project_id)
 
-                # Look up target language from project settings
+                # Look up target language and project identity from project settings
                 _target_language = "eng"
+                _project_path = ""
+                _project_name = ""
                 if project_id is not None:
                     try:
                         from database import DatabaseManager
                         _db = DatabaseManager(settings.database_url)
                         _project = _db.get_project_by_id(project_id)
-                        _target_language = (
-                            _project.get("target_language") or "eng"
-                        ) if _project else "eng"
+                        if _project:
+                            _target_language = _project.get("target_language") or "eng"
+                            _project_path = _project.get("path") or ""
+                            _project_name = _project.get("name") or ""
                     except Exception:
                         pass  # keep default
+
+                from app.services.existing_subtitles import (
+                    segments_from_subtitle_file,
+                    stage_existing_subtitle,
+                )
+
+                if _project_path and task.audio_chunk_duration is None:
+                    staged_sub = stage_existing_subtitle(
+                        Path(video_path),
+                        project_path=_project_path,
+                        project_name=_project_name,
+                        language=_target_language,
+                        include_unsuffixed=True,
+                    )
+                    if staged_sub is not None:
+                        existing_segments = segments_from_subtitle_file(staged_sub)
+                        if existing_segments:
+                            logger.info(
+                                "Task %s: reusing %d cues from existing target-language subtitles (%s)",
+                                task_id,
+                                len(existing_segments),
+                                staged_sub,
+                            )
+                            return reproj, existing_segments, True
 
                 redubber = Redubber(
                     openai_token=_get_openai_key(),
@@ -475,10 +541,10 @@ class TaskQueueManager:
                     replace_audio_chunks=replace_chunks,
                 )
 
-                return reproj, segments
+                return reproj, segments, False
 
             # Run blocking operation in executor
-            reproj, segments = await loop.run_in_executor(
+            reproj, segments, skipped_stt = await loop.run_in_executor(
                 self._executor,
                 create_reproj_and_extract,
             )
@@ -496,28 +562,39 @@ class TaskQueueManager:
             except Exception:
                 pass
 
-            await self._update_task_status(
-                task_id, stage="Transcription complete", progress=35, status="running",
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
-            )
+            if skipped_stt:
+                await self._update_task_status(
+                    task_id,
+                    stage="Using existing subtitles",
+                    progress=SUBTITLES_READY_PROGRESS,
+                    status="running",
+                    audio_chunks=_audio_chunk_count,
+                    transcripts=_transcript_count,
+                    subtitles=1,
+                )
+            else:
+                await self._update_task_status(
+                    task_id, stage="Transcription complete", progress=35, status="running",
+                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
+                )
 
-            # Stage 3b: Generate subtitles
-            await self._update_task_status(
-                task_id, stage="Generating subtitles", progress=35, status="running",
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
-            )
+                # Stage 3b: Generate subtitles
+                await self._update_task_status(
+                    task_id, stage="Generating subtitles", progress=35, status="running",
+                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
+                )
 
-            def generate_subtitles_step() -> None:
-                from redubber import Redubber
-                _r = Redubber(openai_token=_get_openai_key(), interactive=False)
-                _r.generate_subtitles(reproj, segments)
+                def generate_subtitles_step() -> None:
+                    from redubber import Redubber
+                    _r = Redubber(openai_token=_get_openai_key(), interactive=False)
+                    _r.generate_subtitles(reproj, segments)
 
-            await loop.run_in_executor(self._executor, generate_subtitles_step)
+                await loop.run_in_executor(self._executor, generate_subtitles_step)
 
-            await self._update_task_status(
-                task_id, stage="Subtitles generated", progress=38, status="running",
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count, subtitles=1,
-            )
+                await self._update_task_status(
+                    task_id, stage="Subtitles generated", progress=SUBTITLES_READY_PROGRESS, status="running",
+                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count, subtitles=1,
+                )
 
             # Stage 4: ASYNC TTS generation (KEY OPTIMIZATION - 5x faster!)
             await self._update_task_status(
@@ -798,6 +875,9 @@ class TaskQueueManager:
         Runs the first two pipeline stages so that .seg files are written to disk
         and voice refinement becomes available before any TTS costs are incurred.
 
+        If a transcription job for the same video is already queued or running,
+        the existing task ID is returned instead of scheduling a duplicate.
+
         Args:
             video_path: Absolute path to the video file.
             project_id: ID of the project.
@@ -805,20 +885,30 @@ class TaskQueueManager:
         Returns:
             Unique task ID for status polling.
         """
-        task_id = str(uuid4())
-
-        initial_status = TaskStatus(
-            task_id=task_id,
-            video_path=video_path,
-            stage="queued",
-            progress=0,
-            status="queued",
-            project_id=int(project_id),
-            task_type="transcribe",
-        )
-
         async with self._lock:
-            self._tasks[task_id] = initial_status
+            for existing in self._tasks.values():
+                if (
+                    existing.task_type == "transcribe"
+                    and existing.video_path == video_path
+                    and existing.status in ("queued", "running")
+                ):
+                    logger.info(
+                        "Reusing active transcription task %s for video %s",
+                        existing.task_id,
+                        video_path,
+                    )
+                    return existing.task_id
+
+            task_id = str(uuid4())
+            self._tasks[task_id] = TaskStatus(
+                task_id=task_id,
+                video_path=video_path,
+                stage="queued",
+                progress=0,
+                status="queued",
+                project_id=int(project_id),
+                task_type="transcribe",
+            )
 
         asyncio.ensure_future(self._process_transcription_task(task_id))
 
@@ -853,7 +943,49 @@ class TaskQueueManager:
         loop = asyncio.get_event_loop()
 
         try:
+            from app.services.existing_subtitles import (
+                find_reusable_subtitle,
+                segments_from_subtitle_file,
+            )
+
             def run_stt() -> int:
+                target_language = "eng"
+                project_path = ""
+                project_name = ""
+                if project_id is not None:
+                    try:
+                        from database import DatabaseManager
+                        _db = DatabaseManager(settings.database_url)
+                        _project = _db.get_project_by_id(project_id)
+                        if _project:
+                            target_language = (_project.get("target_language") or "eng")
+                            project_path = _project.get("path") or ""
+                            project_name = _project.get("name") or ""
+                    except Exception:
+                        pass
+
+                # Any existing subtitle is enough for voice analysis — skip Whisper.
+                # Do not copy source-language sidecars into 03_subtitles; that would
+                # make the redub pipeline treat them as target-language script.
+                if project_path:
+                    found = find_reusable_subtitle(
+                        Path(video_path),
+                        project_path=project_path,
+                        project_name=project_name,
+                        language=None,
+                        include_unsuffixed=True,
+                    )
+                    if found is not None:
+                        existing_segments = segments_from_subtitle_file(found)
+                        if existing_segments:
+                            logger.info(
+                                "Transcription task %s: skipping STT, using %d cues from %s",
+                                task_id,
+                                len(existing_segments),
+                                found,
+                            )
+                            return len(existing_segments)
+
                 try:
                     from app.services.settings_service import get_settings as _gs
                     s = _gs()
@@ -864,16 +996,6 @@ class TaskQueueManager:
                     stt_model = "whisper-1"
                     base_url = ""
                     audio_chunk_duration = 900
-
-                target_language = "eng"
-                if project_id is not None:
-                    try:
-                        from database import DatabaseManager
-                        _db = DatabaseManager(settings.database_url)
-                        _project = _db.get_project_by_id(project_id)
-                        target_language = (_project.get("target_language") or "eng") if _project else "eng"
-                    except Exception:
-                        pass
 
                 redubber = Redubber(
                     openai_token=_get_openai_key(),
