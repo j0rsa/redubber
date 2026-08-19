@@ -129,7 +129,7 @@ export const WithHallucinationWarnings: Story = {
         },
         {
           code: 'excessive_cps',
-          message: '28.5 chars/s (>22.0) — text too dense for duration',
+          message: '28.5 chars/s (>40.0) — text too dense for duration',
           segment_index: 3,
         },
       ],
