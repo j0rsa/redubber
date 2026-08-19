@@ -161,7 +161,7 @@
 .projectCard {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  align-items: center;
+  align-items: start;
   gap: var(--spacing-md);
   padding: var(--spacing-lg);
   background: var(--color-bg-elevated);
@@ -202,9 +202,10 @@
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: var(--line-height-normal);
 }
 
 .projectPath {

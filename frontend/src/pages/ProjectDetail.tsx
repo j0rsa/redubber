@@ -515,6 +515,7 @@ export const ProjectDetail = () => {
           ) : hasVideos ? (
             <FileGrid
               videos={hideCompleted ? (videos?.filter((v) => !isFinalized(v)) ?? []) : (videos ?? [])}
+              projectPath={project.path}
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               runningJobIds={runningJobs}
