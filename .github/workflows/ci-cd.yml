@@ -109,8 +109,20 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
+      # Vitest only needs chrome-headless-shell. Cache it so later runs skip the
+      # download; never use --with-deps (apt-get on ubuntu-latest is slow and
+      # often hangs). GitHub's runner image already has the required libraries.
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        run: npx playwright install chromium --only-shell
 
       - name: Test (Storybook + Vitest)
         run: npx vitest run
