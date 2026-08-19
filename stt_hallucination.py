@@ -27,7 +27,9 @@ MAX_PHRASE_WORDS = 10
 DOMINANT_WORD_RATIO = 0.38
 DOMINANT_WORD_MIN_TOKENS = 24
 CHAR_RUN_MIN = 8
-MIN_NEAR_DUPLICATE_SIMILARITY = 0.55
+MIN_NEAR_DUPLICATE_SIMILARITY = 0.45
+MIN_SHARED_PHRASE_RUN = 5
+MIN_SHARED_PHRASE_WORDS = 3
 _NUMBERED_LINE_RE = re.compile(r"^\d+\.\s*")
 
 # Common silence / tail hallucinations (case-insensitive substring match)
@@ -139,6 +141,84 @@ def _segments_similar(left: str, right: str) -> bool:
     left_body = _strip_leading_number(left)
     right_body = _strip_leading_number(right)
     return _token_jaccard(left_body, right_body) >= MIN_NEAR_DUPLICATE_SIMILARITY
+
+
+def _contains_word_sequence(text: str, phrase: list[str]) -> bool:
+    words = _tokenize(_strip_leading_number(text))
+    if len(phrase) > len(words):
+        return False
+    for start in range(len(words) - len(phrase) + 1):
+        if words[start : start + len(phrase)] == phrase:
+            return True
+    return False
+
+
+def _find_longest_shared_phrase(
+    texts: list[str],
+    min_words: int,
+) -> list[str] | None:
+    if not texts:
+        return None
+
+    best: list[str] | None = None
+    seen: set[tuple[str, ...]] = set()
+    for text in texts:
+        words = _tokenize(_strip_leading_number(text))
+        max_size = min(len(words), MAX_PHRASE_WORDS)
+        for size in range(max_size, min_words - 1, -1):
+            for start in range(len(words) - size + 1):
+                phrase = tuple(words[start : start + size])
+                if phrase in seen:
+                    continue
+                seen.add(phrase)
+                if all(_contains_word_sequence(item, list(phrase)) for item in texts):
+                    if best is None or len(phrase) > len(best):
+                        best = list(phrase)
+    return best
+
+
+def _check_shared_phrase_run(
+    segments: list[TranscriptionSegment], chunk_label: str | None
+) -> list[HallucinationFinding]:
+    """Flag long runs of lines that share the same core phrase (template loops)."""
+    findings: list[HallucinationFinding] = []
+    index = 0
+    total = len(segments)
+
+    while index < total:
+        run = [index]
+        next_index = index + 1
+        while next_index < total:
+            texts = [(segments[i].text or "") for i in run + [next_index]]
+            if _find_longest_shared_phrase(texts, MIN_SHARED_PHRASE_WORDS):
+                run.append(next_index)
+                next_index += 1
+            else:
+                break
+
+        if len(run) >= MIN_SHARED_PHRASE_RUN:
+            texts = [(segments[i].text or "") for i in run]
+            phrase = _find_longest_shared_phrase(texts, MIN_SHARED_PHRASE_WORDS)
+            phrase_text = " ".join(phrase) if phrase else "…"
+            count = len(run)
+            message = (
+                f"{count} consecutive lines share repeated wording "
+                f"({phrase_text!r}) — likely STT template hallucination"
+            )
+            for run_index in run:
+                findings.append(
+                    HallucinationFinding(
+                        code="shared_phrase_run",
+                        message=message,
+                        segment_index=run_index,
+                        chunk_label=chunk_label,
+                    )
+                )
+            index = run[-1] + 1
+        else:
+            index += 1
+
+    return findings
 
 
 def _check_numbered_enumeration_loop(
@@ -512,6 +592,7 @@ def analyze_segments(
     report.findings.extend(_check_consecutive_duplicate_segments(segments, chunk_label))
     report.findings.extend(_check_numbered_enumeration_loop(segments, chunk_label))
     report.findings.extend(_check_near_duplicate_run(segments, chunk_label))
+    report.findings.extend(_check_shared_phrase_run(segments, chunk_label))
     report.findings.extend(_check_phrase_loops(segments, chunk_label))
     report.findings.extend(_check_dominant_word(segments, chunk_label))
     report.findings.extend(

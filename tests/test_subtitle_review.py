@@ -171,6 +171,20 @@ class TestAnalyzeSrtHallucinations:
         assert len(numbered) == 4
         assert {w.segment_index for w in numbered} == {0, 1, 2, 3}
 
+    def test_marks_shared_phrase_template_loop(self) -> None:
+        cues = [
+            (415.0, 425.0, "Not with the water like a fool."),
+            (425.0, 435.0, "Stop with the water like a fool."),
+            (435.0, 445.0, "Stop with the water like a fool."),
+            (445.0, 455.0, "Stop with the water like a fool."),
+            (455.0, 465.0, "Stop with the water like a fool."),
+            (465.0, 475.0, "Not with the water as a fool."),
+        ]
+        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
+        shared = [w for w in warnings if w.code == "shared_phrase_run"]
+        assert len(shared) == 6
+        assert {w.segment_index for w in shared} == {0, 1, 2, 3, 4, 5}
+
 
 class TestBuildSubtitleReview:
     def test_maps_tts_and_chunks(self, tmp_path: Path) -> None:

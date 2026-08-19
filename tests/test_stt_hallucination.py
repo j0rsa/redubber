@@ -99,6 +99,24 @@ class TestRepetitionAndLoops:
         report = analyze_segments(segments, audio_duration=12.0)
         assert any(f.code == "near_duplicate_run" for f in report.findings)
 
+    def test_shared_phrase_template_loop(self) -> None:
+        lines = [
+            "Not with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Not with the water as a fool.",
+            "Not with the water as a fill.",
+            "Stop with the water like a fool.",
+            "Not with the water like a fool.",
+        ]
+        segments = [_seg(text, start=i * 10, end=(i + 1) * 10) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=90.0)
+        shared = [f for f in report.findings if f.code == "shared_phrase_run"]
+        assert len(shared) == len(lines)
+        assert {f.segment_index for f in shared} == set(range(len(lines)))
+
     def test_phrase_loop_in_one_segment(self) -> None:
         text = " ".join(["hello there friend"] * 4)
         segments = [_seg(text, end=20.0)]

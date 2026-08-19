@@ -23,6 +23,7 @@ from stt_hallucination import (
     _check_known_phrases,
     _check_near_duplicate_run,
     _check_numbered_enumeration_loop,
+    _check_shared_phrase_run,
     _check_segment_density,
     _check_transcript_density,
     _find_repeated_phrase,
@@ -339,6 +340,10 @@ def analyze_srt_hallucinations(
             _finding_to_warning(finding.code, finding.message, finding.segment_index)
         )
     for finding in _check_near_duplicate_run(segments, None):
+        warnings.append(
+            _finding_to_warning(finding.code, finding.message, finding.segment_index)
+        )
+    for finding in _check_shared_phrase_run(segments, None):
         warnings.append(
             _finding_to_warning(finding.code, finding.message, finding.segment_index)
         )
