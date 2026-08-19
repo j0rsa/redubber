@@ -15,10 +15,14 @@ const sample: SubtitleReviewData = {
   video_id: 1,
   filename: 'lesson.mp4',
   srt_path: '/videos/lesson.en.srt',
+  available_files: [
+    { path: '/videos/lesson.en.srt', label: 'lesson.en.srt', source: 'generated' },
+  ],
   total: 4,
   returned: 4,
   has_chunks: true,
   has_tts: true,
+  hallucination_warnings: [],
   segments: [
     {
       index: 0,
@@ -89,6 +93,46 @@ export const MissingArtefacts: Story = {
       has_chunks: false,
       has_tts: false,
       segments: sample.segments.map((s) => ({ ...s, original: null, tts_url: null })),
+    },
+    loading: false,
+    error: null,
+  },
+};
+
+export const MultipleFiles: Story = {
+  args: {
+    isOpen: true,
+    onClose: () => console.log('close'),
+    data: {
+      ...sample,
+      available_files: [
+        { path: '/videos/lesson.en.srt', label: 'lesson.en.srt', source: 'generated' },
+        { path: '/videos/lesson.ru.srt', label: 'lesson.ru.srt', source: 'sidecar' },
+      ],
+    },
+    loading: false,
+    error: null,
+  },
+};
+
+export const WithHallucinationWarnings: Story = {
+  args: {
+    isOpen: true,
+    onClose: () => console.log('close'),
+    data: {
+      ...sample,
+      hallucination_warnings: [
+        {
+          code: 'known_hallucination_phrase',
+          message: "contains common STT hallucination phrase(s): 'thank you for watching'",
+          segment_index: 3,
+        },
+        {
+          code: 'excessive_cps',
+          message: '28.5 chars/s (>22.0) — text too dense for duration',
+          segment_index: 3,
+        },
+      ],
     },
     loading: false,
     error: null,

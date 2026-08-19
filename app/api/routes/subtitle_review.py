@@ -53,6 +53,7 @@ async def get_subtitle_review(
     db: Annotated[DatabaseManager, Depends(get_db)],
     min_duration: Annotated[float, Query(ge=0.0)] = 0.0,
     max_duration: Annotated[float, Query(ge=0.0)] = 0.0,
+    srt_path: Annotated[str | None, Query()] = None,
 ) -> SubtitleReviewResponse:
     """Return the generated subtitle script with original-chunk and TTS playback URLs."""
     if min_duration and max_duration and min_duration > max_duration:
@@ -73,6 +74,7 @@ async def get_subtitle_review(
             target_language=project.get("target_language") or "eng",
             min_duration=min_duration,
             max_duration=max_duration,
+            srt_path=srt_path,
         )
     except SubtitleReviewError as exc:
         raise HTTPException(

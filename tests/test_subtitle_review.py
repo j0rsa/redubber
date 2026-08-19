@@ -11,11 +11,14 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.services.subtitle_review import (
     SubtitleReviewError,
+    analyze_srt_hallucinations,
     build_subtitle_review,
     chunk_for_time,
     find_review_srt,
     is_safe_chunk_name,
+    list_review_srts,
     parse_srt,
+    resolve_review_srt,
 )
 from database import DatabaseManager
 
@@ -95,6 +98,46 @@ class TestFindReviewSrt:
         assert found == sidecar
 
 
+class TestListReviewSrts:
+    def test_lists_multiple_sidecars(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        generated = project / ".redubber" / "lesson.mp4" / "03_subtitles"
+        generated.mkdir(parents=True)
+        (generated / "lesson.en.srt").write_text(SAMPLE_SRT)
+        (project / "lesson.ru.srt").write_text("orig")
+
+        options = list_review_srts(video, str(project), "proj", "eng")
+        labels = [option.label for option in options]
+        assert "lesson.en.srt" in labels
+        assert "lesson.ru.srt" in labels
+
+    def test_resolve_rejects_unknown_path(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        (project / "lesson.en.srt").write_text(SAMPLE_SRT)
+
+        with pytest.raises(SubtitleReviewError):
+            resolve_review_srt(
+                video,
+                str(project),
+                "proj",
+                "eng",
+                srt_path=str(tmp_path / "other.srt"),
+            )
+
+
+class TestAnalyzeSrtHallucinations:
+    def test_detects_known_phrase(self) -> None:
+        cues = [(0.0, 5.0, "Thank you for watching this video.")]
+        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
+        assert any(w.code == "known_hallucination_phrase" for w in warnings)
+
+
 class TestBuildSubtitleReview:
     def test_maps_tts_and_chunks(self, tmp_path: Path) -> None:
         project = tmp_path / "proj"
@@ -126,6 +169,8 @@ class TestBuildSubtitleReview:
         assert result.total == 3
         assert result.has_chunks is True
         assert result.has_tts is True
+        assert len(result.available_files) >= 1
+        assert result.hallucination_warnings == []
         first = result.segments[0]
         assert first.original is not None
         assert first.original.chunk_name == "lesson_001.m4a"
@@ -203,5 +248,43 @@ class TestSubtitleReviewAPI:
         assert response.status_code == 200
         body = response.json()
         assert body["total"] == 3
+        assert body["available_files"]
+        assert body["hallucination_warnings"] == []
         assert body["segments"][0]["text"] == "Hello there."
         assert body["segments"][1]["duration"] == pytest.approx(6.2)
+
+    def test_selects_specific_srt(self, client: TestClient, tmp_path: Path) -> None:
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"x")
+        alt = project_dir / "lesson.ru.srt"
+        alt.write_text("""1
+00:00:00,000 --> 00:00:02,000
+Alternate.
+""")
+        (project_dir / "lesson.en.srt").write_text(SAMPLE_SRT)
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 20,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.get(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review",
+            params={"srt_path": str(alt.resolve())},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["segments"][0]["text"] == "Alternate."
+        assert len(body["available_files"]) >= 2
