@@ -16,6 +16,7 @@ export const useSubtitleReview = ({
   const [data, setData] = useState<SubtitleReviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savingCueIndex, setSavingCueIndex] = useState<number | null>(null);
 
   const fetchReview = useCallback(async () => {
     if (!projectId || !videoId) return;
@@ -41,6 +42,23 @@ export const useSubtitleReview = ({
     }
   }, [projectId, videoId, srtPath]);
 
+  const saveCue = useCallback(
+    async (index: number, text: string) => {
+      if (!projectId || !videoId) return;
+      setSavingCueIndex(index);
+      try {
+        const { data: body } = await apiClient.patch<SubtitleReviewData>(
+          `/projects/${projectId}/videos/${videoId}/subtitle-review/cues/${index}`,
+          { text, srt_path: srtPath },
+        );
+        setData(body);
+      } finally {
+        setSavingCueIndex(null);
+      }
+    },
+    [projectId, videoId, srtPath],
+  );
+
   useEffect(() => {
     if (!projectId || !videoId) {
       setData(null);
@@ -50,5 +68,5 @@ export const useSubtitleReview = ({
     void fetchReview();
   }, [projectId, videoId, fetchReview]);
 
-  return { data, loading, error, reload: fetchReview };
+  return { data, loading, error, reload: fetchReview, saveCue, savingCueIndex };
 };

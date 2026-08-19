@@ -433,6 +433,118 @@ class TestResetDubbedVideo:
         remaining = db.get_subtitle_files_for_video(project_id, "lesson.mp4")
         assert remaining == []
 
+    def test_reset_to_subtitles_keeps_sidecar(self, tmp_path: Path) -> None:
+        db, project_id, record, video, srt = _seed_final_video(tmp_path)
+        working_srt = (
+            video.parent / ".redubber" / "lesson.mp4" / "03_subtitles" / "lesson.en.srt"
+        )
+        working_srt.parent.mkdir(parents=True)
+        working_srt.write_text("generated", encoding="utf-8")
+        tts_dir = video.parent / ".redubber" / "lesson.mp4" / "04_tts"
+        tts_dir.mkdir(parents=True)
+        (tts_dir / "000.en.m4a").write_bytes(b"tts")
+
+        with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch(
+                "app.services.dub_reset.backup_video_before_reset",
+                return_value=video.parent / ".redubber" / "backups" / "lesson.pre-undub.mp4",
+            ),
+            patch(
+                "app.services.dub_reset.strip_dubbed_audio_track",
+                return_value=1,
+            ) as strip,
+            patch("app.services.dub_reset.sync_video_metadata") as sync,
+        ):
+            result = reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+                source_language="rus",
+                reset_to="subtitles",
+            )
+
+        strip.assert_called_once_with(video, "eng", "rus")
+        assert srt.exists()
+        assert working_srt.exists()
+        assert not tts_dir.exists()
+        assert result["kept_subtitles"] is True
+        assert result["reset_to"] == "subtitles"
+        assert result["deleted_subtitles"] == []
+        assert sync.call_count == 2
+
+    def test_reset_to_audio_keeps_subs_and_clears_later_stages(self, tmp_path: Path) -> None:
+        db, project_id, record, video, srt = _seed_final_video(tmp_path)
+        work = video.parent / ".redubber" / "lesson.mp4"
+        stt_dir = work / "02_stt"
+        stt_dir.mkdir(parents=True)
+        (stt_dir / "chunk.json").write_text("{}", encoding="utf-8")
+        working_srt = work / "03_subtitles" / "lesson.en.srt"
+        working_srt.parent.mkdir(parents=True)
+        working_srt.write_text("generated", encoding="utf-8")
+        tts_dir = work / "04_tts"
+        tts_dir.mkdir(parents=True)
+        (tts_dir / "000.en.m4a").write_bytes(b"tts")
+
+        with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch(
+                "app.services.dub_reset.backup_video_before_reset",
+                return_value=video.parent / ".redubber" / "backups" / "lesson.pre-undub.mp4",
+            ),
+            patch(
+                "app.services.dub_reset.strip_dubbed_audio_track",
+                return_value=1,
+            ),
+            patch("app.services.dub_reset.sync_video_metadata"),
+        ):
+            result = reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+                source_language="rus",
+                reset_to="audio",
+            )
+
+        assert srt.exists()
+        assert working_srt.exists()
+        assert not stt_dir.exists()
+        assert not tts_dir.exists()
+        assert result["kept_subtitles"] is True
+        assert result["reset_to"] == "audio"
+
+    def test_reset_to_unknown_stage_rejected(self, tmp_path: Path) -> None:
+        db, project_id, record, video, _srt = _seed_final_video(tmp_path)
+        with (
+            patch(
+                "app.services.dub_reset.probe_audio_streams",
+                return_value=TWO_TRACK_STREAMS,
+            ),
+            patch("app.services.dub_reset.sync_video_metadata"),
+            pytest.raises(DubResetError, match="Unknown reset stage"),
+        ):
+            reset_dubbed_video(
+                db=db,
+                project_id=project_id,
+                video_record=record,
+                project_path=str(video.parent),
+                project_name="Demo",
+                target_language="eng",
+                reset_to="nope",
+            )
+
     def test_clears_finalize_backup_artifacts(self, tmp_path: Path) -> None:
         db, project_id, record, video, _srt = _seed_final_video(tmp_path)
         backup_dir = video.parent / ".redubber" / "backups"

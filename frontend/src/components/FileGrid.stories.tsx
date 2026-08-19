@@ -114,7 +114,7 @@ export const WithPipelineStatus: Story = {
   },
 };
 
-/** Video id=4 is finalized — shows "Remove dub" instead of Redub. */
+/** Video id=4 is finalized — shows "Reset redub" instead of Redub. */
 export const WithReplacedVideo: Story = {
   args: {
     videos: [
@@ -145,7 +145,7 @@ export const WithReplacedVideo: Story = {
   },
 };
 
-/** Finalized dub without pipeline_status.replaced — still shows Remove dub. */
+/** Finalized dub without pipeline_status.replaced — still shows Reset redub. */
 export const TargetStateWithoutReplacedFlag: Story = {
   args: {
     videos: [

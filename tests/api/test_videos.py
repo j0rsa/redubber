@@ -189,6 +189,50 @@ class TestResetDubAPI:
         assert body["status"] == "queued"
         assert "task_id" in body
 
+    def test_reset_dub_accepts_reset_to_query(self, client: TestClient, tmp_path) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nHello\n")
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.set_target_language(project_id, "eng")
+        db.add_subtitle_file(project_id, str(srt), srt.name, "eng")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 10,
+                "audio_streams": [
+                    {"index": 0, "language": "eng", "codec": "aac"},
+                    {"index": 1, "language": "rus", "codec": "aac"},
+                ],
+                "subtitles": [
+                    {
+                        "language": "eng",
+                        "embedded": False,
+                        "path": str(srt),
+                        "filename": srt.name,
+                    }
+                ],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.post(
+            f"/api/projects/{project_id}/videos/{video_id}/reset-dub",
+            params={"reset_to": "subtitles"},
+        )
+        assert response.status_code == 202
+
 
 class TestListVideosPipelineStatus:
     """GET /api/projects/{id}/videos pipeline_status.replaced for finalized dubs."""

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 
 from app.core.dependencies import get_db, get_scanner
 from app.infrastructure.task_queue import TaskQueueManager
@@ -17,6 +17,7 @@ from app.schemas.models import (
     VideoAnalysis,
 )
 from app.services.project_scan import scan_project_files
+from app.services.dub_reset import RESET_TO_STAGES
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
@@ -449,13 +450,25 @@ async def reset_dubbed_video(
     video_id: int,
     request: Request,
     db: Annotated[DatabaseManager, Depends(get_db)],
+    reset_to: Annotated[
+        Literal[
+            "start",
+            "audio",
+            "stt",
+            "subtitles",
+            "tts",
+            "assemble",
+            "mix",
+        ],
+        Query(description="Last pipeline stage to keep. Subtitles are deleted only at start."),
+    ] = "start",
 ) -> dict[str, str]:
-    """Queue a job to remove the generated subtitle and dubbed audio track.
+    """Queue a job to revert the dubbed video and prune later pipeline stages.
 
-    The dubbed track is identified by its language tag (project target language),
-    not by stream position. A pre-undub backup is written before the file is
-    modified. Only allowed for videos already in the final redubbed state. Poll
-    ``GET /api/tasks/{task_id}`` for progress.
+    The dubbed track is always stripped (identified by language tag). Generated
+    subtitles are deleted only when ``reset_to=start``. A pre-undub backup is
+    written before the file is modified. Only allowed for videos already in the
+    final redubbed state. Poll ``GET /api/tasks/{task_id}`` for progress.
 
     Raises:
         HTTPException: 404 if project or video not found.
@@ -508,9 +521,16 @@ async def reset_dubbed_video(
                 ),
             )
 
+    if reset_to not in RESET_TO_STAGES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown reset stage {reset_to!r}",
+        )
+
     task_id = await task_manager.submit_reset_dub_task(
         video_path=video_path,
         project_id=project_id,
         video_id=video_id,
+        reset_to=reset_to,
     )
     return {"task_id": task_id, "status": "queued"}

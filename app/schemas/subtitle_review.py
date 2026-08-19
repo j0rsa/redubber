@@ -119,3 +119,13 @@ class SubtitleReviewResponse(BaseModel):
         default_factory=list,
         description="All rule breaches detected in the loaded subtitle text",
     )
+
+
+class SubtitleCueUpdateRequest(BaseModel):
+    """Replace the text of one subtitle cue without changing timings."""
+
+    text: str = Field(..., min_length=1, description="New cue text")
+    srt_path: str | None = Field(
+        default=None,
+        description="Subtitle file to edit; defaults to the review selector's file",
+    )

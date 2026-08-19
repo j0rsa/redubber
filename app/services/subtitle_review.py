@@ -275,6 +275,133 @@ def tts_file_for_index(tts_dir: Path, index: int) -> Path | None:
     return None
 
 
+def seconds_to_srt_timestamp(seconds: float) -> str:
+    """Format a timeline position as an SRT timestamp (``HH:MM:SS,mmm``)."""
+    total_ms = max(0, int(round(float(seconds) * 1000)))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, millis = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def write_srt_cues(path: Path, cues: list[tuple[float, float, str]]) -> None:
+    """Rewrite ``path`` with the given cues, preserving start/end times."""
+    blocks: list[str] = []
+    for index, (start, end, text) in enumerate(cues, start=1):
+        blocks.append(
+            f"{index}\n"
+            f"{seconds_to_srt_timestamp(start)} --> {seconds_to_srt_timestamp(end)}\n"
+            f"{text}\n"
+        )
+    path.write_text("\n".join(blocks), encoding="utf-8")
+
+
+def _related_subtitle_write_paths(
+    selected: Path,
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+) -> list[Path]:
+    """Selected file plus matching workdir/sidecar copies of the same language."""
+    from app.services.existing_subtitles import (
+        find_sidecar_subtitles,
+        workdir_subtitle_dest,
+    )
+
+    paths: list[Path] = [selected]
+    seen = {str(selected.resolve())}
+    target = _norm_lang(target_language)
+    detected = detect_subtitle_language(selected)
+    is_target = not detected or (target and _norm_lang(detected) == target)
+    if not is_target:
+        return paths
+
+    dest = workdir_subtitle_dest(video_path, project_path, project_name)
+    candidates = [dest, *find_sidecar_subtitles(video_path, target_language)]
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        key = str(candidate.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(candidate)
+    return paths
+
+
+def invalidate_downstream_audio(
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    cue_index: int,
+) -> None:
+    """Drop stale TTS / assembled / mixed audio after a cue text change."""
+    import shutil
+
+    dirs = artefact_dirs(video_path, project_path, project_name)
+    tts_path = tts_file_for_index(dirs["tts"], cue_index)
+    if tts_path is not None:
+        tts_path.unlink(missing_ok=True)
+
+    assemble_dir = dirs["root"] / "05_target_audio_chunks"
+    if assemble_dir.is_dir():
+        shutil.rmtree(assemble_dir)
+
+    dubbed = dirs["root"] / f"{video_path.stem}.dubbed{video_path.suffix}"
+    dubbed.unlink(missing_ok=True)
+
+
+def update_subtitle_cue_text(
+    *,
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+    cue_index: int,
+    text: str,
+    srt_path: str | None = None,
+) -> Path:
+    """Replace the text of one cue. Timings and cue count stay unchanged."""
+    cleaned = text.strip()
+    if not cleaned:
+        raise SubtitleReviewError("Cue text cannot be empty")
+    if cue_index < 0:
+        raise SubtitleReviewError("Cue index must be >= 0")
+
+    selected = resolve_review_srt(
+        video_path,
+        project_path,
+        project_name,
+        target_language,
+        srt_path=srt_path,
+    )
+    try:
+        cues = parse_srt(selected.read_text(encoding="utf-8", errors="replace"))
+    except OSError as exc:
+        raise SubtitleReviewError(f"Could not read subtitle file: {exc}") from exc
+
+    if cue_index >= len(cues):
+        raise SubtitleReviewError(
+            f"Cue index {cue_index} is out of range for this subtitle file"
+        )
+
+    start, end, previous = cues[cue_index]
+    if previous == cleaned:
+        return selected
+
+    cues[cue_index] = (start, end, cleaned)
+    for path in _related_subtitle_write_paths(
+        selected, video_path, project_path, project_name, target_language
+    ):
+        write_srt_cues(path, cues)
+
+    invalidate_downstream_audio(
+        video_path, project_path, project_name, cue_index
+    )
+    return selected
+
+
 def is_safe_chunk_name(name: str) -> bool:
     """Reject path traversal; allow spaces that appear in real video stems."""
     if not name or name != Path(name).name or ".." in name:

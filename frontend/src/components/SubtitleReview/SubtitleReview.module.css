@@ -308,6 +308,53 @@
   line-height: 1.45;
   color: var(--color-text-primary);
   text-align: left;
+  min-width: 0;
+  flex: 1;
+}
+
+.cueTextButton,
+.cueTextStatic {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.cueTextButton {
+  cursor: text;
+  border-radius: 2px;
+}
+
+.cueTextButton:hover,
+.cueTextButton:focus-visible {
+  outline: 1px dashed var(--color-primary);
+  outline-offset: 2px;
+}
+
+.cueEditor {
+  display: block;
+  width: 100%;
+  min-height: 2.6em;
+  margin-top: 2px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.cueSaveError {
+  margin: 4px 0 0 50px;
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
 }
 
 .cueTime {

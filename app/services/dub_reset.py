@@ -23,6 +23,27 @@ log = logging.getLogger(__name__)
 
 SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
 
+# Last pipeline stage to keep when resetting a finalized dub.
+# ``start`` discards everything, including generated subtitles.
+RESET_TO_STAGES = (
+    "start",
+    "audio",
+    "stt",
+    "subtitles",
+    "tts",
+    "assemble",
+    "mix",
+)
+
+# Working-dir folders in pipeline order. ``03_subtitles`` is only removed at start.
+_WORKDIR_STAGES: tuple[tuple[str, str], ...] = (
+    ("audio", "01_source_audio_chunks"),
+    ("stt", "02_stt"),
+    ("subtitles", "03_subtitles"),
+    ("tts", "04_tts"),
+    ("assemble", "05_target_audio_chunks"),
+)
+
 
 class DubResetError(Exception):
     """Raised when a dub reset cannot be performed."""
@@ -85,6 +106,55 @@ def working_dir_subtitle_path(
     working_dir = get_project_working_dir(project_path, project_name)
     rel = os.path.relpath(str(video_path), project_path)
     return working_dir / rel / "03_subtitles" / f"{video_path.stem}.en.srt"
+
+
+def prune_workdir_after_reset(
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    keep_through: str,
+) -> list[str]:
+    """Remove later working-dir stages after a reset.
+
+    Generated subtitles (``03_subtitles``) are kept unless ``keep_through`` is
+    ``start``. The mixed ``.dubbed`` file is always removed because the video
+    itself is reverted on every reset.
+    """
+    working_root = get_project_working_dir(project_path, project_name)
+    rel = os.path.relpath(str(video_path), project_path)
+    per_video = working_root / rel
+    removed: list[str] = []
+
+    if keep_through == "start":
+        dirs_to_clear = [dirname for _, dirname in _WORKDIR_STAGES]
+    elif keep_through == "mix":
+        dirs_to_clear = []
+    else:
+        keep_ids = [stage_id for stage_id, _ in _WORKDIR_STAGES]
+        try:
+            keep_idx = keep_ids.index(keep_through)
+        except ValueError:
+            keep_idx = -1
+        dirs_to_clear = []
+        for index, (stage_id, dirname) in enumerate(_WORKDIR_STAGES):
+            if index <= keep_idx:
+                continue
+            if stage_id == "subtitles":
+                continue
+            dirs_to_clear.append(dirname)
+
+    for dirname in dirs_to_clear:
+        stage_dir = per_video / dirname
+        if stage_dir.is_dir():
+            shutil.rmtree(stage_dir)
+            removed.append(str(stage_dir))
+
+    dubbed = per_video / f"{video_path.stem}.dubbed{video_path.suffix}"
+    if dubbed.is_file():
+        dubbed.unlink()
+        removed.append(str(dubbed))
+
+    return removed
 
 
 def probe_audio_streams(video_path: Path) -> list[dict]:
@@ -321,8 +391,20 @@ def reset_dubbed_video(
     project_name: str,
     target_language: str,
     source_language: str | None = None,
+    reset_to: str = "start",
 ) -> dict:
-    """Delete generated target-language subtitles and strip the dubbed audio track."""
+    """Revert the dubbed video and optionally prune pipeline artefacts.
+
+    The original file always has the dubbed audio track stripped. Generated
+    subtitles are deleted only when ``reset_to`` is ``start``.
+    """
+    keep_through = (reset_to or "start").strip().lower()
+    if keep_through not in RESET_TO_STAGES:
+        raise DubResetError(
+            f"Unknown reset stage {reset_to!r}. "
+            f"Expected one of: {', '.join(RESET_TO_STAGES)}"
+        )
+
     video_path = Path(video_record["file_path"])
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found: {video_path}")
@@ -356,23 +438,25 @@ def reset_dubbed_video(
     identify_dubbed_stream_index(disk_streams, target_language, source_language)
 
     deleted: list[str] = []
-    for sub_path in find_generated_subtitle_paths(video_path, target_language):
-        try:
-            sub_path.unlink()
-            deleted.append(str(sub_path))
-            db.delete_subtitle_file(project_id, str(sub_path))
-        except OSError as exc:
-            log.warning("Could not delete subtitle %s: %s", sub_path, exc)
+    delete_subtitles = keep_through == "start"
+    if delete_subtitles:
+        for sub_path in find_generated_subtitle_paths(video_path, target_language):
+            try:
+                sub_path.unlink()
+                deleted.append(str(sub_path))
+                db.delete_subtitle_file(project_id, str(sub_path))
+            except OSError as exc:
+                log.warning("Could not delete subtitle %s: %s", sub_path, exc)
 
-    working_srt = working_dir_subtitle_path(video_path, project_path, project_name)
-    if working_srt.exists():
-        try:
-            working_srt.unlink()
-            deleted.append(str(working_srt))
-        except OSError as exc:
-            log.warning(
-                "Could not delete working-dir subtitle %s: %s", working_srt, exc
-            )
+        working_srt = working_dir_subtitle_path(video_path, project_path, project_name)
+        if working_srt.exists():
+            try:
+                working_srt.unlink()
+                deleted.append(str(working_srt))
+            except OSError as exc:
+                log.warning(
+                    "Could not delete working-dir subtitle %s: %s", working_srt, exc
+                )
 
     backup_path = backup_video_before_reset(video_path, project_path, project_name)
 
@@ -385,7 +469,13 @@ def reset_dubbed_video(
     except Exception as exc:
         raise DubResetError(f"Dub removal failed: {exc}") from exc
 
+    prune_workdir_after_reset(
+        video_path, project_path, project_name, keep_through
+    )
+    # Drop replacement backups / leftover mixed output so the video is no longer
+    # treated as finalized. The on-disk video was already remuxed without the dub.
     clear_finalization_artifacts(video_path, project_path, project_name)
+
     sync_video_metadata(db, project_id, str(video_path))
 
     records = db.get_video_analysis(project_id)
@@ -395,8 +485,10 @@ def reset_dubbed_video(
     return {
         "status": "reset",
         "path": str(video_path),
+        "reset_to": keep_through,
         "removed_audio_track": True,
         "removed_stream_index": removed_index,
         "backup_path": str(backup_path),
-        "deleted_subtitles": deleted,
+        "deleted_subtitles": deleted if delete_subtitles else [],
+        "kept_subtitles": not delete_subtitles,
     }

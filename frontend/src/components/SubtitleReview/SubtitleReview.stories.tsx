@@ -86,6 +86,9 @@ export const Default: Story = {
     data: sample,
     loading: false,
     error: null,
+    onSaveCue: async (index, text) => {
+      console.log('save cue', index, text);
+    },
   },
 };
 

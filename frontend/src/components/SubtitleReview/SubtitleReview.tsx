@@ -22,6 +22,8 @@ interface SubtitleReviewProps {
   error: string | null;
   selectedSrtPath?: string | null;
   onSrtPathChange?: (path: string) => void;
+  onSaveCue?: (index: number, text: string) => Promise<void>;
+  savingCueIndex?: number | null;
 }
 
 export const SubtitleReview = ({
@@ -33,34 +35,43 @@ export const SubtitleReview = ({
   error,
   selectedSrtPath,
   onSrtPathChange,
+  onSaveCue,
+  savingCueIndex = null,
 }: SubtitleReviewProps) => {
   const [minDuration, setMinDuration] = useState(0);
   const [maxDuration, setMaxDuration] = useState(0);
   const [playing, setPlaying] = useState<{ index: number; kind: 'orig' | 'dub' } | null>(null);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draftText, setDraftText] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const origAudio = useRef<HTMLAudioElement | null>(null);
   const ttsAudio = useRef<HTMLAudioElement | null>(null);
   const stopAtRef = useRef<number | null>(null);
   const lastChunkUrl = useRef('');
+  const draftRef = useRef('');
+  const committingRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen) {
       origAudio.current?.pause();
       ttsAudio.current?.pause();
       setPlaying(null);
+      setEditingIndex(null);
+      setSaveError(null);
     }
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
+      if (event.key !== 'Escape') return;
+      if (editingIndex !== null) return;
+      event.preventDefault();
+      onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, editingIndex]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -140,6 +151,43 @@ export const SubtitleReview = ({
       await audio.play();
     } catch {
       setPlaying(null);
+    }
+  };
+
+  const beginEdit = (segment: SubtitleReviewSegment) => {
+    if (!onSaveCue) return;
+    setEditingIndex(segment.index);
+    setDraftText(segment.text);
+    draftRef.current = segment.text;
+    setSaveError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setDraftText('');
+    setSaveError(null);
+  };
+
+  const commitEdit = async (segment: SubtitleReviewSegment) => {
+    if (!onSaveCue || editingIndex !== segment.index || committingRef.current) return;
+    const next = draftRef.current.trim();
+    if (!next) {
+      setSaveError('Cue text cannot be empty');
+      return;
+    }
+    if (next === segment.text) {
+      cancelEdit();
+      return;
+    }
+    committingRef.current = true;
+    try {
+      await onSaveCue(segment.index, next);
+      cancelEdit();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setSaveError(detail || (err instanceof Error ? err.message : 'Failed to save cue'));
+    } finally {
+      committingRef.current = false;
     }
   };
 
@@ -311,10 +359,46 @@ export const SubtitleReview = ({
                   ) : (
                     <span className={styles.cueWarningSpacer} aria-hidden="true" />
                   )}
-                  <p className={styles.cueText}>
+                  <div className={styles.cueText}>
                     <span className={styles.cueTime}>{formatTime(segment.start)}</span>
-                    {segment.text}
-                  </p>
+                    {editingIndex === segment.index ? (
+                      <textarea
+                        className={styles.cueEditor}
+                        value={draftText}
+                        autoFocus
+                        disabled={savingCueIndex === segment.index}
+                        aria-label={`Edit cue ${segment.index + 1}`}
+                        onChange={(event) => {
+                          setDraftText(event.target.value);
+                          draftRef.current = event.target.value;
+                        }}
+                        onBlur={() => void commitEdit(segment)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            cancelEdit();
+                          }
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            void commitEdit(segment);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className={onSaveCue ? styles.cueTextButton : styles.cueTextStatic}
+                        onClick={() => beginEdit(segment)}
+                        disabled={!onSaveCue}
+                      >
+                        {segment.text}
+                      </button>
+                    )}
+                  </div>
+                  {editingIndex === segment.index && saveError && (
+                    <p className={styles.cueSaveError} role="alert">{saveError}</p>
+                  )}
                 </div>
                 {hasTts && (
                   <div className={styles.cueActions}>
