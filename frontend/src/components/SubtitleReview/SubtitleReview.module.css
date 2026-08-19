@@ -179,6 +179,17 @@
   color: var(--color-text-tertiary);
 }
 
+.ruleLabel {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-warning);
+}
+
+.fileLevelNote {
+  margin: 8px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
 .warningIndicator:hover .warningTooltip,
 .warningIndicator:focus-visible .warningTooltip {
   visibility: visible;
@@ -234,18 +245,28 @@
 }
 
 .cueWarningSpacer {
-  width: 4px;
+  width: 20px;
   flex-shrink: 0;
 }
 
 .cueWarningBar {
-  width: 4px;
+  width: 20px;
   flex-shrink: 0;
   align-self: stretch;
   background: var(--color-warning);
   border-radius: 2px;
   position: relative;
   cursor: help;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cueRuleCount {
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: white;
+  line-height: 1;
 }
 
 .cueWarningTooltip {

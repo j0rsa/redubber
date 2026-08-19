@@ -27,6 +27,28 @@ class SubtitleReviewHallucinationWarning(BaseModel):
     )
 
 
+class SubtitleQualityRule(BaseModel):
+    """A registered subtitle quality heuristic."""
+
+    id: str = Field(..., description="Stable rule identifier")
+    label: str = Field(..., description="Short label for UI display")
+    scope: str = Field(
+        ...,
+        description="cue — applies to individual lines; file — whole subtitle file",
+    )
+
+
+class SubtitleQualityBreach(BaseModel):
+    """One rule violation detected in subtitle text."""
+
+    rule_id: str = Field(..., description="Rule that was breached")
+    message: str = Field(..., description="Human-readable explanation")
+    segment_index: int | None = Field(
+        default=None,
+        description="0-based cue index when the breach applies to one cue",
+    )
+
+
 class SubtitleReviewOriginalAudio(BaseModel):
     """How to seek and play a cue from a source audio chunk."""
 
@@ -56,6 +78,14 @@ class SubtitleReviewSegment(BaseModel):
         default=None,
         description="URL of the matching TTS segment, if generated",
     )
+    breached_rule_count: int = Field(
+        default=0,
+        description="Number of distinct quality rules breached by this cue",
+    )
+    breached_rules: list[str] = Field(
+        default_factory=list,
+        description="Rule ids breached by this cue",
+    )
 
 
 class SubtitleReviewResponse(BaseModel):
@@ -80,4 +110,12 @@ class SubtitleReviewResponse(BaseModel):
     hallucination_warnings: list[SubtitleReviewHallucinationWarning] = Field(
         default_factory=list,
         description="STT-quality warnings found in the loaded subtitle text",
+    )
+    quality_rules: list[SubtitleQualityRule] = Field(
+        default_factory=list,
+        description="All registered subtitle quality rules",
+    )
+    quality_breaches: list[SubtitleQualityBreach] = Field(
+        default_factory=list,
+        description="All rule breaches detected in the loaded subtitle text",
     )

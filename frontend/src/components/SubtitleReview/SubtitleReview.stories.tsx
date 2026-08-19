@@ -11,6 +11,12 @@ const meta: Meta<typeof SubtitleReview> = {
 export default meta;
 type Story = StoryObj<typeof SubtitleReview>;
 
+const qualityRules = [
+  { id: 'known_hallucination_phrase', label: 'Known STT phrase', scope: 'cue' as const },
+  { id: 'excessive_cps', label: 'Text too dense', scope: 'cue' as const },
+  { id: 'shared_phrase_run', label: 'Shared phrase run', scope: 'cue' as const },
+];
+
 const sample: SubtitleReviewData = {
   video_id: 1,
   filename: 'lesson.mp4',
@@ -23,6 +29,8 @@ const sample: SubtitleReviewData = {
   has_chunks: true,
   has_tts: true,
   hallucination_warnings: [],
+  quality_rules: qualityRules,
+  quality_breaches: [],
   segments: [
     {
       index: 0,
@@ -32,6 +40,8 @@ const sample: SubtitleReviewData = {
       text: 'Welcome to this lesson on the structure of the chest area.',
       original: { chunk_url: '/orig/0', chunk_name: 'lesson_001.m4a', seek_start: 0, seek_end: 4.2 },
       tts_url: '/tts/0',
+      breached_rule_count: 0,
+      breached_rules: [],
     },
     {
       index: 1,
@@ -41,6 +51,8 @@ const sample: SubtitleReviewData = {
       text: 'Today we will look at the ribs, the sternum, and how they protect the organs inside.',
       original: { chunk_url: '/orig/0', chunk_name: 'lesson_001.m4a', seek_start: 4.5, seek_end: 9.1 },
       tts_url: '/tts/1',
+      breached_rule_count: 0,
+      breached_rules: [],
     },
     {
       index: 2,
@@ -50,6 +62,8 @@ const sample: SubtitleReviewData = {
       text: 'Let us begin.',
       original: { chunk_url: '/orig/0', chunk_name: 'lesson_001.m4a', seek_start: 9.4, seek_end: 11.0 },
       tts_url: null,
+      breached_rule_count: 0,
+      breached_rules: [],
     },
     {
       index: 3,
@@ -59,6 +73,8 @@ const sample: SubtitleReviewData = {
       text: 'Pay attention to this long explanation of how the diaphragm moves during breathing and why that matters for the next chapter.',
       original: { chunk_url: '/orig/0', chunk_name: 'lesson_001.m4a', seek_start: 12, seek_end: 28.5 },
       tts_url: '/tts/3',
+      breached_rule_count: 0,
+      breached_rules: [],
     },
   ],
 };
@@ -121,6 +137,19 @@ export const WithHallucinationWarnings: Story = {
     onClose: () => console.log('close'),
     data: {
       ...sample,
+      quality_rules: qualityRules,
+      quality_breaches: [
+        {
+          rule_id: 'known_hallucination_phrase',
+          message: "contains common STT hallucination phrase(s): 'thank you for watching'",
+          segment_index: 3,
+        },
+        {
+          rule_id: 'excessive_cps',
+          message: '45.0 chars/s (>40.0) — text too dense for duration',
+          segment_index: 3,
+        },
+      ],
       hallucination_warnings: [
         {
           code: 'known_hallucination_phrase',
@@ -129,10 +158,19 @@ export const WithHallucinationWarnings: Story = {
         },
         {
           code: 'excessive_cps',
-          message: '28.5 chars/s (>40.0) — text too dense for duration',
+          message: '45.0 chars/s (>40.0) — text too dense for duration',
           segment_index: 3,
         },
       ],
+      segments: sample.segments.map((segment) =>
+        segment.index === 3
+          ? {
+              ...segment,
+              breached_rule_count: 2,
+              breached_rules: ['known_hallucination_phrase', 'excessive_cps'],
+            }
+          : segment,
+      ),
     },
     loading: false,
     error: null,

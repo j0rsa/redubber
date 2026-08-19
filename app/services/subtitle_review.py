@@ -15,21 +15,10 @@ from app.schemas.subtitle_review import (
     SubtitleReviewResponse,
     SubtitleReviewSegment,
 )
-from stt_hallucination import (
-    MIN_CONSECUTIVE_DUPLICATE_SEGMENTS,
-    MIN_PHRASE_REPEAT_COUNT,
-    _check_character_spam,
-    _check_dominant_word,
-    _check_intra_cue_numbered_list,
-    _check_known_phrases,
-    _check_near_duplicate_run,
-    _check_numbered_enumeration_loop,
-    _check_phrase_spam_in_cue,
-    _check_shared_phrase_run,
-    _check_segment_density,
-    _check_transcript_density,
-    _find_repeated_phrase,
-    _normalize_text,
+from app.services.subtitle_quality_rules import (
+    analyze_subtitle_quality,
+    breaches_for_segment,
+    unique_rule_ids,
 )
 from utils import convert_to_three_char_lang_code, detect_subtitle_language
 
@@ -215,170 +204,6 @@ def resolve_review_srt(
     return Path(options[0].path)
 
 
-def _finding_to_warning(
-    finding_code: str,
-    message: str,
-    segment_index: int | None,
-) -> SubtitleReviewHallucinationWarning:
-    return SubtitleReviewHallucinationWarning(
-        code=finding_code,
-        message=message,
-        segment_index=segment_index,
-    )
-
-
-def _duplicate_run_warnings(
-    segments: list,
-) -> list[SubtitleReviewHallucinationWarning]:
-    """Flag every cue in a run of consecutive identical subtitles."""
-    if len(segments) < MIN_CONSECUTIVE_DUPLICATE_SEGMENTS:
-        return []
-
-    warnings: list[SubtitleReviewHallucinationWarning] = []
-    run_text = ""
-    run_len = 0
-    run_indices: list[int] = []
-
-    def flush_run() -> None:
-        nonlocal run_len, run_text, run_indices
-        if run_len >= MIN_CONSECUTIVE_DUPLICATE_SEGMENTS and run_text:
-            preview = run_text[:60] + ("…" if len(run_text) > 60 else "")
-            message = (
-                f"{run_len} consecutive segments repeat the same text: {preview!r}"
-            )
-            for index in run_indices:
-                warnings.append(
-                    _finding_to_warning(
-                        "consecutive_duplicate_segments",
-                        message,
-                        index,
-                    )
-                )
-        run_len = 0
-        run_text = ""
-        run_indices = []
-
-    for index, segment in enumerate(segments):
-        normalized = _normalize_text(segment.text or "")
-        if not normalized:
-            flush_run()
-            continue
-        if normalized == run_text:
-            run_len += 1
-            run_indices.append(index)
-        else:
-            flush_run()
-            run_text = normalized
-            run_len = 1
-            run_indices = [index]
-    flush_run()
-    return warnings
-
-
-def analyze_srt_hallucinations(
-    cues: list[tuple[float, float, str]],
-    *,
-    source_label: str = "",
-) -> list[SubtitleReviewHallucinationWarning]:
-    """Run STT quality heuristics and attach warnings to every affected cue."""
-    if not cues:
-        return []
-
-    try:
-        from openai.types.audio.transcription_segment import TranscriptionSegment
-    except ImportError:
-        return []
-
-    segments = [
-        TranscriptionSegment(
-            id=index,
-            seek=0,
-            start=start,
-            end=end,
-            text=text,
-            tokens=[],
-            temperature=0.0,
-            avg_logprob=-0.3,
-            compression_ratio=1.0,
-            no_speech_prob=0.0,
-        )
-        for index, (start, end, text) in enumerate(cues)
-    ]
-    audio_duration = max(end for _, end, _ in cues)
-    warnings: list[SubtitleReviewHallucinationWarning] = []
-
-    for index, segment in enumerate(segments):
-        text = segment.text or ""
-        for finding in _check_known_phrases(text, index, None):
-            warnings.append(
-                _finding_to_warning(finding.code, finding.message, index)
-            )
-        for finding in _check_intra_cue_numbered_list(text, index, None):
-            warnings.append(
-                _finding_to_warning(finding.code, finding.message, index)
-            )
-        for finding in _check_phrase_spam_in_cue(text, index, None):
-            warnings.append(
-                _finding_to_warning(finding.code, finding.message, index)
-            )
-        for finding in _check_character_spam(text, index, None):
-            warnings.append(
-                _finding_to_warning(finding.code, finding.message, index)
-            )
-        for finding in _check_segment_density(segment, index, None):
-            warnings.append(
-                _finding_to_warning(finding.code, finding.message, index)
-            )
-
-        repeated = _find_repeated_phrase(text)
-        if repeated:
-            warnings.append(
-                _finding_to_warning(
-                    "repeated_phrase_loop",
-                    (
-                        f"phrase {repeated!r} repeats {MIN_PHRASE_REPEAT_COUNT}+ "
-                        f"times in this cue"
-                    ),
-                    index,
-                )
-            )
-
-    warnings.extend(_duplicate_run_warnings(segments))
-
-    for finding in _check_numbered_enumeration_loop(segments, None):
-        warnings.append(
-            _finding_to_warning(finding.code, finding.message, finding.segment_index)
-        )
-    for finding in _check_near_duplicate_run(segments, None):
-        warnings.append(
-            _finding_to_warning(finding.code, finding.message, finding.segment_index)
-        )
-    for finding in _check_shared_phrase_run(segments, None):
-        warnings.append(
-            _finding_to_warning(finding.code, finding.message, finding.segment_index)
-        )
-
-    for finding in _check_dominant_word(segments, None):
-        warnings.append(
-            _finding_to_warning(finding.code, finding.message, None)
-        )
-    for finding in _check_transcript_density(segments, audio_duration, None):
-        warnings.append(
-            _finding_to_warning(finding.code, finding.message, None)
-        )
-
-    deduped: list[SubtitleReviewHallucinationWarning] = []
-    seen: set[tuple[str, int | None, str]] = set()
-    for warning in warnings:
-        key = (warning.code, warning.segment_index, warning.message)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(warning)
-
-    return deduped
-
-
 def list_audio_files(directory: Path, prefix: str | None = None) -> list[Path]:
     if not directory.is_dir():
         return []
@@ -462,10 +287,16 @@ def build_subtitle_review(
     except OSError as exc:
         raise SubtitleReviewError(f"Could not read subtitle file: {exc}") from exc
 
-    hallucination_warnings = analyze_srt_hallucinations(
-        cues,
-        source_label=selected.name,
-    )
+    quality = analyze_subtitle_quality(cues)
+    quality_breaches = list(quality.breaches)
+    hallucination_warnings = [
+        SubtitleReviewHallucinationWarning(
+            code=breach.rule_id,
+            message=breach.message,
+            segment_index=breach.segment_index,
+        )
+        for breach in quality_breaches
+    ]
 
     dirs = artefact_dirs(video_path, project_path, project_name)
     timeline = build_chunk_timeline(dirs["chunks"], video_path.stem)
@@ -503,6 +334,9 @@ def build_subtitle_review(
                 f"/subtitle-review/tts/{index}"
             )
 
+        segment_breaches = breaches_for_segment(quality_breaches, index)
+        segment_rule_ids = unique_rule_ids(segment_breaches)
+
         segments.append(
             SubtitleReviewSegment(
                 index=index,
@@ -512,6 +346,8 @@ def build_subtitle_review(
                 text=text,
                 original=original,
                 tts_url=tts_url,
+                breached_rule_count=len(segment_rule_ids),
+                breached_rules=segment_rule_ids,
             )
         )
 
@@ -526,4 +362,6 @@ def build_subtitle_review(
         has_chunks=bool(timeline),
         has_tts=any_tts,
         hallucination_warnings=hallucination_warnings,
+        quality_rules=list(quality.rules),
+        quality_breaches=quality_breaches,
     )
