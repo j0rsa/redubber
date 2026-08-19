@@ -5,6 +5,28 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class SubtitleReviewFileOption(BaseModel):
+    """One subtitle file available for review."""
+
+    path: str = Field(..., description="Absolute path to the subtitle file")
+    label: str = Field(..., description="Short display label (usually the filename)")
+    source: str = Field(
+        ...,
+        description="Where the file lives: generated, sidecar, or working_dir",
+    )
+
+
+class SubtitleReviewHallucinationWarning(BaseModel):
+    """One STT-quality warning detected in subtitle text."""
+
+    code: str = Field(..., description="Heuristic code, e.g. known_hallucination_phrase")
+    message: str = Field(..., description="Human-readable explanation")
+    segment_index: int | None = Field(
+        default=None,
+        description="0-based cue index when the warning applies to one cue",
+    )
+
+
 class SubtitleReviewOriginalAudio(BaseModel):
     """How to seek and play a cue from a source audio chunk."""
 
@@ -42,6 +64,10 @@ class SubtitleReviewResponse(BaseModel):
     video_id: int
     filename: str
     srt_path: str
+    available_files: list[SubtitleReviewFileOption] = Field(
+        default_factory=list,
+        description="All subtitle files detected for this video",
+    )
     segments: list[SubtitleReviewSegment]
     total: int
     returned: int
@@ -50,4 +76,8 @@ class SubtitleReviewResponse(BaseModel):
     )
     has_tts: bool = Field(
         default=False, description="True if any TTS segment files are available"
+    )
+    hallucination_warnings: list[SubtitleReviewHallucinationWarning] = Field(
+        default_factory=list,
+        description="STT-quality warnings found in the loaded subtitle text",
     )

@@ -120,7 +120,16 @@ export const ProjectDetail = () => {
   const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
   const [reviewVideoId, setReviewVideoId] = useState<number | null>(null);
-  const subtitleReview = useSubtitleReview({ projectId, videoId: reviewVideoId });
+  const [reviewSrtPath, setReviewSrtPath] = useState<string | null>(null);
+  const subtitleReview = useSubtitleReview({
+    projectId,
+    videoId: reviewVideoId,
+    srtPath: reviewSrtPath,
+  });
+
+  useEffect(() => {
+    setReviewSrtPath(null);
+  }, [reviewVideoId]);
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
   const [resetDubError, setResetDubError] = useState<string | null>(null);
@@ -556,6 +565,8 @@ export const ProjectDetail = () => {
             data={subtitleReview.data}
             loading={subtitleReview.loading}
             error={subtitleReview.error}
+            selectedSrtPath={reviewSrtPath}
+            onSrtPathChange={setReviewSrtPath}
           />
         )}
       </div>

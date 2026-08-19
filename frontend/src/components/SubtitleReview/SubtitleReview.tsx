@@ -20,6 +20,8 @@ interface SubtitleReviewProps {
   data: SubtitleReviewData | null;
   loading: boolean;
   error: string | null;
+  selectedSrtPath?: string | null;
+  onSrtPathChange?: (path: string) => void;
 }
 
 export const SubtitleReview = ({
@@ -29,6 +31,8 @@ export const SubtitleReview = ({
   data,
   loading,
   error,
+  selectedSrtPath,
+  onSrtPathChange,
 }: SubtitleReviewProps) => {
   const [minDuration, setMinDuration] = useState(0);
   const [maxDuration, setMaxDuration] = useState(0);
@@ -45,6 +49,18 @@ export const SubtitleReview = ({
       setPlaying(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -133,6 +149,11 @@ export const SubtitleReview = ({
     return true;
   });
 
+  const availableFiles = data?.available_files ?? [];
+  const showFileSelector = availableFiles.length > 1;
+  const activeSrtPath = selectedSrtPath ?? data?.srt_path ?? '';
+  const warnings = data?.hallucination_warnings ?? [];
+
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Subtitle review">
       <div className={styles.panel}>
@@ -141,7 +162,47 @@ export const SubtitleReview = ({
             <h2 className={styles.title}>Subtitles</h2>
             <p className={styles.filename}>{filename || data?.filename}</p>
           </div>
+          {showFileSelector && (
+            <label className={styles.fileSelector}>
+              <span className={styles.fileSelectorLabel}>file</span>
+              <select
+                className={styles.fileSelect}
+                value={activeSrtPath}
+                onChange={(e) => onSrtPathChange?.(e.target.value)}
+                aria-label="Select subtitle file"
+              >
+                {availableFiles.map((file) => (
+                  <option key={file.path} value={file.path}>
+                    {file.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className={styles.filters}>
+            {warnings.length > 0 && (
+              <span
+                className={styles.warningIndicator}
+                tabIndex={0}
+                aria-label={`${warnings.length} STT quality warning(s)`}
+              >
+                <span className={styles.warningIcon} aria-hidden="true">!</span>
+                <span className={styles.warningCount}>{warnings.length}</span>
+                <span className={styles.warningTooltip} role="tooltip">
+                  <strong>STT quality warnings</strong>
+                  <ul className={styles.warningList}>
+                    {warnings.map((warning, index) => (
+                      <li key={`${warning.code}-${warning.segment_index ?? index}`}>
+                        {warning.segment_index != null && (
+                          <span className={styles.warningCue}>#{warning.segment_index + 1}: </span>
+                        )}
+                        {warning.message}
+                      </li>
+                    ))}
+                  </ul>
+                </span>
+              </span>
+            )}
             <label className={styles.filterLabel}>
               min
               <input
@@ -187,10 +248,11 @@ export const SubtitleReview = ({
             const isOrig = playing?.index === segment.index && playing.kind === 'orig';
             const isDub = playing?.index === segment.index && playing.kind === 'dub';
             const hasTts = Boolean(segment.tts_url);
+            const hasWarning = warnings.some((w) => w.segment_index === segment.index);
             return (
               <div
                 key={segment.index}
-                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''}`}
+                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''} ${hasWarning ? styles.cueWarning : ''}`}
               >
                 <p className={styles.cueText}>
                   <span className={styles.cueTime}>{formatTime(segment.start)}</span>

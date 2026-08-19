@@ -9,10 +9,13 @@ from pathlib import Path
 
 from app.core.project_paths import get_project_working_dir
 from app.schemas.subtitle_review import (
+    SubtitleReviewFileOption,
+    SubtitleReviewHallucinationWarning,
     SubtitleReviewOriginalAudio,
     SubtitleReviewResponse,
     SubtitleReviewSegment,
 )
+from stt_hallucination import analyze_segments
 from utils import convert_to_three_char_lang_code, detect_subtitle_language
 
 SUBTITLE_EXTS = {".srt", ".vtt"}
@@ -97,35 +100,149 @@ def artefact_dirs(
     }
 
 
+def _sidecar_matches_video(candidate: Path, stem: str) -> bool:
+    if candidate.stem == stem:
+        return True
+    return candidate.stem.startswith(stem + ".")
+
+
+def _file_option(path: Path, source: str) -> SubtitleReviewFileOption:
+    return SubtitleReviewFileOption(
+        path=str(path.resolve()),
+        label=path.name,
+        source=source,
+    )
+
+
+def list_review_srts(
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+) -> list[SubtitleReviewFileOption]:
+    """Return all subtitle files available for review, preferred order first."""
+    dirs = artefact_dirs(video_path, project_path, project_name)
+    stem = video_path.stem
+    seen: set[str] = set()
+    options: list[SubtitleReviewFileOption] = []
+
+    def add(path: Path, source: str) -> None:
+        key = str(path.resolve())
+        if not path.is_file() or key in seen:
+            return
+        seen.add(key)
+        options.append(_file_option(path, source))
+
+    add(dirs["subtitles"] / f"{stem}.en.srt", "generated")
+    add(video_path.parent / f"{stem}.en.srt", "sidecar")
+
+    subtitles_dir = dirs["subtitles"]
+    if subtitles_dir.is_dir():
+        for candidate in sorted(subtitles_dir.iterdir()):
+            if candidate.is_file() and candidate.suffix.lower() in SUBTITLE_EXTS:
+                if _sidecar_matches_video(candidate, stem):
+                    add(candidate, "working_dir")
+
+    if video_path.parent.is_dir():
+        for candidate in sorted(video_path.parent.iterdir()):
+            if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
+                continue
+            if not _sidecar_matches_video(candidate, stem):
+                continue
+            add(candidate, "sidecar")
+
+    target = _norm_lang(target_language)
+    if target and video_path.parent.is_dir():
+        for candidate in sorted(video_path.parent.iterdir()):
+            if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
+                continue
+            if not _sidecar_matches_video(candidate, stem):
+                continue
+            detected = detect_subtitle_language(candidate)
+            if detected and _norm_lang(detected) == target:
+                add(candidate, "sidecar")
+
+    return options
+
+
 def find_review_srt(
     video_path: Path,
     project_path: str,
     project_name: str,
     target_language: str,
 ) -> Path | None:
-    """Locate the generated subtitle: working-dir copy first, then sidecar."""
-    dirs = artefact_dirs(video_path, project_path, project_name)
-    stem = video_path.stem
-    candidates = [
-        dirs["subtitles"] / f"{stem}.en.srt",
-        video_path.parent / f"{stem}.en.srt",
-    ]
-    for path in candidates:
-        if path.is_file():
-            return path
-
-    target = _norm_lang(target_language)
-    if not target or not video_path.parent.is_dir():
+    """Locate the default generated subtitle: working-dir copy first, then sidecar."""
+    options = list_review_srts(video_path, project_path, project_name, target_language)
+    if not options:
         return None
-    for candidate in sorted(video_path.parent.iterdir()):
-        if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
-            continue
-        if candidate.stem != stem and not candidate.stem.startswith(stem + "."):
-            continue
-        detected = detect_subtitle_language(candidate)
-        if detected and _norm_lang(detected) == target:
-            return candidate
-    return None
+    return Path(options[0].path)
+
+
+def resolve_review_srt(
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+    srt_path: str | None = None,
+) -> Path:
+    """Pick the subtitle file to review, validating an explicit path when given."""
+    options = list_review_srts(video_path, project_path, project_name, target_language)
+    if not options:
+        raise SubtitleReviewError("No generated subtitle file found for this video")
+
+    allowed = {option.path for option in options}
+    if srt_path:
+        resolved = str(Path(srt_path).resolve())
+        if resolved not in allowed:
+            raise SubtitleReviewError("Requested subtitle file is not available for this video")
+        return Path(resolved)
+
+    return Path(options[0].path)
+
+
+def analyze_srt_hallucinations(
+    cues: list[tuple[float, float, str]],
+    *,
+    source_label: str = "",
+) -> list[SubtitleReviewHallucinationWarning]:
+    """Run text-based STT quality heuristics on parsed subtitle cues."""
+    if not cues:
+        return []
+
+    try:
+        from openai.types.audio.transcription_segment import TranscriptionSegment
+    except ImportError:
+        return []
+
+    segments = [
+        TranscriptionSegment(
+            id=index,
+            seek=0,
+            start=start,
+            end=end,
+            text=text,
+            tokens=[],
+            temperature=0.0,
+            avg_logprob=-0.3,
+            compression_ratio=1.0,
+            no_speech_prob=0.0,
+        )
+        for index, (start, end, text) in enumerate(cues)
+    ]
+    audio_duration = max(end for _, end, _ in cues)
+    report = analyze_segments(
+        segments,
+        audio_duration=audio_duration,
+        source_label=source_label,
+    )
+    return [
+        SubtitleReviewHallucinationWarning(
+            code=finding.code,
+            message=finding.message,
+            segment_index=finding.segment_index,
+        )
+        for finding in report.findings
+    ]
 
 
 def list_audio_files(directory: Path, prefix: str | None = None) -> list[Path]:
@@ -193,15 +310,28 @@ def build_subtitle_review(
     target_language: str,
     min_duration: float = 0.0,
     max_duration: float = 0.0,
+    srt_path: str | None = None,
 ) -> SubtitleReviewResponse:
-    srt_path = find_review_srt(video_path, project_path, project_name, target_language)
-    if srt_path is None:
-        raise SubtitleReviewError("No generated subtitle file found for this video")
+    available_files = list_review_srts(
+        video_path, project_path, project_name, target_language
+    )
+    selected = resolve_review_srt(
+        video_path,
+        project_path,
+        project_name,
+        target_language,
+        srt_path=srt_path,
+    )
 
     try:
-        cues = parse_srt(srt_path.read_text(encoding="utf-8", errors="replace"))
+        cues = parse_srt(selected.read_text(encoding="utf-8", errors="replace"))
     except OSError as exc:
         raise SubtitleReviewError(f"Could not read subtitle file: {exc}") from exc
+
+    hallucination_warnings = analyze_srt_hallucinations(
+        cues,
+        source_label=selected.name,
+    )
 
     dirs = artefact_dirs(video_path, project_path, project_name)
     timeline = build_chunk_timeline(dirs["chunks"], video_path.stem)
@@ -254,10 +384,12 @@ def build_subtitle_review(
     return SubtitleReviewResponse(
         video_id=video_id,
         filename=filename,
-        srt_path=str(srt_path),
+        srt_path=str(selected),
+        available_files=available_files,
         segments=segments,
         total=len(cues),
         returned=len(segments),
         has_chunks=bool(timeline),
         has_tts=any_tts,
+        hallucination_warnings=hallucination_warnings,
     )

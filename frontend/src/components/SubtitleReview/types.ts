@@ -5,6 +5,18 @@ export interface SubtitleReviewOriginal {
   seek_end: number;
 }
 
+export interface SubtitleReviewFileOption {
+  path: string;
+  label: string;
+  source: string;
+}
+
+export interface SubtitleReviewHallucinationWarning {
+  code: string;
+  message: string;
+  segment_index: number | null;
+}
+
 export interface SubtitleReviewSegment {
   index: number;
   start: number;
@@ -19,9 +31,11 @@ export interface SubtitleReviewData {
   video_id: number;
   filename: string;
   srt_path: string;
+  available_files: SubtitleReviewFileOption[];
   segments: SubtitleReviewSegment[];
   total: number;
   returned: number;
   has_chunks: boolean;
   has_tts: boolean;
+  hallucination_warnings: SubtitleReviewHallucinationWarning[];
 }

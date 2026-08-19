@@ -5,9 +5,14 @@ import type { SubtitleReviewData } from '../components/SubtitleReview/types';
 interface UseSubtitleReviewOptions {
   projectId: number | null;
   videoId: number | null;
+  srtPath?: string | null;
 }
 
-export const useSubtitleReview = ({ projectId, videoId }: UseSubtitleReviewOptions) => {
+export const useSubtitleReview = ({
+  projectId,
+  videoId,
+  srtPath = null,
+}: UseSubtitleReviewOptions) => {
   const [data, setData] = useState<SubtitleReviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,8 +22,13 @@ export const useSubtitleReview = ({ projectId, videoId }: UseSubtitleReviewOptio
     setLoading(true);
     setError(null);
     try {
+      const params: Record<string, string> = {};
+      if (srtPath) {
+        params.srt_path = srtPath;
+      }
       const { data: body } = await apiClient.get<SubtitleReviewData>(
         `/projects/${projectId}/videos/${videoId}/subtitle-review`,
+        { params },
       );
       setData(body);
     } catch (err) {
@@ -29,7 +39,7 @@ export const useSubtitleReview = ({ projectId, videoId }: UseSubtitleReviewOptio
     } finally {
       setLoading(false);
     }
-  }, [projectId, videoId]);
+  }, [projectId, videoId, srtPath]);
 
   useEffect(() => {
     if (!projectId || !videoId) {

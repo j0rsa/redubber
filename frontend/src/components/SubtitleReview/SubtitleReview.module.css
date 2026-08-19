@@ -51,6 +51,31 @@
   white-space: nowrap;
 }
 
+.fileSelector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fileSelectorLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.fileSelect {
+  max-width: 180px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
 .filters {
   display: flex;
   align-items: center;
@@ -82,6 +107,82 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
+}
+
+.warningIndicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.warningIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  color: white;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+}
+
+.warningCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+  font-weight: var(--font-weight-semibold);
+}
+
+.warningTooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  min-width: 280px;
+  max-width: 420px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-warning);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  text-align: left;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.warningTooltip strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-warning);
+}
+
+.warningList {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.warningList li {
+  margin-bottom: 4px;
+  line-height: 1.35;
+}
+
+.warningCue {
+  font-family: var(--font-family-mono);
+  color: var(--color-text-tertiary);
+}
+
+.warningIndicator:hover .warningTooltip,
+.warningIndicator:focus-visible .warningTooltip {
+  visibility: visible;
+  opacity: 1;
 }
 
 .close {
@@ -130,6 +231,11 @@
   margin: 0 -8px;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+.cueWarning {
+  border-left: 3px solid var(--color-warning);
+  padding-left: 5px;
 }
 
 .cueText {
