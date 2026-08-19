@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { fireEvent, within } from 'storybook/test';
 import { ProjectCreation } from './ProjectCreation';
 import type { FileNode } from './FileBrowser';
 
@@ -285,35 +286,18 @@ export const WithoutCancelButton: Story = {
   },
 };
 
-// Fuzzy search results (flat list with full paths)
-export const FolderSearchResults: Story = {
+// Fuzzy filter within current directory (type "tut" in the filter box)
+export const FolderFilter: Story = {
   args: {
-    initialPath: '/Users/john',
-    nodes: [
-      { name: 'Tutorials', path: '/Users/john/Videos/Tutorials', type: 'directory' },
-      { name: 'Meetings', path: '/Users/john/Videos/Meetings', type: 'directory' },
-      { name: 'Webinars', path: '/Users/john/Videos/Webinars', type: 'directory' },
-    ],
-    searchQuery: 'vid',
-    isSearchMode: true,
-    onSearchQueryChange: (query) => console.log('Search:', query),
+    initialPath: '/Users/john/Videos',
+    nodes: videosDirectoryNodes,
     onLoadDirectory: (path) => console.log('Load directory:', path),
     onCreateProject: (path, name) => console.log('Create project:', { path, name }),
     onCancel: () => console.log('Cancel clicked'),
   },
-};
-
-// Search in progress
-export const FolderSearchLoading: Story = {
-  args: {
-    initialPath: '/Users/john',
-    nodes: [],
-    searchQuery: 'tutorial',
-    isSearchMode: true,
-    isSearching: true,
-    onSearchQueryChange: (query) => console.log('Search:', query),
-    onLoadDirectory: (path) => console.log('Load directory:', path),
-    onCreateProject: (path, name) => console.log('Create project:', { path, name }),
-    onCancel: () => console.log('Cancel clicked'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByLabelText('Filter folders in this directory');
+    await fireEvent.change(input, { target: { value: 'tut' } });
   },
 };

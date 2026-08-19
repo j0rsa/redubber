@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { FileBrowser, type FileNode } from './FileBrowser';
+import { fuzzyMatchFilter } from '../utils/fuzzyMatch';
 import styles from './ProjectCreation.module.css';
 
 interface ProjectCreationProps {
@@ -9,10 +10,6 @@ interface ProjectCreationProps {
   onCreateProject: (path: string, name: string) => void;
   onCancel?: () => void;
   isLoading?: boolean;
-  isSearching?: boolean;
-  searchQuery?: string;
-  onSearchQueryChange?: (query: string) => void;
-  isSearchMode?: boolean;
 }
 
 export const ProjectCreation = ({
@@ -22,20 +19,25 @@ export const ProjectCreation = ({
   onCreateProject,
   onCancel,
   isLoading = false,
-  isSearching = false,
-  searchQuery = '',
-  onSearchQueryChange,
-  isSearchMode = false,
 }: ProjectCreationProps) => {
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [currentPath, setCurrentPath] = useState<string>(initialPath);
   const [projectName, setProjectName] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!isSearchMode) {
-      setCurrentPath(initialPath);
+    setCurrentPath(initialPath);
+  }, [initialPath]);
+
+  const isFiltering = searchQuery.trim().length > 0;
+
+  const visibleNodes = useMemo(() => {
+    const folders = nodes.filter((node) => node.type === 'directory');
+    if (!isFiltering) {
+      return nodes;
     }
-  }, [initialPath, isSearchMode]);
+    return fuzzyMatchFilter(folders, searchQuery, (node) => node.name);
+  }, [nodes, searchQuery, isFiltering]);
 
   const handleSelectPath = (path: string) => {
     setSelectedPath(path);
@@ -61,8 +63,6 @@ export const ProjectCreation = ({
 
   const canNavigateUp = currentPath !== '/';
   const canCreate = !!selectedPath && projectName.trim().length > 0;
-  const browserLoading = isLoading && !isSearchMode;
-  const showSearchSpinner = isSearching && searchQuery.trim().length > 0;
 
   return (
     <div className={styles.container}>
@@ -74,27 +74,22 @@ export const ProjectCreation = ({
         >
           ⬆ Up
         </button>
-        <span className={styles.currentPath}>
-          {isSearchMode ? `Search: "${searchQuery.trim()}"` : currentPath}
-        </span>
-        {onSearchQueryChange && (
-          <div className={styles.searchBox}>
-            <input
-              type="search"
-              className={styles.searchInput}
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder="Search folders…"
-              disabled={isLoading && !isSearchMode}
-              aria-label="Search folders"
-            />
-            {showSearchSpinner && <span className={styles.searchSpinner} aria-hidden="true" />}
-          </div>
-        )}
+        <span className={styles.currentPath}>{currentPath}</span>
+        <div className={styles.searchBox}>
+          <input
+            type="search"
+            className={styles.searchInput}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter folders…"
+            disabled={isLoading}
+            aria-label="Filter folders in this directory"
+          />
+        </div>
       </div>
 
       <div className={styles.browserWrapper}>
-        {browserLoading ? (
+        {isLoading ? (
           <div className={styles.loading}>
             <div className={styles.spinner} />
             <p>Loading…</p>
@@ -102,17 +97,12 @@ export const ProjectCreation = ({
         ) : (
           <FileBrowser
             rootPath={currentPath}
-            nodes={nodes}
+            nodes={visibleNodes}
             selectedPath={selectedPath}
             onSelectPath={handleSelectPath}
             onNavigate={handleNavigate}
-            searchMode={isSearchMode}
             emptyMessage={
-              isSearchMode
-                ? isSearching
-                  ? 'Searching…'
-                  : 'No matching folders found'
-                : 'No files or folders found'
+              isFiltering ? 'No matching folders in this directory' : 'No files or folders found'
             }
           />
         )}
@@ -122,7 +112,7 @@ export const ProjectCreation = ({
         <div className={styles.form}>
           <p className={styles.sidebarTitle}>Create Project</p>
           <p className={styles.sidebarHint}>
-            Browse or search for a folder, select it, then name your project and click Create.
+            Browse into a folder, filter subfolders by name, select one, then click Create.
           </p>
 
           <div className={styles.field}>

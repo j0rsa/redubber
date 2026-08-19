@@ -16,7 +16,6 @@ interface FileBrowserProps {
   selectedPath?: string;
   onSelectPath: (path: string) => void;
   onNavigate?: (path: string) => void;
-  searchMode?: boolean;
   emptyMessage?: string;
 }
 
@@ -26,7 +25,6 @@ export const FileBrowser = ({
   selectedPath,
   onSelectPath,
   onNavigate,
-  searchMode = false,
   emptyMessage = 'No files or folders found',
 }: FileBrowserProps) => {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set([rootPath]));
@@ -72,12 +70,7 @@ export const FileBrowser = ({
           <span className={styles.icon}>
             {isDirectory ? '📁' : '📄'}
           </span>
-          <span className={styles.nameBlock}>
-            <span className={styles.name}>{node.name}</span>
-            {searchMode && isDirectory && (
-              <span className={styles.path}>{node.path}</span>
-            )}
-          </span>
+          <span className={styles.name}>{node.name}</span>
           {!isDirectory && node.size !== undefined && (
             <span className={styles.size}>{formatSize(node.size)}</span>
           )}
