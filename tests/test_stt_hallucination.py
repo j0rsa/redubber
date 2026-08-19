@@ -76,6 +76,29 @@ class TestRepetitionAndLoops:
         report = analyze_segments(segments, audio_duration=9.0)
         assert any(f.code == "consecutive_duplicate_segments" for f in report.findings)
 
+    def test_numbered_enumeration_loop(self) -> None:
+        lines = [
+            "4. Not with the water like a fool.",
+            "5. Not with the water as a fool.",
+            "6. Stop with the water.",
+            "7. Not with the water as a fill.",
+        ]
+        segments = [_seg(text, start=i * 5, end=(i + 1) * 5) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=20.0)
+        numbered = [f for f in report.findings if f.code == "numbered_enumeration_loop"]
+        assert len(numbered) == 4
+        assert {f.segment_index for f in numbered} == {0, 1, 2, 3}
+
+    def test_near_duplicate_run(self) -> None:
+        lines = [
+            "Not with the water like a fool.",
+            "Not with the water as a fool.",
+            "Not with the water as a fill.",
+        ]
+        segments = [_seg(text, start=i * 4, end=(i + 1) * 4) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=12.0)
+        assert any(f.code == "near_duplicate_run" for f in report.findings)
+
     def test_phrase_loop_in_one_segment(self) -> None:
         text = " ".join(["hello there friend"] * 4)
         segments = [_seg(text, end=20.0)]
