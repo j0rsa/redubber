@@ -28,9 +28,30 @@ DOMINANT_WORD_RATIO = 0.38
 DOMINANT_WORD_MIN_TOKENS = 24
 CHAR_RUN_MIN = 8
 MIN_NEAR_DUPLICATE_SIMILARITY = 0.45
-MIN_SHARED_PHRASE_RUN = 5
-MIN_SHARED_PHRASE_WORDS = 3
+MIN_SHARED_PHRASE_RUN = 3
+MIN_SHARED_PHRASE_WORDS = 2
+MIN_INTRA_CUE_NUMBERED_ITEMS = 3
+MIN_PHRASE_SPAM_COUNT = 4
 _NUMBERED_LINE_RE = re.compile(r"^\d+\.\s*")
+_INTRA_NUMBERED_MARKER_RE = re.compile(r"\b\d+\.\s+")
+INSIGNIFICANT_SHARED_PHRASES = frozenset(
+    {
+        "thank you",
+        "in the",
+        "of the",
+        "to the",
+        "and the",
+        "for the",
+        "on the",
+        "at the",
+        "is a",
+        "was a",
+        "it is",
+        "i am",
+        "you are",
+        "we are",
+    }
+)
 
 # Common silence / tail hallucinations (case-insensitive substring match)
 KNOWN_HALLUCINATION_PHRASES: tuple[str, ...] = (
@@ -127,6 +148,29 @@ def _strip_leading_number(text: str) -> str:
     return _NUMBERED_LINE_RE.sub("", text.strip(), count=1)
 
 
+def _phrase_is_significant(phrase: list[str]) -> bool:
+    if len(phrase) >= 3:
+        return True
+    if len(phrase) == 2:
+        key = " ".join(phrase)
+        if key in INSIGNIFICANT_SHARED_PHRASES:
+            return False
+        return len(key) >= 8
+    return False
+
+
+def _labels_from_numbered_cue(text: str) -> list[str]:
+    markers = list(_INTRA_NUMBERED_MARKER_RE.finditer(text))
+    labels: list[str] = []
+    for index, marker in enumerate(markers):
+        start = marker.end()
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        label = _normalize_text(text[start:end])
+        if label:
+            labels.append(label)
+    return labels
+
+
 def _token_jaccard(left: str, right: str) -> float:
     left_tokens = set(_tokenize(left))
     right_tokens = set(_tokenize(right))
@@ -171,6 +215,10 @@ def _find_longest_shared_phrase(
                 if phrase in seen:
                     continue
                 seen.add(phrase)
+                if not _phrase_is_significant(list(phrase)):
+                    continue
+                if len(phrase) < min_words:
+                    continue
                 if all(_contains_word_sequence(item, list(phrase)) for item in texts):
                     if best is None or len(phrase) > len(best):
                         best = list(phrase)
@@ -219,6 +267,82 @@ def _check_shared_phrase_run(
             index += 1
 
     return findings
+
+
+def _check_intra_cue_numbered_list(
+    text: str, index: int, chunk_label: str | None
+) -> list[HallucinationFinding]:
+    """Flag one subtitle cue that packs many numbered list items (STT menu loops)."""
+    labels = _labels_from_numbered_cue(text)
+    if len(labels) < MIN_INTRA_CUE_NUMBERED_ITEMS:
+        return []
+
+    counts: dict[str, int] = {}
+    for label in labels:
+        counts[label] = counts.get(label, 0) + 1
+    top_label, top_count = max(counts.items(), key=lambda item: item[1])
+    if top_count >= MIN_INTRA_CUE_NUMBERED_ITEMS:
+        preview = top_label[:50] + ("…" if len(top_label) > 50 else "")
+        return [
+            HallucinationFinding(
+                code="intra_cue_numbered_list",
+                message=(
+                    f"{len(labels)} numbered list items in one cue, "
+                    f"mostly repeating {preview!r}"
+                ),
+                segment_index=index,
+                chunk_label=chunk_label,
+            )
+        ]
+
+    shared = _find_longest_shared_phrase(labels, 3)
+    if shared and len(labels) >= MIN_INTRA_CUE_NUMBERED_ITEMS:
+        return [
+            HallucinationFinding(
+                code="intra_cue_numbered_list",
+                message=(
+                    f"{len(labels)} numbered list items in one cue share wording "
+                    f"({' '.join(shared)!r})"
+                ),
+                segment_index=index,
+                chunk_label=chunk_label,
+            )
+        ]
+    return []
+
+
+def _check_phrase_spam_in_cue(
+    text: str, index: int, chunk_label: str | None
+) -> list[HallucinationFinding]:
+    """Flag a cue where the same word pair repeats many times (e.g. insert belly)."""
+    words = _tokenize(text)
+    if len(words) < MIN_PHRASE_SPAM_COUNT:
+        return []
+
+    bigram_counts: dict[tuple[str, str], int] = {}
+    for pos in range(len(words) - 1):
+        bigram = (words[pos], words[pos + 1])
+        bigram_counts[bigram] = bigram_counts.get(bigram, 0) + 1
+
+    best_bigram = max(bigram_counts, key=lambda key: bigram_counts[key])
+    best_count = bigram_counts[best_bigram]
+    if best_count < MIN_PHRASE_SPAM_COUNT:
+        return []
+    if not _phrase_is_significant(list(best_bigram)):
+        return []
+
+    phrase = " ".join(best_bigram)
+    return [
+        HallucinationFinding(
+            code="phrase_spam_in_cue",
+            message=(
+                f"phrase {phrase!r} repeats {best_count} times in this cue "
+                f"(>{MIN_PHRASE_SPAM_COUNT - 1})"
+            ),
+            segment_index=index,
+            chunk_label=chunk_label,
+        )
+    ]
 
 
 def _check_numbered_enumeration_loop(
@@ -587,6 +711,12 @@ def analyze_segments(
         )
         report.findings.extend(
             _check_known_phrases(text, index, chunk_label)
+        )
+        report.findings.extend(
+            _check_intra_cue_numbered_list(text, index, chunk_label)
+        )
+        report.findings.extend(
+            _check_phrase_spam_in_cue(text, index, chunk_label)
         )
 
     report.findings.extend(_check_consecutive_duplicate_segments(segments, chunk_label))

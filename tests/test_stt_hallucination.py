@@ -117,6 +117,29 @@ class TestRepetitionAndLoops:
         assert len(shared) == len(lines)
         assert {f.segment_index for f in shared} == set(range(len(lines)))
 
+    def test_intra_cue_numbered_menu_loop(self) -> None:
+        text = (
+            "11. Ginger Stir-Fried Pork 12. Ginger Stir-Fried Pork "
+            "13. Ginger Stir-Fried Pork 14. Ginger Stir-Fried Pork"
+        )
+        report = analyze_segments([_seg(text, end=20.0)], audio_duration=20.0)
+        assert any(f.code == "intra_cue_numbered_list" for f in report.findings)
+
+    def test_phrase_spam_in_cue(self) -> None:
+        text = "Insert belly " * 8
+        report = analyze_segments([_seg(text.strip(), end=10.0)], audio_duration=10.0)
+        assert any(f.code == "phrase_spam_in_cue" for f in report.findings)
+
+    def test_insert_belly_shared_phrase_run(self) -> None:
+        lines = [
+            "Insert belly insert belly insert belly.",
+            "Insert belly insert belly insert belly.",
+            "Insert belly insert belly insert belly.",
+        ]
+        segments = [_seg(text, start=i * 5, end=(i + 1) * 5) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=15.0)
+        assert any(f.code == "shared_phrase_run" for f in report.findings)
+
     def test_phrase_loop_in_one_segment(self) -> None:
         text = " ".join(["hello there friend"] * 4)
         segments = [_seg(text, end=20.0)]

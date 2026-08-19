@@ -185,6 +185,19 @@ class TestAnalyzeSrtHallucinations:
         assert len(shared) == 6
         assert {w.segment_index for w in shared} == {0, 1, 2, 3, 4, 5}
 
+    def test_marks_intra_cue_menu_hallucination(self) -> None:
+        text = (
+            "145. Ginger Stir-Fried Pork 146. Ginger Stir-Fried Pork "
+            "147. Ginger Stir-Fried Pork 148. Ginger Stir-Fried Pork"
+        )
+        warnings = analyze_srt_hallucinations([(250.0, 260.0, text)], source_label="test.srt")
+        assert any(w.code == "intra_cue_numbered_list" and w.segment_index == 0 for w in warnings)
+
+    def test_marks_insert_belly_spam(self) -> None:
+        text = "Insert belly " * 8
+        warnings = analyze_srt_hallucinations([(215.0, 225.0, text.strip())], source_label="test.srt")
+        assert any(w.code == "phrase_spam_in_cue" and w.segment_index == 0 for w in warnings)
+
 
 class TestBuildSubtitleReview:
     def test_maps_tts_and_chunks(self, tmp_path: Path) -> None:
