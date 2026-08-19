@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileBrowser, type FileNode } from './FileBrowser';
 import styles from './ProjectCreation.module.css';
 
@@ -9,6 +9,10 @@ interface ProjectCreationProps {
   onCreateProject: (path: string, name: string) => void;
   onCancel?: () => void;
   isLoading?: boolean;
+  isSearching?: boolean;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  isSearchMode?: boolean;
 }
 
 export const ProjectCreation = ({
@@ -18,10 +22,20 @@ export const ProjectCreation = ({
   onCreateProject,
   onCancel,
   isLoading = false,
+  isSearching = false,
+  searchQuery = '',
+  onSearchQueryChange,
+  isSearchMode = false,
 }: ProjectCreationProps) => {
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [currentPath, setCurrentPath] = useState<string>(initialPath);
   const [projectName, setProjectName] = useState<string>('');
+
+  useEffect(() => {
+    if (!isSearchMode) {
+      setCurrentPath(initialPath);
+    }
+  }, [initialPath, isSearchMode]);
 
   const handleSelectPath = (path: string) => {
     setSelectedPath(path);
@@ -47,10 +61,11 @@ export const ProjectCreation = ({
 
   const canNavigateUp = currentPath !== '/';
   const canCreate = !!selectedPath && projectName.trim().length > 0;
+  const browserLoading = isLoading && !isSearchMode;
+  const showSearchSpinner = isSearching && searchQuery.trim().length > 0;
 
   return (
     <div className={styles.container}>
-      {/* ── Breadcrumb — spans both columns ── */}
       <div className={styles.breadcrumb}>
         <button
           className={styles.breadcrumbButton}
@@ -59,12 +74,27 @@ export const ProjectCreation = ({
         >
           ⬆ Up
         </button>
-        <span className={styles.currentPath}>{currentPath}</span>
+        <span className={styles.currentPath}>
+          {isSearchMode ? `Search: "${searchQuery.trim()}"` : currentPath}
+        </span>
+        {onSearchQueryChange && (
+          <div className={styles.searchBox}>
+            <input
+              type="search"
+              className={styles.searchInput}
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              placeholder="Search folders…"
+              disabled={isLoading && !isSearchMode}
+              aria-label="Search folders"
+            />
+            {showSearchSpinner && <span className={styles.searchSpinner} aria-hidden="true" />}
+          </div>
+        )}
       </div>
 
-      {/* ── Left: file browser ── */}
       <div className={styles.browserWrapper}>
-        {isLoading ? (
+        {browserLoading ? (
           <div className={styles.loading}>
             <div className={styles.spinner} />
             <p>Loading…</p>
@@ -76,16 +106,23 @@ export const ProjectCreation = ({
             selectedPath={selectedPath}
             onSelectPath={handleSelectPath}
             onNavigate={handleNavigate}
+            searchMode={isSearchMode}
+            emptyMessage={
+              isSearchMode
+                ? isSearching
+                  ? 'Searching…'
+                  : 'No matching folders found'
+                : 'No files or folders found'
+            }
           />
         )}
       </div>
 
-      {/* ── Right: form + actions ── */}
       <div className={styles.sidebar}>
         <div className={styles.form}>
           <p className={styles.sidebarTitle}>Create Project</p>
           <p className={styles.sidebarHint}>
-            Select a folder from the browser, then name your project and click Create.
+            Browse or search for a folder, select it, then name your project and click Create.
           </p>
 
           <div className={styles.field}>

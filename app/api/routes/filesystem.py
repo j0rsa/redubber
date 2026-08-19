@@ -8,6 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
+from app.services.filesystem_search import search_directories
+
 router = APIRouter()
 
 
@@ -20,6 +22,12 @@ class FileNode(BaseModel):
 
 class DirectoryListing(BaseModel):
     path: str
+    nodes: list[FileNode]
+
+
+class DirectorySearchResponse(BaseModel):
+    root: str
+    query: str
     nodes: list[FileNode]
 
 
@@ -91,3 +99,52 @@ async def browse_directory(
             continue
 
     return DirectoryListing(path=str(target), nodes=nodes)
+
+
+@router.get(
+    "/search",
+    response_model=DirectorySearchResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Fuzzy-search directories under a root path",
+    description="Recursively finds folders whose names match the query using fuzzy matching.",
+    tags=["filesystem"],
+)
+async def search_filesystem_directories(
+    q: Annotated[str, Query(min_length=1, description="Folder name search query")],
+    root: Annotated[str, Query(description="Root directory to search under")] = "/",
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    max_depth: Annotated[int, Query(ge=1, le=12)] = 8,
+) -> DirectorySearchResponse:
+    """Return directories under ``root`` that fuzzy-match ``q``."""
+    target = Path(root).resolve()
+
+    if not target.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Path does not exist: {root}",
+        )
+
+    if not target.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Path is not a directory: {root}",
+        )
+
+    try:
+        hits = search_directories(
+            target,
+            q,
+            limit=limit,
+            max_depth=max_depth,
+        )
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permission denied: {root}",
+        ) from None
+
+    nodes = [
+        FileNode(name=hit.name, path=hit.path, type="directory", size=None)
+        for hit in hits
+    ]
+    return DirectorySearchResponse(root=str(target), query=q.strip(), nodes=nodes)

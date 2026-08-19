@@ -15,7 +15,7 @@ export const NewProject = () => {
 
   // Start the browser at projects_root_path if configured, otherwise filesystem root
   const startPath = settings?.projects_root_path || '/';
-  const browser = useFileBrowser(startPath);
+  const browser = useFileBrowser(startPath, startPath);
 
   useEffect(() => {
     browser.navigate(startPath);
@@ -52,10 +52,18 @@ export const NewProject = () => {
           </div>
         )}
 
+        {browser.error && (
+          <div className={styles.errorBanner}>{browser.error}</div>
+        )}
+
         <ProjectCreation
           initialPath={browser.currentPath}
           nodes={browser.nodes}
           isLoading={browser.isLoading || createProject.isPending}
+          isSearching={browser.isSearching}
+          searchQuery={browser.searchQuery}
+          onSearchQueryChange={browser.setSearchQuery}
+          isSearchMode={browser.isSearchMode}
           onLoadDirectory={browser.navigate}
           onCreateProject={handleCreate}
           onCancel={() => navigate('/')}

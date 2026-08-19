@@ -284,3 +284,36 @@ export const WithoutCancelButton: Story = {
     // No onCancel prop
   },
 };
+
+// Fuzzy search results (flat list with full paths)
+export const FolderSearchResults: Story = {
+  args: {
+    initialPath: '/Users/john',
+    nodes: [
+      { name: 'Tutorials', path: '/Users/john/Videos/Tutorials', type: 'directory' },
+      { name: 'Meetings', path: '/Users/john/Videos/Meetings', type: 'directory' },
+      { name: 'Webinars', path: '/Users/john/Videos/Webinars', type: 'directory' },
+    ],
+    searchQuery: 'vid',
+    isSearchMode: true,
+    onSearchQueryChange: (query) => console.log('Search:', query),
+    onLoadDirectory: (path) => console.log('Load directory:', path),
+    onCreateProject: (path, name) => console.log('Create project:', { path, name }),
+    onCancel: () => console.log('Cancel clicked'),
+  },
+};
+
+// Search in progress
+export const FolderSearchLoading: Story = {
+  args: {
+    initialPath: '/Users/john',
+    nodes: [],
+    searchQuery: 'tutorial',
+    isSearchMode: true,
+    isSearching: true,
+    onSearchQueryChange: (query) => console.log('Search:', query),
+    onLoadDirectory: (path) => console.log('Load directory:', path),
+    onCreateProject: (path, name) => console.log('Create project:', { path, name }),
+    onCancel: () => console.log('Cancel clicked'),
+  },
+};
