@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
@@ -18,6 +19,7 @@ from app.schemas.models import (
 )
 from app.services.project_scan import scan_project_files
 from app.services.dub_reset import RESET_TO_STAGES
+from app.services.video_subtitle_quality import enrich_subtitles_with_quality
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
@@ -155,6 +157,8 @@ async def list_videos(
     from app.core.project_paths import get_project_working_dir
 
     working_dir = str(get_project_working_dir(project_path, project_record["name"]))
+    target_lang = project_record.get("target_language") or ""
+    quality_cache: dict = {}
 
     # Build a map of video_path → most-recent failed task so we can surface errors
     failed_tasks: dict[str, str] = {}  # video_path → error message
@@ -178,6 +182,14 @@ async def list_videos(
 
         # Parse subtitles
         subtitles = [SubtitleInfo(**sub) for sub in record.get("subtitle_matches", [])]
+        subtitles = enrich_subtitles_with_quality(
+            video_path=Path(record["file_path"]),
+            project_path=project_path,
+            project_name=project_record["name"],
+            target_language=target_lang or "eng",
+            subtitles=subtitles,
+            cache=quality_cache,
+        )
 
         # Get pipeline status
         pipeline_status_obj = get_pipeline_status(
@@ -192,7 +204,6 @@ async def list_videos(
         # Detect pre-redubbed files: ≥2 audio tracks where one matches the project target
         # language, AND a subtitle in the target language is present.
         # Covers videos imported from a previously redubbed project with no working dir.
-        target_lang = project_record.get("target_language") or ""
         pre_redubbed = is_video_in_target_state(audio_streams, subtitles, target_lang)
 
         pipeline_status: PipelineStatusResponse | None = None

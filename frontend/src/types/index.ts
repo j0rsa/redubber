@@ -35,11 +35,20 @@ export interface AudioStream {
   sample_rate: number | string;
 }
 
+export interface SubtitleQualityIssue {
+  rule_id: string;
+  label: string;
+  message: string;
+  segment_index: number | null;
+}
+
 export interface SubtitleInfo {
   language: string;
   embedded: boolean;
   path?: string;
   filename?: string;
+  quality_issue_count?: number;
+  quality_issues?: SubtitleQualityIssue[];
 }
 
 export interface PipelineStatus {

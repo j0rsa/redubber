@@ -1,6 +1,7 @@
 import { type ChangeEvent, Fragment, useMemo } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
+import { QualityWarningBadge } from './QualityWarningBadge/QualityWarningBadge';
 import { formatDuration, formatSize } from '../utils/format';
 import { isVideoInTargetState } from '../utils/language';
 import { formatFolderLabel, groupVideosByFolder } from '../utils/groupVideosByFolder';
@@ -132,6 +133,9 @@ const VideoRow = ({
           <span style={{ color: '#757575', fontSize: '12px' }}>
             {sub.embedded ? 'embedded' : 'external'}
           </span>
+          {(sub.quality_issues?.length ?? 0) > 0 && (
+            <QualityWarningBadge issues={sub.quality_issues ?? []} compact />
+          )}
         </div>
       ))}
     </td>

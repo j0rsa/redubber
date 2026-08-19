@@ -235,6 +235,52 @@ export const WithGeneratedSubs: Story = {
   },
 };
 
+/** Quality-rule badge next to a subtitle that has hallucination / density issues. */
+export const WithSubtitleQualityWarnings: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 1,
+        filename: 'clean.mp4',
+        subtitles: [
+          { language: 'rus', embedded: false, path: '/videos/clean.ru.srt' },
+          { language: 'eng', embedded: false, path: '/videos/clean.en.srt' },
+        ],
+      }),
+      createMockVideo({
+        id: 2,
+        filename: 'hallucinated.mp4',
+        subtitles: [
+          { language: 'rus', embedded: false, path: '/videos/hallucinated.ru.srt' },
+          {
+            language: 'eng',
+            embedded: false,
+            path: '/videos/hallucinated.en.srt',
+            quality_issue_count: 2,
+            quality_issues: [
+              {
+                rule_id: 'known_hallucination_phrase',
+                label: 'Known STT phrase',
+                message: "contains common STT hallucination phrase(s): 'thank you for watching'",
+                segment_index: 3,
+              },
+              {
+                rule_id: 'excessive_cps',
+                label: 'Text too dense',
+                message: '45.0 chars/s (>40.0) — text too dense for duration',
+                segment_index: 3,
+              },
+            ],
+          },
+        ],
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+    onReviewSubs: (id) => console.log('review', id),
+  },
+};
+
 /** Videos grouped by subfolder — folders sort before filenames (001 before 999). */
 export const GroupedByFolder: Story = {
   args: {

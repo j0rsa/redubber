@@ -115,6 +115,18 @@ class AudioStream(BaseModel):
     )
 
 
+class SubtitleQualityIssue(BaseModel):
+    """One quality-rule breach on a subtitle file, for the project file list."""
+
+    rule_id: str = Field(..., description="Quality rule identifier")
+    label: str = Field(..., description="Short rule label for UI display")
+    message: str = Field(..., description="Human-readable explanation")
+    segment_index: int | None = Field(
+        default=None,
+        description="0-based cue index when the issue applies to one cue",
+    )
+
+
 class SubtitleInfo(BaseModel):
     """Subtitle file metadata."""
 
@@ -123,6 +135,14 @@ class SubtitleInfo(BaseModel):
         ..., description="True if subtitle is embedded in video container"
     )
     path: str = Field(default="", description="File path for external subtitles")
+    quality_issue_count: int = Field(
+        default=0,
+        description="Number of distinct quality rules breached in this subtitle",
+    )
+    quality_issues: list[SubtitleQualityIssue] = Field(
+        default_factory=list,
+        description="All quality-rule breaches in this subtitle file",
+    )
 
 
 class PipelineStatusResponse(BaseModel):

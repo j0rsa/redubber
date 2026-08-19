@@ -7,6 +7,7 @@ that can be grouped per cue to show how many rules a subtitle line violated.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from app.schemas.subtitle_review import (
@@ -288,3 +289,16 @@ def breaches_for_segment(
 
 def unique_rule_ids(breaches: list[SubtitleQualityBreach]) -> list[str]:
     return sorted({breach.rule_id for breach in breaches})
+
+
+def analyze_subtitle_file(path: Path) -> SubtitleQualityAnalysis:
+    """Run quality rules on an on-disk SRT/VTT file. Missing or unreadable files are empty."""
+    if not path.is_file() or path.suffix.lower() not in {".srt", ".vtt"}:
+        return SubtitleQualityAnalysis(rules=SUBTITLE_QUALITY_RULES, breaches=())
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return SubtitleQualityAnalysis(rules=SUBTITLE_QUALITY_RULES, breaches=())
+    from app.services.subtitle_review import parse_srt
+
+    return analyze_subtitle_quality(parse_srt(text))
