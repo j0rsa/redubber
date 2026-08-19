@@ -37,7 +37,7 @@ export const useFileBrowser = (initialPath: string = '/'): UseFileBrowserReturn 
 
   const navigateUp = useCallback(() => {
     const parent = currentPath.split('/').slice(0, -1).join('/') || '/';
-    navigate(parent);
+    void navigate(parent);
   }, [currentPath, navigate]);
 
   const canNavigateUp = currentPath !== '/' && currentPath.split('/').length > 1;

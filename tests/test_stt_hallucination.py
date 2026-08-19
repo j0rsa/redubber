@@ -76,6 +76,70 @@ class TestRepetitionAndLoops:
         report = analyze_segments(segments, audio_duration=9.0)
         assert any(f.code == "consecutive_duplicate_segments" for f in report.findings)
 
+    def test_numbered_enumeration_loop(self) -> None:
+        lines = [
+            "4. Not with the water like a fool.",
+            "5. Not with the water as a fool.",
+            "6. Stop with the water.",
+            "7. Not with the water as a fill.",
+        ]
+        segments = [_seg(text, start=i * 5, end=(i + 1) * 5) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=20.0)
+        numbered = [f for f in report.findings if f.code == "numbered_enumeration_loop"]
+        assert len(numbered) == 4
+        assert {f.segment_index for f in numbered} == {0, 1, 2, 3}
+
+    def test_near_duplicate_run(self) -> None:
+        lines = [
+            "Not with the water like a fool.",
+            "Not with the water as a fool.",
+            "Not with the water as a fill.",
+        ]
+        segments = [_seg(text, start=i * 4, end=(i + 1) * 4) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=12.0)
+        assert any(f.code == "near_duplicate_run" for f in report.findings)
+
+    def test_shared_phrase_template_loop(self) -> None:
+        lines = [
+            "Not with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Stop with the water like a fool.",
+            "Not with the water as a fool.",
+            "Not with the water as a fill.",
+            "Stop with the water like a fool.",
+            "Not with the water like a fool.",
+        ]
+        segments = [_seg(text, start=i * 10, end=(i + 1) * 10) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=90.0)
+        shared = [f for f in report.findings if f.code == "shared_phrase_run"]
+        assert len(shared) == len(lines)
+        assert {f.segment_index for f in shared} == set(range(len(lines)))
+
+    def test_intra_cue_numbered_menu_loop(self) -> None:
+        text = (
+            "11. Ginger Stir-Fried Pork 12. Ginger Stir-Fried Pork "
+            "13. Ginger Stir-Fried Pork 14. Ginger Stir-Fried Pork"
+        )
+        report = analyze_segments([_seg(text, end=20.0)], audio_duration=20.0)
+        assert any(f.code == "intra_cue_numbered_list" for f in report.findings)
+
+    def test_phrase_spam_in_cue(self) -> None:
+        text = "Insert belly " * 8
+        report = analyze_segments([_seg(text.strip(), end=10.0)], audio_duration=10.0)
+        assert any(f.code == "phrase_spam_in_cue" for f in report.findings)
+
+    def test_insert_belly_shared_phrase_run(self) -> None:
+        lines = [
+            "Insert belly insert belly insert belly.",
+            "Insert belly insert belly insert belly.",
+            "Insert belly insert belly insert belly.",
+        ]
+        segments = [_seg(text, start=i * 5, end=(i + 1) * 5) for i, text in enumerate(lines)]
+        report = analyze_segments(segments, audio_duration=15.0)
+        assert any(f.code == "shared_phrase_run" for f in report.findings)
+
     def test_phrase_loop_in_one_segment(self) -> None:
         text = " ".join(["hello there friend"] * 4)
         segments = [_seg(text, end=20.0)]
@@ -101,6 +165,15 @@ class TestKnownPhrasesAndDensity:
         segments = [_seg(dense.strip(), end=2.0)]
         report = analyze_segments(segments, audio_duration=2.0)
         assert any(
+            f.code in {"excessive_cps", "transcript_too_dense"} for f in report.findings
+        )
+
+    def test_normal_density_passes(self) -> None:
+        # ~35 chars/s should not trigger density warnings
+        text = "a" * 35
+        segments = [_seg(text, end=1.0)]
+        report = analyze_segments(segments, audio_duration=1.0)
+        assert not any(
             f.code in {"excessive_cps", "transcript_too_dense"} for f in report.findings
         )
 

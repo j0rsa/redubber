@@ -15,7 +15,11 @@ from app.schemas.subtitle_review import (
     SubtitleReviewResponse,
     SubtitleReviewSegment,
 )
-from stt_hallucination import analyze_segments
+from app.services.subtitle_quality_rules import (
+    analyze_subtitle_quality,
+    breaches_for_segment,
+    unique_rule_ids,
+)
 from utils import convert_to_three_char_lang_code, detect_subtitle_language
 
 SUBTITLE_EXTS = {".srt", ".vtt"}
@@ -200,51 +204,6 @@ def resolve_review_srt(
     return Path(options[0].path)
 
 
-def analyze_srt_hallucinations(
-    cues: list[tuple[float, float, str]],
-    *,
-    source_label: str = "",
-) -> list[SubtitleReviewHallucinationWarning]:
-    """Run text-based STT quality heuristics on parsed subtitle cues."""
-    if not cues:
-        return []
-
-    try:
-        from openai.types.audio.transcription_segment import TranscriptionSegment
-    except ImportError:
-        return []
-
-    segments = [
-        TranscriptionSegment(
-            id=index,
-            seek=0,
-            start=start,
-            end=end,
-            text=text,
-            tokens=[],
-            temperature=0.0,
-            avg_logprob=-0.3,
-            compression_ratio=1.0,
-            no_speech_prob=0.0,
-        )
-        for index, (start, end, text) in enumerate(cues)
-    ]
-    audio_duration = max(end for _, end, _ in cues)
-    report = analyze_segments(
-        segments,
-        audio_duration=audio_duration,
-        source_label=source_label,
-    )
-    return [
-        SubtitleReviewHallucinationWarning(
-            code=finding.code,
-            message=finding.message,
-            segment_index=finding.segment_index,
-        )
-        for finding in report.findings
-    ]
-
-
 def list_audio_files(directory: Path, prefix: str | None = None) -> list[Path]:
     if not directory.is_dir():
         return []
@@ -328,10 +287,16 @@ def build_subtitle_review(
     except OSError as exc:
         raise SubtitleReviewError(f"Could not read subtitle file: {exc}") from exc
 
-    hallucination_warnings = analyze_srt_hallucinations(
-        cues,
-        source_label=selected.name,
-    )
+    quality = analyze_subtitle_quality(cues)
+    quality_breaches = list(quality.breaches)
+    hallucination_warnings = [
+        SubtitleReviewHallucinationWarning(
+            code=breach.rule_id,
+            message=breach.message,
+            segment_index=breach.segment_index,
+        )
+        for breach in quality_breaches
+    ]
 
     dirs = artefact_dirs(video_path, project_path, project_name)
     timeline = build_chunk_timeline(dirs["chunks"], video_path.stem)
@@ -369,6 +334,9 @@ def build_subtitle_review(
                 f"/subtitle-review/tts/{index}"
             )
 
+        segment_breaches = breaches_for_segment(quality_breaches, index)
+        segment_rule_ids = unique_rule_ids(segment_breaches)
+
         segments.append(
             SubtitleReviewSegment(
                 index=index,
@@ -378,6 +346,8 @@ def build_subtitle_review(
                 text=text,
                 original=original,
                 tts_url=tts_url,
+                breached_rule_count=len(segment_rule_ids),
+                breached_rules=segment_rule_ids,
             )
         )
 
@@ -392,4 +362,6 @@ def build_subtitle_review(
         has_chunks=bool(timeline),
         has_tts=any_tts,
         hallucination_warnings=hallucination_warnings,
+        quality_rules=list(quality.rules),
+        quality_breaches=quality_breaches,
     )

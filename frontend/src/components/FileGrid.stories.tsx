@@ -234,3 +234,18 @@ export const WithGeneratedSubs: Story = {
     onReviewSubs: (id) => console.log('review', id),
   },
 };
+
+/** Videos grouped by subfolder — folders sort before filenames (001 before 999). */
+export const GroupedByFolder: Story = {
+  args: {
+    projectPath: '/projects/course',
+    videos: [
+      createMockVideo({ id: 1, filename: '01.intro.mp4', path: '/projects/course/999/01.intro.mp4' }),
+      createMockVideo({ id: 2, filename: '02.main.mp4', path: '/projects/course/999/02.main.mp4' }),
+      createMockVideo({ id: 3, filename: '01.lesson.mp4', path: '/projects/course/001/01.lesson.mp4' }),
+      createMockVideo({ id: 4, filename: 'trailer.mp4', path: '/projects/course/trailer.mp4' }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+  },
+};

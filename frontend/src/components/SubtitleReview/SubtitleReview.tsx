@@ -152,7 +152,17 @@ export const SubtitleReview = ({
   const availableFiles = data?.available_files ?? [];
   const showFileSelector = availableFiles.length > 1;
   const activeSrtPath = selectedSrtPath ?? data?.srt_path ?? '';
-  const warnings = data?.hallucination_warnings ?? [];
+  const qualityRules = data?.quality_rules ?? [];
+  const qualityBreaches = data?.quality_breaches ?? [];
+  const ruleLabels = Object.fromEntries(qualityRules.map((rule) => [rule.id, rule.label]));
+  const cueBreaches = (index: number) =>
+    qualityBreaches.filter((breach) => breach.segment_index === index);
+  const breachedCueRuleCount = new Set(
+    qualityBreaches
+      .filter((breach) => breach.segment_index != null)
+      .map((breach) => breach.rule_id),
+  ).size;
+  const fileLevelBreaches = qualityBreaches.filter((breach) => breach.segment_index == null);
 
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Subtitle review">
@@ -180,26 +190,42 @@ export const SubtitleReview = ({
             </label>
           )}
           <div className={styles.filters}>
-            {warnings.length > 0 && (
+            {qualityBreaches.length > 0 && (
               <span
                 className={styles.warningIndicator}
                 tabIndex={0}
-                aria-label={`${warnings.length} STT quality warning(s)`}
+                aria-label={`${breachedCueRuleCount} rule(s) breached across cues`}
               >
                 <span className={styles.warningIcon} aria-hidden="true">!</span>
-                <span className={styles.warningCount}>{warnings.length}</span>
+                <span className={styles.warningCount}>
+                  {breachedCueRuleCount} rule{breachedCueRuleCount === 1 ? '' : 's'}
+                </span>
                 <span className={styles.warningTooltip} role="tooltip">
-                  <strong>STT quality warnings</strong>
+                  <strong>Quality rule breaches</strong>
                   <ul className={styles.warningList}>
-                    {warnings.map((warning, index) => (
-                      <li key={`${warning.code}-${warning.segment_index ?? index}`}>
-                        {warning.segment_index != null && (
-                          <span className={styles.warningCue}>#{warning.segment_index + 1}: </span>
-                        )}
-                        {warning.message}
-                      </li>
-                    ))}
+                    {qualityRules
+                      .filter((rule) =>
+                        qualityBreaches.some((breach) => breach.rule_id === rule.id),
+                      )
+                      .map((rule) => {
+                        const ruleBreaches = qualityBreaches.filter(
+                          (breach) => breach.rule_id === rule.id,
+                        );
+                        return (
+                          <li key={rule.id}>
+                            <span className={styles.ruleLabel}>{rule.label}</span>
+                            {' '}
+                            ({ruleBreaches.length} hit{ruleBreaches.length === 1 ? '' : 's'})
+                          </li>
+                        );
+                      })}
                   </ul>
+                  {fileLevelBreaches.length > 0 && (
+                    <p className={styles.fileLevelNote}>
+                      Plus {fileLevelBreaches.length} file-level breach
+                      {fileLevelBreaches.length === 1 ? '' : 'es'}.
+                    </p>
+                  )}
                 </span>
               </span>
             )}
@@ -248,16 +274,48 @@ export const SubtitleReview = ({
             const isOrig = playing?.index === segment.index && playing.kind === 'orig';
             const isDub = playing?.index === segment.index && playing.kind === 'dub';
             const hasTts = Boolean(segment.tts_url);
-            const hasWarning = warnings.some((w) => w.segment_index === segment.index);
+            const rowBreaches = cueBreaches(segment.index);
+            const ruleCount = segment.breached_rule_count ?? new Set(rowBreaches.map((b) => b.rule_id)).size;
             return (
               <div
                 key={segment.index}
-                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''} ${hasWarning ? styles.cueWarning : ''}`}
+                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''}`}
               >
-                <p className={styles.cueText}>
-                  <span className={styles.cueTime}>{formatTime(segment.start)}</span>
-                  {segment.text}
-                </p>
+                <div className={styles.cueMain}>
+                  {ruleCount > 0 ? (
+                    <span
+                      className={styles.cueWarningBar}
+                      tabIndex={0}
+                      aria-label={`${ruleCount} rule(s) breached in this cue`}
+                    >
+                      <span className={styles.cueRuleCount}>
+                        {ruleCount}
+                      </span>
+                      <span className={styles.cueWarningTooltip} role="tooltip">
+                        <strong>
+                          {ruleCount} rule{ruleCount === 1 ? '' : 's'} breached
+                        </strong>
+                        <ul className={styles.warningList}>
+                          {rowBreaches.map((breach, breachIndex) => (
+                            <li key={`${breach.rule_id}-${breachIndex}`}>
+                              <span className={styles.ruleLabel}>
+                                {ruleLabels[breach.rule_id] ?? breach.rule_id}
+                              </span>
+                              {': '}
+                              {breach.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className={styles.cueWarningSpacer} aria-hidden="true" />
+                  )}
+                  <p className={styles.cueText}>
+                    <span className={styles.cueTime}>{formatTime(segment.start)}</span>
+                    {segment.text}
+                  </p>
+                </div>
                 {hasTts && (
                   <div className={styles.cueActions}>
                     <button

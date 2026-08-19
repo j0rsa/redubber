@@ -11,6 +11,19 @@ export interface SubtitleReviewFileOption {
   source: string;
 }
 
+export interface SubtitleQualityRule {
+  id: string;
+  label: string;
+  scope: 'cue' | 'file';
+}
+
+export interface SubtitleQualityBreach {
+  rule_id: string;
+  message: string;
+  segment_index: number | null;
+}
+
+/** @deprecated Use SubtitleQualityBreach — kept for backward compatibility */
 export interface SubtitleReviewHallucinationWarning {
   code: string;
   message: string;
@@ -25,6 +38,8 @@ export interface SubtitleReviewSegment {
   text: string;
   original: SubtitleReviewOriginal | null;
   tts_url: string | null;
+  breached_rule_count: number;
+  breached_rules: string[];
 }
 
 export interface SubtitleReviewData {
@@ -38,4 +53,6 @@ export interface SubtitleReviewData {
   has_chunks: boolean;
   has_tts: boolean;
   hallucination_warnings: SubtitleReviewHallucinationWarning[];
+  quality_rules: SubtitleQualityRule[];
+  quality_breaches: SubtitleQualityBreach[];
 }

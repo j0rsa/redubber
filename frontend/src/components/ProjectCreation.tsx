@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { FileBrowser, type FileNode } from './FileBrowser';
+import { fuzzyMatchFilter } from '../utils/fuzzyMatch';
 import styles from './ProjectCreation.module.css';
 
 interface ProjectCreationProps {
@@ -22,6 +23,21 @@ export const ProjectCreation = ({
   const [selectedPath, setSelectedPath] = useState<string>('');
   const [currentPath, setCurrentPath] = useState<string>(initialPath);
   const [projectName, setProjectName] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    setCurrentPath(initialPath);
+  }, [initialPath]);
+
+  const isFiltering = searchQuery.trim().length > 0;
+
+  const visibleNodes = useMemo(() => {
+    const folders = nodes.filter((node) => node.type === 'directory');
+    if (!isFiltering) {
+      return nodes;
+    }
+    return fuzzyMatchFilter(folders, searchQuery, (node) => node.name);
+  }, [nodes, searchQuery, isFiltering]);
 
   const handleSelectPath = (path: string) => {
     setSelectedPath(path);
@@ -50,7 +66,6 @@ export const ProjectCreation = ({
 
   return (
     <div className={styles.container}>
-      {/* ── Breadcrumb — spans both columns ── */}
       <div className={styles.breadcrumb}>
         <button
           className={styles.breadcrumbButton}
@@ -60,9 +75,19 @@ export const ProjectCreation = ({
           ⬆ Up
         </button>
         <span className={styles.currentPath}>{currentPath}</span>
+        <div className={styles.searchBox}>
+          <input
+            type="search"
+            className={styles.searchInput}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter folders…"
+            disabled={isLoading}
+            aria-label="Filter folders in this directory"
+          />
+        </div>
       </div>
 
-      {/* ── Left: file browser ── */}
       <div className={styles.browserWrapper}>
         {isLoading ? (
           <div className={styles.loading}>
@@ -72,20 +97,22 @@ export const ProjectCreation = ({
         ) : (
           <FileBrowser
             rootPath={currentPath}
-            nodes={nodes}
+            nodes={visibleNodes}
             selectedPath={selectedPath}
             onSelectPath={handleSelectPath}
             onNavigate={handleNavigate}
+            emptyMessage={
+              isFiltering ? 'No matching folders in this directory' : 'No files or folders found'
+            }
           />
         )}
       </div>
 
-      {/* ── Right: form + actions ── */}
       <div className={styles.sidebar}>
         <div className={styles.form}>
           <p className={styles.sidebarTitle}>Create Project</p>
           <p className={styles.sidebarHint}>
-            Select a folder from the browser, then name your project and click Create.
+            Browse into a folder, filter subfolders by name, select one, then click Create.
           </p>
 
           <div className={styles.field}>

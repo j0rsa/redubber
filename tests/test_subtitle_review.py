@@ -9,9 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from app.services.subtitle_quality_rules import analyze_subtitle_quality
 from app.services.subtitle_review import (
     SubtitleReviewError,
-    analyze_srt_hallucinations,
     build_subtitle_review,
     chunk_for_time,
     find_review_srt,
@@ -131,11 +131,79 @@ class TestListReviewSrts:
             )
 
 
-class TestAnalyzeSrtHallucinations:
+class TestAnalyzeSubtitleQuality:
     def test_detects_known_phrase(self) -> None:
         cues = [(0.0, 5.0, "Thank you for watching this video.")]
-        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
-        assert any(w.code == "known_hallucination_phrase" for w in warnings)
+        analysis = analyze_subtitle_quality(cues)
+        assert any(b.rule_id == "known_hallucination_phrase" for b in analysis.breaches)
+        assert analysis.breaches[0].segment_index == 0
+        assert len(analysis.rules) >= 10
+
+    def test_marks_all_consecutive_duplicates(self) -> None:
+        cues = [
+            (0.0, 2.0, "Thank you, everyone."),
+            (2.0, 4.0, "Thank you, everyone."),
+            (4.0, 6.0, "Thank you, everyone."),
+        ]
+        analysis = analyze_subtitle_quality(cues)
+        duplicate = [
+            b for b in analysis.breaches if b.rule_id == "consecutive_duplicate_segments"
+        ]
+        assert {b.segment_index for b in duplicate} == {0, 1, 2}
+
+    def test_marks_in_cue_phrase_loops(self) -> None:
+        text = "Thank you " * 6
+        cues = [(0.0, 10.0, text.strip())]
+        analysis = analyze_subtitle_quality(cues)
+        assert any(
+            b.rule_id == "repeated_phrase_loop" and b.segment_index == 0
+            for b in analysis.breaches
+        )
+
+    def test_marks_numbered_enumeration_hallucination(self) -> None:
+        cues = [
+            (249.0, 254.0, "4. Not with the water like a fool."),
+            (254.0, 259.0, "5. Not with the water as a fool."),
+            (259.0, 264.0, "6. Stop with the water."),
+            (264.0, 269.0, "7. Not with the water as a fill."),
+        ]
+        analysis = analyze_subtitle_quality(cues)
+        numbered = [b for b in analysis.breaches if b.rule_id == "numbered_enumeration_loop"]
+        assert len(numbered) == 4
+        assert {b.segment_index for b in numbered} == {0, 1, 2, 3}
+
+    def test_marks_shared_phrase_template_loop(self) -> None:
+        cues = [
+            (415.0, 425.0, "Not with the water like a fool."),
+            (425.0, 435.0, "Stop with the water like a fool."),
+            (435.0, 445.0, "Stop with the water like a fool."),
+            (445.0, 455.0, "Stop with the water like a fool."),
+            (455.0, 465.0, "Stop with the water like a fool."),
+            (465.0, 475.0, "Not with the water as a fool."),
+        ]
+        analysis = analyze_subtitle_quality(cues)
+        shared = [b for b in analysis.breaches if b.rule_id == "shared_phrase_run"]
+        assert len(shared) == 6
+        assert {b.segment_index for b in shared} == {0, 1, 2, 3, 4, 5}
+
+    def test_marks_intra_cue_menu_hallucination(self) -> None:
+        text = (
+            "145. Ginger Stir-Fried Pork 146. Ginger Stir-Fried Pork "
+            "147. Ginger Stir-Fried Pork 148. Ginger Stir-Fried Pork"
+        )
+        analysis = analyze_subtitle_quality([(250.0, 260.0, text)])
+        assert any(
+            b.rule_id == "intra_cue_numbered_list" and b.segment_index == 0
+            for b in analysis.breaches
+        )
+
+    def test_marks_insert_belly_spam(self) -> None:
+        text = "Insert belly " * 8
+        analysis = analyze_subtitle_quality([(215.0, 225.0, text.strip())])
+        assert any(
+            b.rule_id == "phrase_spam_in_cue" and b.segment_index == 0
+            for b in analysis.breaches
+        )
 
 
 class TestBuildSubtitleReview:
@@ -171,6 +239,9 @@ class TestBuildSubtitleReview:
         assert result.has_tts is True
         assert len(result.available_files) >= 1
         assert result.hallucination_warnings == []
+        assert len(result.quality_rules) >= 10
+        assert result.quality_breaches == []
+        assert all(segment.breached_rule_count == 0 for segment in result.segments)
         first = result.segments[0]
         assert first.original is not None
         assert first.original.chunk_name == "lesson_001.m4a"
@@ -250,6 +321,8 @@ class TestSubtitleReviewAPI:
         assert body["total"] == 3
         assert body["available_files"]
         assert body["hallucination_warnings"] == []
+        assert len(body["quality_rules"]) >= 10
+        assert body["segments"][0]["breached_rule_count"] == 0
         assert body["segments"][0]["text"] == "Hello there."
         assert body["segments"][1]["duration"] == pytest.approx(6.2)
 

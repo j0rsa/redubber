@@ -52,6 +52,10 @@ export const NewProject = () => {
           </div>
         )}
 
+        {browser.error && (
+          <div className={styles.errorBanner}>{browser.error}</div>
+        )}
+
         <ProjectCreation
           initialPath={browser.currentPath}
           nodes={browser.nodes}

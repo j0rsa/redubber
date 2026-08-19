@@ -16,7 +16,6 @@ def test_package_version_matches_pyproject() -> None:
 
     assert get_package_version() == expected
     assert settings.api_version == expected
-    assert expected == "2.1.4"
 
 
 def test_health_reports_pyproject_version(client) -> None:

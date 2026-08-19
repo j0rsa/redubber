@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { fireEvent, within } from 'storybook/test';
 import { ProjectCreation } from './ProjectCreation';
 import type { FileNode } from './FileBrowser';
 
@@ -282,5 +283,21 @@ export const WithoutCancelButton: Story = {
     onLoadDirectory: (path) => console.log('Load directory:', path),
     onCreateProject: (path, name) => console.log('Create project:', { path, name }),
     // No onCancel prop
+  },
+};
+
+// Fuzzy filter within current directory (type "tut" in the filter box)
+export const FolderFilter: Story = {
+  args: {
+    initialPath: '/Users/john/Videos',
+    nodes: videosDirectoryNodes,
+    onLoadDirectory: (path) => console.log('Load directory:', path),
+    onCreateProject: (path, name) => console.log('Create project:', { path, name }),
+    onCancel: () => console.log('Cancel clicked'),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByLabelText('Filter folders in this directory');
+    await fireEvent.change(input, { target: { value: 'tut' } });
   },
 };
