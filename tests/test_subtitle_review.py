@@ -136,6 +136,28 @@ class TestAnalyzeSrtHallucinations:
         cues = [(0.0, 5.0, "Thank you for watching this video.")]
         warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
         assert any(w.code == "known_hallucination_phrase" for w in warnings)
+        assert warnings[0].segment_index == 0
+
+    def test_marks_all_consecutive_duplicates(self) -> None:
+        cues = [
+            (0.0, 2.0, "Thank you, everyone."),
+            (2.0, 4.0, "Thank you, everyone."),
+            (4.0, 6.0, "Thank you, everyone."),
+        ]
+        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
+        duplicate = [
+            w for w in warnings if w.code == "consecutive_duplicate_segments"
+        ]
+        assert {w.segment_index for w in duplicate} == {0, 1, 2}
+
+    def test_marks_in_cue_phrase_loops(self) -> None:
+        text = "Thank you " * 6
+        cues = [(0.0, 10.0, text.strip())]
+        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
+        assert any(
+            w.code == "repeated_phrase_loop" and w.segment_index == 0
+            for w in warnings
+        )
 
 
 class TestBuildSubtitleReview:

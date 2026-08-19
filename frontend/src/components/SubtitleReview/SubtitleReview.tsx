@@ -153,6 +153,8 @@ export const SubtitleReview = ({
   const showFileSelector = availableFiles.length > 1;
   const activeSrtPath = selectedSrtPath ?? data?.srt_path ?? '';
   const warnings = data?.hallucination_warnings ?? [];
+  const cueWarnings = (index: number) =>
+    warnings.filter((warning) => warning.segment_index === index);
 
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Subtitle review">
@@ -192,7 +194,7 @@ export const SubtitleReview = ({
                   <strong>STT quality warnings</strong>
                   <ul className={styles.warningList}>
                     {warnings.map((warning, index) => (
-                      <li key={`${warning.code}-${warning.segment_index ?? index}`}>
+                      <li key={`${warning.code}-${warning.segment_index ?? 'global'}-${index}`}>
                         {warning.segment_index != null && (
                           <span className={styles.warningCue}>#{warning.segment_index + 1}: </span>
                         )}
@@ -248,16 +250,37 @@ export const SubtitleReview = ({
             const isOrig = playing?.index === segment.index && playing.kind === 'orig';
             const isDub = playing?.index === segment.index && playing.kind === 'dub';
             const hasTts = Boolean(segment.tts_url);
-            const hasWarning = warnings.some((w) => w.segment_index === segment.index);
+            const rowWarnings = cueWarnings(segment.index);
             return (
               <div
                 key={segment.index}
-                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''} ${hasWarning ? styles.cueWarning : ''}`}
+                className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''}`}
               >
-                <p className={styles.cueText}>
-                  <span className={styles.cueTime}>{formatTime(segment.start)}</span>
-                  {segment.text}
-                </p>
+                <div className={styles.cueMain}>
+                  {rowWarnings.length > 0 ? (
+                    <span
+                      className={styles.cueWarningBar}
+                      tabIndex={0}
+                      aria-label={`${rowWarnings.length} issue(s) in this cue`}
+                    >
+                      <span className={styles.cueWarningTooltip} role="tooltip">
+                        <ul className={styles.warningList}>
+                          {rowWarnings.map((warning, warningIndex) => (
+                            <li key={`${warning.code}-${warningIndex}`}>
+                              {warning.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </span>
+                    </span>
+                  ) : (
+                    <span className={styles.cueWarningSpacer} aria-hidden="true" />
+                  )}
+                  <p className={styles.cueText}>
+                    <span className={styles.cueTime}>{formatTime(segment.start)}</span>
+                    {segment.text}
+                  </p>
+                </div>
                 {hasTts && (
                   <div className={styles.cueActions}>
                     <button
