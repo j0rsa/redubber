@@ -15,7 +15,7 @@ def sync_video_metadata(db, project_id: int, video_path: str) -> None:
 
     Updates video language, audio streams, subtitles, and project timestamps.
     """
-    from utils import detect_subtitle_language, detect_video_language
+    from utils import detect_video_language
     from video_analyzer import get_video_info_with_duration
 
     log.info("Syncing metadata for video: %s", video_path)
@@ -34,27 +34,15 @@ def sync_video_metadata(db, project_id: int, video_path: str) -> None:
         size_mb,
     )
 
-    video_dir = Path(video_path).parent
-    video_stem = Path(video_path).stem
-    subtitle_exts = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
-    found_subs = [
-        f for f in video_dir.iterdir()
-        if f.stem.startswith(video_stem) and f.suffix.lower() in subtitle_exts
-    ]
-    subtitle_matches = []
-    for sub_path in sorted(found_subs):
-        sub_lang = detect_subtitle_language(sub_path)
-        subtitle_matches.append({
-            "language": sub_lang or "",
-            "embedded": False,
-            "path": str(sub_path),
-            "filename": sub_path.name,
-        })
+    from app.services.existing_subtitles import external_subtitle_records
+
+    subtitle_matches = external_subtitle_records(Path(video_path))
+    for sub in subtitle_matches:
         db.add_subtitle_file(
             project_id=project_id,
-            file_path=str(sub_path),
-            filename=sub_path.name,
-            language=sub_lang,
+            file_path=sub["path"],
+            filename=sub["filename"],
+            language=sub["language"] or None,
         )
     log.info("Subtitle files: %s", [s["filename"] for s in subtitle_matches])
 

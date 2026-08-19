@@ -220,3 +220,21 @@ class TestLanguageDetectionIntegration:
 
         # Should return empty string, not crash
         assert detected_language == ""
+
+
+class TestSubtitleLanguageCodes:
+    def test_filename_suffixes_normalize_to_iso639_2(self, tmp_path) -> None:
+        from utils import convert_to_three_char_lang_code, detect_subtitle_language
+
+        eng = tmp_path / "01.english.srt"
+        eng.write_text("x")
+        ko = tmp_path / "01.korean.srt"
+        ko.write_text("x")
+        short = tmp_path / "01.en.srt"
+        short.write_text("x")
+
+        assert detect_subtitle_language(eng) == "eng"
+        assert detect_subtitle_language(ko) == "kor"
+        assert detect_subtitle_language(short) == "eng"
+        assert convert_to_three_char_lang_code("english") == "eng"
+        assert convert_to_three_char_lang_code("eng") == "eng"

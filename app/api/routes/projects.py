@@ -15,14 +15,9 @@ from app.schemas.models import (
     TargetLanguageUpdate,
     VoiceSettingsUpdate,
 )
+from app.services.project_scan import scan_project_files
 from database import DatabaseManager
 from file_scanner import FileScanner
-from utils import (
-    detect_subtitle_language,
-    detect_video_language,
-    count_videos_in_target_state,
-)
-from video_analyzer import get_video_info_with_duration
 
 router = APIRouter()
 
@@ -30,112 +25,14 @@ router = APIRouter()
 async def _scan_project_files(
     project_id: int, project_path: str, db: DatabaseManager, scanner: FileScanner
 ) -> None:
-    """Background task to scan project directory and populate database.
-
-    Args:
-        project_id: ID of project to scan.
-        project_path: Absolute path to project directory.
-        db: DatabaseManager instance.
-        scanner: FileScanner instance.
-    """
-    from video_analyzer import detect_dominant_language
-
-    db.clear_project_files(project_id)
-    video_files, subtitle_files = scanner.scan_folder(project_path)
-
-    # Collect all audio streams for language detection
-    all_audio_streams = []
-    video_info_cache: dict = {}
-
-    # Add video files
-    for video_file in video_files:
-        language = detect_video_language(video_file)
-        db.add_video_file(
-            project_id=project_id,
-            file_path=str(video_file),
-            filename=video_file.name,
-            language=language,
-        )
-
-        # Analyze video and cache results
-        video_info = get_video_info_with_duration(video_file)
-        video_info_cache[video_file.name] = video_info
-        audio_streams = video_info["audio_streams"]
-
-        all_audio_streams.append(audio_streams)
-
-        db.save_video_analysis(
-            project_id=project_id,
-            video_data={
-                "filename": video_file.name,
-                "path": str(video_file),
-                "size_mb": round(video_file.stat().st_size / (1024 * 1024), 2),
-                "duration_seconds": video_info["duration_seconds"],
-                "audio_streams": audio_streams,
-                "subtitles": [],
-            },
-        )
-
-    # Add subtitle files
-    for subtitle_file in subtitle_files:
-        language = detect_subtitle_language(subtitle_file)
-        db.add_subtitle_file(
-            project_id=project_id,
-            file_path=str(subtitle_file),
-            filename=subtitle_file.name,
-            language=language,
-        )
-
-    # Link subtitle matches to each video now that all subs are indexed
-    for video_file in video_files:
-        matched_subs = db.get_subtitle_files_for_video(project_id, video_file.name)
-        if matched_subs:
-            info = video_info_cache[video_file.name]
-            subtitle_info = [
-                {
-                    "language": sub.get("language") or "",
-                    "embedded": False,
-                    "path": sub.get("file_path") or "",
-                    "filename": sub.get("filename") or "",
-                }
-                for sub in matched_subs
-            ]
-            db.save_video_analysis(
-                project_id=project_id,
-                video_data={
-                    "filename": video_file.name,
-                    "path": str(video_file),
-                    "size_mb": round(video_file.stat().st_size / (1024 * 1024), 2),
-                    "duration_seconds": info["duration_seconds"],
-                    "audio_streams": info["audio_streams"],
-                    "subtitles": subtitle_info,
-                },
-            )
-
-    # Detect and set the dominant source language using the last audio track per video
-    # (last track is typically the original language in dubbed/multi-track content)
-    if all_audio_streams:
-        last_streams = [[streams[-1]] for streams in all_audio_streams if streams]
-        dominant_language = detect_dominant_language(last_streams)
-        if dominant_language:
-            db.set_source_language_override(project_id, dominant_language)
-
-    # Update video count counters on the project row.
-    _target_lang = db.get_target_language(project_id)
-    _video_records = db.get_video_analysis(project_id)
-    _replaced = count_videos_in_target_state(_video_records, _target_lang)
-    db.update_project_video_counts(project_id, len(video_files), _replaced)
-
-    project = db.get_project_by_id(project_id)
-    if project:
-        from app.services.existing_subtitles import stage_target_subtitles_for_videos
-
-        stage_target_subtitles_for_videos(
-            video_files,
-            project_path=project_path,
-            project_name=project["name"],
-            target_language=_target_lang,
-        )
+    """Background task to scan project directory and populate database."""
+    scan_project_files(
+        project_id,
+        project_path,
+        db,
+        scanner,
+        detect_source_language=True,
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)

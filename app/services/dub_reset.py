@@ -297,7 +297,9 @@ def reconcile_video_with_disk(
         removed = clear_finalization_artifacts(video_path, project_path, project_name)
         fixes.extend(removed)
 
-    for sub in db.get_subtitle_files_for_video(project_id, video_path.name):
+    for sub in db.get_subtitle_files_for_video(
+        project_id, video_path.name, str(video_path)
+    ):
         sub_path = sub.get("file_path") or ""
         sub_lang = normalize_lang_code(sub.get("language") or "")
         if target and sub_lang == target and not Path(sub_path).exists():

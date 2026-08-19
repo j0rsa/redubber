@@ -16,16 +16,11 @@ from app.schemas.models import (
     SubtitleInfo,
     VideoAnalysis,
 )
+from app.services.project_scan import scan_project_files
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
-from utils import (
-    count_videos_in_target_state,
-    detect_subtitle_language,
-    detect_video_language,
-    is_video_in_target_state,
-)
-from video_analyzer import get_video_info_with_duration
+from utils import is_video_in_target_state
 
 router = APIRouter()
 
@@ -36,88 +31,10 @@ _running_scans: set[int] = set()
 async def _scan_project_files(
     project_id: int, project_path: str, db: DatabaseManager, scanner: FileScanner
 ) -> None:
-    """Background task to scan project directory and populate database.
-
-    Args:
-        project_id: ID of project to scan.
-        project_path: Absolute path to project directory.
-        db: DatabaseManager instance.
-        scanner: FileScanner instance.
-    """
+    """Background task to scan project directory and populate database."""
     try:
-        db.clear_project_files(project_id)
-        video_files, subtitle_files = scanner.scan_folder(project_path)
-
-        # Add video files
-        for video_file in video_files:
-            language = detect_video_language(video_file)
-            db.add_video_file(
-                project_id=project_id,
-                file_path=str(video_file),
-                filename=video_file.name,
-                language=language,
-            )
-
-            # Find subtitle files that belong to this video (same stem, any sub extension)
-            video_stem = video_file.stem
-            matched_subs = [
-                s
-                for s in subtitle_files
-                if s.stem == video_stem or s.stem.startswith(video_stem + ".")
-            ]
-            subtitle_info = []
-            for sub in matched_subs:
-                sub_lang = detect_subtitle_language(sub)
-                subtitle_info.append(
-                    {
-                        "language": sub_lang or "",
-                        "embedded": False,
-                        "path": str(sub),
-                        "filename": sub.name,
-                    }
-                )
-
-            # Analyze video and store results
-            video_info = get_video_info_with_duration(video_file)
-            db.save_video_analysis(
-                project_id=project_id,
-                video_data={
-                    "filename": video_file.name,
-                    "path": str(video_file),
-                    "size_mb": round(video_file.stat().st_size / (1024 * 1024), 2),
-                    "duration_seconds": video_info["duration_seconds"],
-                    "audio_streams": video_info["audio_streams"],
-                    "subtitles": subtitle_info,
-                },
-            )
-
-        # Register all subtitle files in the subtitle_files table
-        for subtitle_file in subtitle_files:
-            language = detect_subtitle_language(subtitle_file)
-            db.add_subtitle_file(
-                project_id=project_id,
-                file_path=str(subtitle_file),
-                filename=subtitle_file.name,
-                language=language,
-            )
-
-        _target_lang = db.get_target_language(project_id)
-        _video_records = db.get_video_analysis(project_id)
-        _replaced = count_videos_in_target_state(_video_records, _target_lang)
-        db.update_project_video_counts(project_id, len(video_files), _replaced)
-
-        project = db.get_project_by_id(project_id)
-        if project:
-            from app.services.existing_subtitles import stage_target_subtitles_for_videos
-
-            stage_target_subtitles_for_videos(
-                video_files,
-                project_path=project_path,
-                project_name=project["name"],
-                target_language=_target_lang,
-            )
+        scan_project_files(project_id, project_path, db, scanner)
     finally:
-        # Remove from running scans tracking
         _running_scans.discard(project_id)
 
 

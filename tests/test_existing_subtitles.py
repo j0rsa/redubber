@@ -8,11 +8,14 @@ import pytest
 
 from app.services.existing_subtitles import (
     SUBTITLES_READY_PROGRESS,
+    external_subtitle_records,
     find_reusable_subtitle,
     find_sidecar_subtitles,
+    iter_sidecar_subtitles,
     segments_from_subtitle_file,
     stage_existing_subtitle,
     stage_target_subtitles_for_videos,
+    subtitle_belongs_to_video,
     workdir_subtitle_dest,
 )
 from pipeline_status import get_pipeline_status
@@ -63,6 +66,38 @@ class TestFindSidecarSubtitles:
         found = find_sidecar_subtitles(video, language=None)
 
         assert [p.name for p in found] == ["lesson.ru.srt"]
+
+    def test_numeric_stem_matches_only_that_lesson(self, tmp_path: Path) -> None:
+        video = tmp_path / "01.mp4"
+        video.write_bytes(b"fake-video")
+        (tmp_path / "01.eng.srt").write_text("eng", encoding="utf-8")
+        (tmp_path / "01.kor.srt").write_text("kor", encoding="utf-8")
+        (tmp_path / "02.eng.srt").write_text("no", encoding="utf-8")
+        (tmp_path / "010.eng.srt").write_text("no", encoding="utf-8")
+
+        found = iter_sidecar_subtitles(video)
+
+        assert [p.name for p in found] == ["01.eng.srt", "01.kor.srt"]
+
+    def test_ignores_same_named_subs_in_other_folders(self, tmp_path: Path) -> None:
+        section = tmp_path / "SECTION 01. What Is Deformation"
+        extras = tmp_path / "extras"
+        section.mkdir()
+        extras.mkdir()
+        video = section / "01.mp4"
+        video.write_bytes(b"fake-video")
+        (section / "01.eng.srt").write_text("eng", encoding="utf-8")
+        (section / "01.kor.srt").write_text("kor", encoding="utf-8")
+        (extras / "01.eng.srt").write_text("dup", encoding="utf-8")
+        (extras / "01.en.srt").write_text("en", encoding="utf-8")
+        (extras / "01.english.srt").write_text("english", encoding="utf-8")
+
+        found = iter_sidecar_subtitles(video)
+        records = external_subtitle_records(video)
+
+        assert [p.name for p in found] == ["01.eng.srt", "01.kor.srt"]
+        assert [r["language"] for r in records] == ["eng", "kor"]
+        assert not subtitle_belongs_to_video(extras / "01.english.srt", video)
 
 
 class TestStageExistingSubtitle:
@@ -259,6 +294,42 @@ class TestScanStagesSubsAndProgress:
         assert any(s["progress"] == SUBTITLES_READY_PROGRESS for s in statuses)
         assert any(s["current_stage"] == "Generate TTS" for s in statuses)
 
+    def test_scan_attaches_only_same_folder_sidecars(self, client, tmp_path: Path) -> None:
+        project_dir = tmp_path / "course"
+        section = project_dir / "SECTION 01. What Is Deformation"
+        extras = project_dir / "extras"
+        section.mkdir(parents=True)
+        extras.mkdir()
+        (section / "01.mp4").write_bytes(b"fake-video")
+        (section / "01.eng.srt").write_text("eng", encoding="utf-8")
+        (section / "01.kor.srt").write_text("kor", encoding="utf-8")
+        (extras / "01.eng.srt").write_text("dup", encoding="utf-8")
+        (extras / "01.en.srt").write_text("en", encoding="utf-8")
+        (extras / "01.english.srt").write_text("english", encoding="utf-8")
+        (extras / "02.eng.srt").write_text("other", encoding="utf-8")
+
+        created = client.post(
+            "/api/projects/", json={"path": str(project_dir), "name": "Course"}
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        videos = client.get(f"/api/projects/{project_id}/videos")
+        assert videos.status_code == 200
+        body = videos.json()
+        assert len(body) == 1
+        names = sorted(Path(sub["path"]).name for sub in body[0]["subtitles"])
+        langs = sorted(sub["language"] for sub in body[0]["subtitles"])
+        assert names == ["01.eng.srt", "01.kor.srt"]
+        assert langs == ["eng", "kor"]
+
+        rescan = client.post(f"/api/projects/{project_id}/scan")
+        assert rescan.status_code == 200
+        videos = client.get(f"/api/projects/{project_id}/videos")
+        body = videos.json()
+        names = sorted(Path(sub["path"]).name for sub in body[0]["subtitles"])
+        assert names == ["01.eng.srt", "01.kor.srt"]
+
 
 class TestTranscriptionTaskDedupe:
     @pytest.mark.asyncio
@@ -345,3 +416,42 @@ class TestTranscriptionTaskDedupe:
         mock_stt.assert_not_called()
         dest = workdir_subtitle_dest(video, str(project), "Demo")
         assert not dest.exists()
+
+
+class TestSubtitleFilesForVideoQuery:
+    def test_does_not_match_other_numeric_prefixes(self, tmp_path: Path) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(tmp_path), "Demo")
+        video = tmp_path / "01.mp4"
+        video.write_bytes(b"x")
+        db.add_subtitle_file(project_id, str(tmp_path / "01.eng.srt"), "01.eng.srt", "eng")
+        db.add_subtitle_file(project_id, str(tmp_path / "010.eng.srt"), "010.eng.srt", "eng")
+        db.add_subtitle_file(project_id, str(tmp_path / "02.eng.srt"), "02.eng.srt", "eng")
+
+        matched = db.get_subtitle_files_for_video(project_id, "01.mp4", str(video))
+        assert [row["filename"] for row in matched] == ["01.eng.srt"]
+
+    def test_requires_same_directory_when_path_given(self, tmp_path: Path) -> None:
+        from app.core.config import settings
+        from database import DatabaseManager
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(tmp_path), "Demo")
+        section = tmp_path / "section"
+        extras = tmp_path / "extras"
+        section.mkdir()
+        extras.mkdir()
+        video = section / "01.mp4"
+        video.write_bytes(b"x")
+        db.add_subtitle_file(
+            project_id, str(section / "01.eng.srt"), "01.eng.srt", "eng"
+        )
+        db.add_subtitle_file(
+            project_id, str(extras / "01.english.srt"), "01.english.srt", "eng"
+        )
+
+        matched = db.get_subtitle_files_for_video(project_id, "01.mp4", str(video))
+        assert [row["filename"] for row in matched] == ["01.eng.srt"]

@@ -320,6 +320,23 @@ _ISO639_1_TO_2 = {
     "hi": "hin",
 }
 
+# Filename suffixes / display names that are not ISO 639-1 codes.
+_LANGUAGE_NAMES_TO_639_2 = {
+    "english": "eng",
+    "spanish": "spa",
+    "esp": "spa",
+    "french": "fra",
+    "german": "deu",
+    "italian": "ita",
+    "portuguese": "por",
+    "russian": "rus",
+    "japanese": "jpn",
+    "korean": "kor",
+    "chinese": "zho",
+    "arabic": "ara",
+    "hindi": "hin",
+}
+
 _ISO639_2_TO_1 = {three: two for two, three in _ISO639_1_TO_2.items()}
 
 # Bibliographic vs terminological 639-2 codes that ffprobe/ffmpeg mix freely.
@@ -345,7 +362,14 @@ def convert_to_three_char_lang_code(language_code: Optional[str]) -> Optional[st
     if not language_code:
         return language_code
 
-    return _ISO639_1_TO_2.get(language_code.lower(), language_code)
+    code = language_code.lower()
+    if code in _ISO639_1_TO_2:
+        return _ISO639_1_TO_2[code]
+    if code in _LANGUAGE_NAMES_TO_639_2:
+        return _LANGUAGE_NAMES_TO_639_2[code]
+    if code in _ISO639_2_ALIASES:
+        return _ISO639_2_ALIASES[code]
+    return language_code
 
 
 def convert_to_two_char_lang_code(language_code: Optional[str]) -> Optional[str]:

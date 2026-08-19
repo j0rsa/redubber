@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
@@ -118,13 +119,26 @@ def _file_option(path: Path, source: str) -> SubtitleReviewFileOption:
     )
 
 
+def _file_digest(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
 def list_review_srts(
     video_path: Path,
     project_path: str,
     project_name: str,
     target_language: str,
 ) -> list[SubtitleReviewFileOption]:
-    """Return all subtitle files available for review, preferred order first."""
+    """Return subtitle files available for review, preferred order first.
+
+    Working-dir copies that are identical to a same-folder sidecar are omitted
+    so the selector lists the files that actually sit next to the video.
+    """
+    from app.services.existing_subtitles import iter_sidecar_subtitles
+
     dirs = artefact_dirs(video_path, project_path, project_name)
     stem = video_path.stem
     seen: set[str] = set()
@@ -137,34 +151,44 @@ def list_review_srts(
         seen.add(key)
         options.append(_file_option(path, source))
 
-    add(dirs["subtitles"] / f"{stem}.en.srt", "generated")
-    add(video_path.parent / f"{stem}.en.srt", "sidecar")
+    sidecar_paths = [
+        path
+        for path in iter_sidecar_subtitles(video_path)
+        if path.suffix.lower() in SUBTITLE_EXTS
+    ]
+    sidecar_digests = {
+        digest for digest in (_file_digest(path) for path in sidecar_paths) if digest
+    }
+
+    generated = dirs["subtitles"] / f"{stem}.en.srt"
+    generated_digest = _file_digest(generated) if generated.is_file() else ""
+    if generated.is_file() and generated_digest not in sidecar_digests:
+        add(generated, "generated")
 
     subtitles_dir = dirs["subtitles"]
     if subtitles_dir.is_dir():
         for candidate in sorted(subtitles_dir.iterdir()):
-            if candidate.is_file() and candidate.suffix.lower() in SUBTITLE_EXTS:
-                if _sidecar_matches_video(candidate, stem):
-                    add(candidate, "working_dir")
-
-    if video_path.parent.is_dir():
-        for candidate in sorted(video_path.parent.iterdir()):
             if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
                 continue
             if not _sidecar_matches_video(candidate, stem):
                 continue
-            add(candidate, "sidecar")
+            digest = _file_digest(candidate)
+            if digest and digest in sidecar_digests:
+                continue
+            add(candidate, "working_dir")
 
     target = _norm_lang(target_language)
-    if target and video_path.parent.is_dir():
-        for candidate in sorted(video_path.parent.iterdir()):
-            if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
-                continue
-            if not _sidecar_matches_video(candidate, stem):
-                continue
-            detected = detect_subtitle_language(candidate)
-            if detected and _norm_lang(detected) == target:
-                add(candidate, "sidecar")
+    target_sidecars: list[Path] = []
+    other_sidecars: list[Path] = []
+    for path in sidecar_paths:
+        detected = detect_subtitle_language(path)
+        if target and detected and _norm_lang(detected) == target:
+            target_sidecars.append(path)
+        else:
+            other_sidecars.append(path)
+
+    for path in target_sidecars + other_sidecars:
+        add(path, "sidecar")
 
     return options
 

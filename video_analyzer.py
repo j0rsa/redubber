@@ -203,6 +203,7 @@ def analyze_project_files(
     Returns:
         Dictionary with analysis results
     """
+    from app.services.existing_subtitles import iter_sidecar_subtitles
     from file_scanner import FileScanner
     from utils import detect_subtitle_language
 
@@ -238,7 +239,6 @@ def analyze_project_files(
         embedded_subtitles = video_info.get("embedded_subtitles", [])
 
         # Find matching external subtitles
-        base_name = video_file.stem
         matching_subtitles = []
 
         # Add embedded subtitles first
@@ -255,34 +255,19 @@ def analyze_project_files(
             )
 
         # Add external subtitle files (must be in same directory)
-        video_dir = video_file.parent
-        for sub_file in subtitle_files:
-            # Check if subtitle is in the same directory as video
-            if sub_file.parent != video_dir:
-                continue
-
-            # Match if subtitle stem equals video stem, or subtitle name starts with "videoname."
-            # e.g., "video.srt" or "video.en.srt" for "video.mp4"
-            sub_stem = sub_file.stem
-            # Handle multi-part extensions like .en.srt -> stem would be "video.en"
-            # So we check if sub_stem starts with base_name
-            if (
-                sub_stem == base_name
-                or sub_stem.startswith(base_name + ".")
-                or sub_file.name.startswith(base_name + ".")
-            ):
-                sub_language = detect_subtitle_language(sub_file)
-                # If no language detected from filename, use target language
-                if sub_language is None:
-                    sub_language = target_language
-                matching_subtitles.append(
-                    {
-                        "filename": sub_file.name,
-                        "path": str(sub_file),
-                        "language": sub_language,
-                        "embedded": False,
-                    }
-                )
+        for sub_file in iter_sidecar_subtitles(video_file):
+            sub_language = detect_subtitle_language(sub_file)
+            # If no language detected from filename, use target language
+            if sub_language is None:
+                sub_language = target_language
+            matching_subtitles.append(
+                {
+                    "filename": sub_file.name,
+                    "path": str(sub_file),
+                    "language": sub_language,
+                    "embedded": False,
+                }
+            )
 
         results["videos"].append(
             {
@@ -301,7 +286,7 @@ def analyze_project_files(
         already_matched = False
         for video_result in results["videos"]:
             if any(
-                sub["filename"] == subtitle_file.name
+                sub.get("path") == str(subtitle_file)
                 for sub in video_result["subtitles"]
             ):
                 already_matched = True

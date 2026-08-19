@@ -114,6 +114,48 @@ class TestListReviewSrts:
         assert "lesson.en.srt" in labels
         assert "lesson.ru.srt" in labels
 
+    def test_omits_staged_copy_identical_to_sidecar(self, tmp_path: Path) -> None:
+        from app.services.existing_subtitles import workdir_subtitle_dest
+
+        project = tmp_path / "proj"
+        section = project / "SECTION 01. What Is Deformation"
+        section.mkdir(parents=True)
+        video = section / "01.mp4"
+        video.write_bytes(b"x")
+        (section / "01.eng.srt").write_text(SAMPLE_SRT)
+        (section / "01.kor.srt").write_text("kor cues")
+        dest = workdir_subtitle_dest(video, str(project), "proj")
+        dest.parent.mkdir(parents=True)
+        dest.write_text(SAMPLE_SRT)
+
+        options = list_review_srts(video, str(project), "proj", "eng")
+        labels = [option.label for option in options]
+        sources = [option.source for option in options]
+
+        assert labels == ["01.eng.srt", "01.kor.srt"]
+        assert sources == ["sidecar", "sidecar"]
+        found = find_review_srt(video, str(project), "proj", "eng")
+        assert found is not None
+        assert found.resolve() == (section / "01.eng.srt").resolve()
+
+    def test_keeps_generated_file_when_content_differs(self, tmp_path: Path) -> None:
+        from app.services.existing_subtitles import workdir_subtitle_dest
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "01.mp4"
+        video.write_bytes(b"x")
+        (project / "01.eng.srt").write_text("original sidecar")
+        dest = workdir_subtitle_dest(video, str(project), "proj")
+        dest.parent.mkdir(parents=True)
+        dest.write_text(SAMPLE_SRT)
+
+        options = list_review_srts(video, str(project), "proj", "eng")
+        labels = [option.label for option in options]
+
+        assert labels[0] == "01.en.srt"
+        assert "01.eng.srt" in labels
+
     def test_resolve_rejects_unknown_path(self, tmp_path: Path) -> None:
         project = tmp_path / "proj"
         project.mkdir()
