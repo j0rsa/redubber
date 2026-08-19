@@ -34,7 +34,7 @@ export const ResetDubDialog = ({
   }, [deletesSubs, selected.label]);
 
   const handleSubmit = () => {
-    if (!canSubmit || selected.id === 'complete') return;
+    if (!canSubmit) return;
     onConfirm(selected.id);
   };
 
