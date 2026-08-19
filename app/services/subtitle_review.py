@@ -20,9 +20,11 @@ from stt_hallucination import (
     MIN_PHRASE_REPEAT_COUNT,
     _check_character_spam,
     _check_dominant_word,
+    _check_intra_cue_numbered_list,
     _check_known_phrases,
     _check_near_duplicate_run,
     _check_numbered_enumeration_loop,
+    _check_phrase_spam_in_cue,
     _check_shared_phrase_run,
     _check_segment_density,
     _check_transcript_density,
@@ -308,6 +310,14 @@ def analyze_srt_hallucinations(
     for index, segment in enumerate(segments):
         text = segment.text or ""
         for finding in _check_known_phrases(text, index, None):
+            warnings.append(
+                _finding_to_warning(finding.code, finding.message, index)
+            )
+        for finding in _check_intra_cue_numbered_list(text, index, None):
+            warnings.append(
+                _finding_to_warning(finding.code, finding.message, index)
+            )
+        for finding in _check_phrase_spam_in_cue(text, index, None):
             warnings.append(
                 _finding_to_warning(finding.code, finding.message, index)
             )
