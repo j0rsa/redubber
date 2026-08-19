@@ -104,6 +104,15 @@ class TestKnownPhrasesAndDensity:
             f.code in {"excessive_cps", "transcript_too_dense"} for f in report.findings
         )
 
+    def test_normal_density_passes(self) -> None:
+        # ~35 chars/s should not trigger density warnings
+        text = "a" * 35
+        segments = [_seg(text, end=1.0)]
+        report = analyze_segments(segments, audio_duration=1.0)
+        assert not any(
+            f.code in {"excessive_cps", "transcript_too_dense"} for f in report.findings
+        )
+
     def test_empty_transcript_fails(self) -> None:
         report = analyze_segments([], audio_duration=10.0)
         assert any(f.code == "empty_transcript" for f in report.findings)
