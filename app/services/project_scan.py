@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.services.existing_subtitles import (
     external_subtitle_records,
     stage_target_subtitles_for_videos,

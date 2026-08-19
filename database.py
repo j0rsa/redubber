@@ -4,7 +4,6 @@ Handles SQLite operations for project indexing and file management.
 """
 
 import sqlite3
-import os
 from pathlib import Path
 from typing import List, Dict, Optional
 
