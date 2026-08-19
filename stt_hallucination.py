@@ -27,6 +27,8 @@ MAX_PHRASE_WORDS = 10
 DOMINANT_WORD_RATIO = 0.38
 DOMINANT_WORD_MIN_TOKENS = 24
 CHAR_RUN_MIN = 8
+MIN_NEAR_DUPLICATE_SIMILARITY = 0.55
+_NUMBERED_LINE_RE = re.compile(r"^\d+\.\s*")
 
 # Common silence / tail hallucinations (case-insensitive substring match)
 KNOWN_HALLUCINATION_PHRASES: tuple[str, ...] = (
@@ -117,6 +119,102 @@ def _normalize_text(text: str) -> str:
 def _tokenize(text: str) -> list[str]:
     normalized = _normalize_text(text)
     return [tok for tok in normalized.split() if tok]
+
+
+def _strip_leading_number(text: str) -> str:
+    return _NUMBERED_LINE_RE.sub("", text.strip(), count=1)
+
+
+def _token_jaccard(left: str, right: str) -> float:
+    left_tokens = set(_tokenize(left))
+    right_tokens = set(_tokenize(right))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap = len(left_tokens & right_tokens)
+    union = len(left_tokens | right_tokens)
+    return overlap / union
+
+
+def _segments_similar(left: str, right: str) -> bool:
+    left_body = _strip_leading_number(left)
+    right_body = _strip_leading_number(right)
+    return _token_jaccard(left_body, right_body) >= MIN_NEAR_DUPLICATE_SIMILARITY
+
+
+def _check_numbered_enumeration_loop(
+    segments: list[TranscriptionSegment], chunk_label: str | None
+) -> list[HallucinationFinding]:
+    """Flag runs of consecutive lines like ``4. …``, ``5. …`` (STT list loops)."""
+    findings: list[HallucinationFinding] = []
+    run_indices: list[int] = []
+
+    def flush_run() -> None:
+        if len(run_indices) < MIN_CONSECUTIVE_DUPLICATE_SEGMENTS:
+            return
+        count = len(run_indices)
+        message = (
+            f"{count} consecutive numbered lines — likely STT enumeration hallucination"
+        )
+        for index in run_indices:
+            findings.append(
+                HallucinationFinding(
+                    code="numbered_enumeration_loop",
+                    message=message,
+                    segment_index=index,
+                    chunk_label=chunk_label,
+                )
+            )
+
+    for index, segment in enumerate(segments):
+        text = (segment.text or "").strip()
+        if _NUMBERED_LINE_RE.match(text):
+            run_indices.append(index)
+        else:
+            flush_run()
+            run_indices = []
+    flush_run()
+    return findings
+
+
+def _check_near_duplicate_run(
+    segments: list[TranscriptionSegment], chunk_label: str | None
+) -> list[HallucinationFinding]:
+    """Flag consecutive segments with very similar wording (not exact duplicates)."""
+    if len(segments) < MIN_CONSECUTIVE_DUPLICATE_SEGMENTS:
+        return []
+
+    findings: list[HallucinationFinding] = []
+    run_indices = [0]
+
+    def flush_run() -> None:
+        if len(run_indices) < MIN_CONSECUTIVE_DUPLICATE_SEGMENTS:
+            return
+        preview = _strip_leading_number(segments[run_indices[0]].text or "")
+        preview = preview[:60] + ("…" if len(preview) > 60 else "")
+        count = len(run_indices)
+        message = (
+            f"{count} consecutive near-duplicate lines with similar wording: {preview!r}"
+        )
+        for index in run_indices:
+            findings.append(
+                HallucinationFinding(
+                    code="near_duplicate_run",
+                    message=message,
+                    segment_index=index,
+                    chunk_label=chunk_label,
+                )
+            )
+
+    for index in range(1, len(segments)):
+        previous = segments[index - 1].text or ""
+        current = segments[index].text or ""
+        if _segments_similar(previous, current):
+            run_indices.append(index)
+        else:
+            flush_run()
+            run_indices = [index]
+    flush_run()
+    return findings
 
 
 def _chars_per_second(start: float, end: float, text: str) -> float:
@@ -412,6 +510,8 @@ def analyze_segments(
         )
 
     report.findings.extend(_check_consecutive_duplicate_segments(segments, chunk_label))
+    report.findings.extend(_check_numbered_enumeration_loop(segments, chunk_label))
+    report.findings.extend(_check_near_duplicate_run(segments, chunk_label))
     report.findings.extend(_check_phrase_loops(segments, chunk_label))
     report.findings.extend(_check_dominant_word(segments, chunk_label))
     report.findings.extend(

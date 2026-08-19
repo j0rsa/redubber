@@ -159,6 +159,18 @@ class TestAnalyzeSrtHallucinations:
             for w in warnings
         )
 
+    def test_marks_numbered_enumeration_hallucination(self) -> None:
+        cues = [
+            (249.0, 254.0, "4. Not with the water like a fool."),
+            (254.0, 259.0, "5. Not with the water as a fool."),
+            (259.0, 264.0, "6. Stop with the water."),
+            (264.0, 269.0, "7. Not with the water as a fill."),
+        ]
+        warnings = analyze_srt_hallucinations(cues, source_label="test.srt")
+        numbered = [w for w in warnings if w.code == "numbered_enumeration_loop"]
+        assert len(numbered) == 4
+        assert {w.segment_index for w in numbered} == {0, 1, 2, 3}
+
 
 class TestBuildSubtitleReview:
     def test_maps_tts_and_chunks(self, tmp_path: Path) -> None:
