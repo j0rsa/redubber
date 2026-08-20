@@ -13,6 +13,56 @@ TtsModel = Literal["tts-1", "tts-1-hd", "gpt-4o-mini-tts"]
 # Valid OpenAI TTS voice identifiers
 VoiceName = Literal["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
 
+HallucinationRuleComparison = Literal["gt", "lt", "gte", "min_count"]
+
+
+class HallucinationRuleSetting(BaseModel):
+    """One hallucination-detector rule as shown and edited in Settings."""
+
+    id: str = Field(..., description="Stable rule identifier")
+    label: str = Field(..., description="Short label for UI display")
+    description: str = Field(..., description="What the heuristic flags")
+    enabled: bool = Field(
+        default=True, description="When false, the rule is skipped entirely"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description="Tunable cutoff for this rule. Null when the rule has no numeric threshold.",
+    )
+    default_threshold: float | None = Field(
+        default=None,
+        description="Factory default for threshold. Null when the rule has no numeric threshold.",
+    )
+    threshold_min: float | None = Field(
+        default=None, description="Inclusive minimum accepted threshold"
+    )
+    threshold_max: float | None = Field(
+        default=None, description="Inclusive maximum accepted threshold"
+    )
+    threshold_step: float | None = Field(
+        default=None, description="Suggested UI step for the threshold input"
+    )
+    unit: str | None = Field(
+        default=None, description="Display unit, e.g. chars/s or ratio"
+    )
+    comparison: HallucinationRuleComparison | None = Field(
+        default=None,
+        description="How threshold is applied: gt, lt, gte, or min_count",
+    )
+
+
+class HallucinationRuleUpdate(BaseModel):
+    """Partial update for one hallucination-detector rule."""
+
+    id: str = Field(..., description="Stable rule identifier")
+    enabled: bool | None = Field(
+        default=None, description="When false, the rule is skipped entirely"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description="Tunable cutoff. Ignored for rules that have no numeric threshold.",
+    )
+
 
 class Settings(BaseModel):
     """Persistent tool-level settings for the Redubber application.
@@ -195,6 +245,13 @@ class SettingsUpdate(BaseModel):
         default=None,
         description="When enabled, automatically runs all redub steps and replaces the original file.",
     )
+    hallucination_rules: list[HallucinationRuleUpdate] | None = Field(
+        default=None,
+        description=(
+            "Hallucination-detector rules to update. Each item must reference a known "
+            "rule id; omitted rules keep their stored values."
+        ),
+    )
 
 
 class SettingsResponse(BaseModel):
@@ -288,6 +345,13 @@ class SettingsResponse(BaseModel):
         description=(
             "List of setting field names whose values are set by an environment variable "
             "and cannot be changed via the UI (e.g. ['openai_api_key', 'working_directory'])."
+        ),
+    )
+    hallucination_rules: list[HallucinationRuleSetting] = Field(
+        default_factory=list,
+        description=(
+            "Hallucination-detector rules with current enable flags and thresholds. "
+            "Initialized from hardcoded defaults, then persisted in the database."
         ),
     )
 

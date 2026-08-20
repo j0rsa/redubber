@@ -15,8 +15,7 @@ from app.schemas.subtitle_review import (
     SubtitleQualityRule,
 )
 from stt_hallucination import (
-    MIN_CONSECUTIVE_DUPLICATE_SEGMENTS,
-    MIN_PHRASE_REPEAT_COUNT,
+    HallucinationConfig,
     _check_character_spam,
     _check_dominant_word,
     _check_intra_cue_numbered_list,
@@ -29,6 +28,7 @@ from stt_hallucination import (
     _check_transcript_density,
     _find_repeated_phrase,
     _normalize_text,
+    resolve_hallucination_config,
 )
 
 RuleScope = Literal["cue", "file"]
@@ -145,8 +145,14 @@ def _breach(
     )
 
 
-def _duplicate_run_breaches(segments: list) -> list[SubtitleQualityBreach]:
-    if len(segments) < MIN_CONSECUTIVE_DUPLICATE_SEGMENTS:
+def _duplicate_run_breaches(
+    segments: list, config: HallucinationConfig
+) -> list[SubtitleQualityBreach]:
+    if not config.is_enabled("consecutive_duplicate_segments"):
+        return []
+
+    min_run = config.int_threshold("consecutive_duplicate_segments")
+    if len(segments) < min_run:
         return []
 
     breaches: list[SubtitleQualityBreach] = []
@@ -156,7 +162,7 @@ def _duplicate_run_breaches(segments: list) -> list[SubtitleQualityBreach]:
 
     def flush_run() -> None:
         nonlocal run_len, run_text, run_indices
-        if run_len >= MIN_CONSECUTIVE_DUPLICATE_SEGMENTS and run_text:
+        if run_len >= min_run and run_text:
             preview = run_text[:60] + ("…" if len(run_text) > 60 else "")
             message = (
                 f"{run_len} consecutive segments repeat the same text: {preview!r}"
@@ -201,8 +207,11 @@ def _findings_to_breaches(findings: list, rule_id: str | None = None) -> list[Su
 
 def analyze_subtitle_quality(
     cues: list[tuple[float, float, str]],
+    *,
+    config: HallucinationConfig | None = None,
 ) -> SubtitleQualityAnalysis:
     """Run every registered rule and return all breaches."""
+    resolved = resolve_hallucination_config(config)
     if not cues:
         return SubtitleQualityAnalysis(
             rules=SUBTITLE_QUALITY_RULES,
@@ -222,44 +231,64 @@ def analyze_subtitle_quality(
     for index, segment in enumerate(segments):
         text = segment.text or ""
         breaches.extend(
-            _findings_to_breaches(_check_known_phrases(text, index, None))
-        )
-        breaches.extend(
-            _findings_to_breaches(_check_intra_cue_numbered_list(text, index, None))
-        )
-        breaches.extend(
-            _findings_to_breaches(_check_phrase_spam_in_cue(text, index, None))
-        )
-        breaches.extend(
-            _findings_to_breaches(_check_character_spam(text, index, None))
-        )
-        breaches.extend(
-            _findings_to_breaches(_check_segment_density(segment, index, None))
-        )
-
-        repeated = _find_repeated_phrase(text)
-        if repeated:
-            breaches.append(
-                _breach(
-                    "repeated_phrase_loop",
-                    (
-                        f"phrase {repeated!r} repeats {MIN_PHRASE_REPEAT_COUNT}+ "
-                        f"times in this cue"
-                    ),
-                    index,
-                )
+            _findings_to_breaches(
+                _check_known_phrases(text, index, None, resolved)
             )
+        )
+        breaches.extend(
+            _findings_to_breaches(
+                _check_intra_cue_numbered_list(text, index, None, resolved)
+            )
+        )
+        breaches.extend(
+            _findings_to_breaches(
+                _check_phrase_spam_in_cue(text, index, None, resolved)
+            )
+        )
+        breaches.extend(
+            _findings_to_breaches(
+                _check_character_spam(text, index, None, resolved)
+            )
+        )
+        breaches.extend(
+            _findings_to_breaches(
+                _check_segment_density(segment, index, None, resolved)
+            )
+        )
 
-    breaches.extend(_duplicate_run_breaches(segments))
-    breaches.extend(
-        _findings_to_breaches(_check_numbered_enumeration_loop(segments, None))
-    )
-    breaches.extend(_findings_to_breaches(_check_near_duplicate_run(segments, None)))
-    breaches.extend(_findings_to_breaches(_check_shared_phrase_run(segments, None)))
-    breaches.extend(_findings_to_breaches(_check_dominant_word(segments, None)))
+        if resolved.is_enabled("repeated_phrase_loop"):
+            min_repeat = resolved.int_threshold("repeated_phrase_loop")
+            repeated = _find_repeated_phrase(text, min_repeat=min_repeat)
+            if repeated:
+                breaches.append(
+                    _breach(
+                        "repeated_phrase_loop",
+                        (
+                            f"phrase {repeated!r} repeats {min_repeat}+ "
+                            f"times in this cue"
+                        ),
+                        index,
+                    )
+                )
+
+    breaches.extend(_duplicate_run_breaches(segments, resolved))
     breaches.extend(
         _findings_to_breaches(
-            _check_transcript_density(segments, audio_duration, None)
+            _check_numbered_enumeration_loop(segments, None, resolved)
+        )
+    )
+    breaches.extend(
+        _findings_to_breaches(_check_near_duplicate_run(segments, None, resolved))
+    )
+    breaches.extend(
+        _findings_to_breaches(_check_shared_phrase_run(segments, None, resolved))
+    )
+    breaches.extend(
+        _findings_to_breaches(_check_dominant_word(segments, None, resolved))
+    )
+    breaches.extend(
+        _findings_to_breaches(
+            _check_transcript_density(segments, audio_duration, None, resolved)
         )
     )
 
@@ -291,7 +320,11 @@ def unique_rule_ids(breaches: list[SubtitleQualityBreach]) -> list[str]:
     return sorted({breach.rule_id for breach in breaches})
 
 
-def analyze_subtitle_file(path: Path) -> SubtitleQualityAnalysis:
+def analyze_subtitle_file(
+    path: Path,
+    *,
+    config: HallucinationConfig | None = None,
+) -> SubtitleQualityAnalysis:
     """Run quality rules on an on-disk SRT/VTT file. Missing or unreadable files are empty."""
     if not path.is_file() or path.suffix.lower() not in {".srt", ".vtt"}:
         return SubtitleQualityAnalysis(rules=SUBTITLE_QUALITY_RULES, breaches=())
@@ -301,4 +334,4 @@ def analyze_subtitle_file(path: Path) -> SubtitleQualityAnalysis:
         return SubtitleQualityAnalysis(rules=SUBTITLE_QUALITY_RULES, breaches=())
     from app.services.subtitle_review import parse_srt
 
-    return analyze_subtitle_quality(parse_srt(text))
+    return analyze_subtitle_quality(parse_srt(text), config=config)

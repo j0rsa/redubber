@@ -259,6 +259,26 @@ class DatabaseManager:
                 )
             """)
 
+            # Hallucination detector rules (seeded from hardcoded catalog defaults)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS hallucination_rules (
+                    rule_id TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    threshold REAL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            from stt_hallucination import HALLUCINATION_RULE_SPECS
+            for spec in HALLUCINATION_RULE_SPECS:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO hallucination_rules
+                        (rule_id, enabled, threshold)
+                    VALUES (?, 1, ?)
+                    """,
+                    (spec.id, spec.default_threshold),
+                )
+
             conn.commit()
 
     def get_app_settings(self) -> Optional[Dict]:
@@ -285,6 +305,39 @@ class DatabaseManager:
                 f"UPDATE app_settings SET {placeholders}, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
                 values,
             )
+            conn.commit()
+
+    def list_hallucination_rules(self) -> List[Dict]:
+        """Return persisted hallucination-rule rows (may be empty before seed)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT rule_id, enabled, threshold FROM hallucination_rules"
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def upsert_hallucination_rules(self, rules: List[Dict]) -> None:
+        """Insert or update hallucination-rule enable flags and thresholds."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for rule in rules:
+                cursor.execute(
+                    """
+                    INSERT INTO hallucination_rules
+                        (rule_id, enabled, threshold, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(rule_id) DO UPDATE SET
+                        enabled = excluded.enabled,
+                        threshold = excluded.threshold,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        rule["rule_id"],
+                        int(bool(rule["enabled"])),
+                        rule.get("threshold"),
+                    ),
+                )
             conn.commit()
 
     def add_project(self, path: str, name: str) -> int:
