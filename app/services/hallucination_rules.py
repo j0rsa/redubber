@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from app.schemas.settings import HallucinationRuleSetting, HallucinationRuleUpdate
 from stt_hallucination import (
     HALLUCINATION_RULE_SPECS,
@@ -10,6 +12,8 @@ from stt_hallucination import (
     default_hallucination_config,
     hallucination_config_from_rows,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _get_db():
@@ -20,12 +24,21 @@ def _get_db():
 
 
 def get_hallucination_config() -> HallucinationConfig:
-    """Return runtime detector config from the DB, falling back to hardcoded defaults."""
+    """Return runtime detector config from the DB, falling back to factory defaults."""
     try:
-        rows = _get_db().list_hallucination_rules()
+        db = _get_db()
+        rows = db.list_hallucination_rules()
     except Exception:
+        log.warning(
+            "Could not read hallucination_rules from the database; "
+            "using factory defaults",
+            exc_info=True,
+        )
         return default_hallucination_config()
     if not rows:
+        log.warning(
+            "hallucination_rules table is empty after init; using factory defaults"
+        )
         return default_hallucination_config()
     return hallucination_config_from_rows(rows)
 

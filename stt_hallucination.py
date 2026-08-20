@@ -7,31 +7,36 @@ can fail fast at transcription instead of burning translation/TTS cost.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Literal, Mapping
 
 from openai.types.audio.transcription_segment import TranscriptionSegment
 
-# Whisper-style segment metrics (see OpenAI verbose_json transcription objects)
+log = logging.getLogger(__name__)
+
+# Factory defaults for user-tunable rule thresholds. Seeded into the database
+# catalog only — runtime checks must read HallucinationConfig, not these names.
 MAX_COMPRESSION_RATIO = 2.4
 MIN_AVG_LOGPROB = -1.0
 MAX_NO_SPEECH_WITH_TEXT = 0.55
-
-# Text density / repetition
 MAX_CHARS_PER_SECOND = 40.0
 MIN_CONSECUTIVE_DUPLICATE_SEGMENTS = 3
 MIN_PHRASE_REPEAT_COUNT = 3
-MIN_PHRASE_WORDS = 2
-MAX_PHRASE_WORDS = 10
 DOMINANT_WORD_RATIO = 0.38
-DOMINANT_WORD_MIN_TOKENS = 24
 CHAR_RUN_MIN = 8
-MIN_NEAR_DUPLICATE_SIMILARITY = 0.45
 MIN_SHARED_PHRASE_RUN = 3
-MIN_SHARED_PHRASE_WORDS = 2
 MIN_INTRA_CUE_NUMBERED_ITEMS = 3
 MIN_PHRASE_SPAM_COUNT = 4
+
+# Internal matching knobs (not exposed as Settings thresholds).
+MIN_PHRASE_WORDS = 2
+MAX_PHRASE_WORDS = 10
+DOMINANT_WORD_MIN_TOKENS = 24
+MIN_NEAR_DUPLICATE_SIMILARITY = 0.45
+MIN_SHARED_PHRASE_WORDS = 2
+_INTRA_CUE_SHARED_MIN_WORDS = 3
 _NUMBERED_LINE_RE = re.compile(r"^\d+\.\s*")
 _INTRA_NUMBERED_MARKER_RE = re.compile(r"\b\d+\.\s+")
 INSIGNIFICANT_SHARED_PHRASES = frozenset(
@@ -348,6 +353,11 @@ def resolve_hallucination_config(
 
         return get_hallucination_config()
     except Exception:
+        log.warning(
+            "Could not load hallucination rules from the database; "
+            "using factory defaults",
+            exc_info=True,
+        )
         return DEFAULT_HALLUCINATION_CONFIG
 
 
@@ -578,7 +588,7 @@ def _check_intra_cue_numbered_list(
             )
         ]
 
-    shared = _find_longest_shared_phrase(labels, 3)
+    shared = _find_longest_shared_phrase(labels, _INTRA_CUE_SHARED_MIN_WORDS)
     if shared and len(labels) >= min_items:
         return [
             HallucinationFinding(
@@ -921,7 +931,7 @@ def _check_consecutive_duplicate_segments(
 def _find_repeated_phrase(
     text: str,
     *,
-    min_repeat: int = MIN_PHRASE_REPEAT_COUNT,
+    min_repeat: int,
     min_words: int = MIN_PHRASE_WORDS,
     max_words: int = MAX_PHRASE_WORDS,
 ) -> str | None:
