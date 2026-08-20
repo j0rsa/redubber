@@ -19,6 +19,9 @@ from app.services.subtitle_review import (
     list_review_srts,
     parse_srt,
     resolve_review_srt,
+    seconds_to_srt_timestamp,
+    update_subtitle_cue_text,
+    write_srt_cues,
 )
 from database import DatabaseManager
 
@@ -113,6 +116,48 @@ class TestListReviewSrts:
         labels = [option.label for option in options]
         assert "lesson.en.srt" in labels
         assert "lesson.ru.srt" in labels
+
+    def test_omits_staged_copy_identical_to_sidecar(self, tmp_path: Path) -> None:
+        from app.services.existing_subtitles import workdir_subtitle_dest
+
+        project = tmp_path / "proj"
+        section = project / "SECTION 01. What Is Deformation"
+        section.mkdir(parents=True)
+        video = section / "01.mp4"
+        video.write_bytes(b"x")
+        (section / "01.eng.srt").write_text(SAMPLE_SRT)
+        (section / "01.kor.srt").write_text("kor cues")
+        dest = workdir_subtitle_dest(video, str(project), "proj")
+        dest.parent.mkdir(parents=True)
+        dest.write_text(SAMPLE_SRT)
+
+        options = list_review_srts(video, str(project), "proj", "eng")
+        labels = [option.label for option in options]
+        sources = [option.source for option in options]
+
+        assert labels == ["01.eng.srt", "01.kor.srt"]
+        assert sources == ["sidecar", "sidecar"]
+        found = find_review_srt(video, str(project), "proj", "eng")
+        assert found is not None
+        assert found.resolve() == (section / "01.eng.srt").resolve()
+
+    def test_keeps_generated_file_when_content_differs(self, tmp_path: Path) -> None:
+        from app.services.existing_subtitles import workdir_subtitle_dest
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "01.mp4"
+        video.write_bytes(b"x")
+        (project / "01.eng.srt").write_text("original sidecar")
+        dest = workdir_subtitle_dest(video, str(project), "proj")
+        dest.parent.mkdir(parents=True)
+        dest.write_text(SAMPLE_SRT)
+
+        options = list_review_srts(video, str(project), "proj", "eng")
+        labels = [option.label for option in options]
+
+        assert labels[0] == "01.en.srt"
+        assert "01.eng.srt" in labels
 
     def test_resolve_rejects_unknown_path(self, tmp_path: Path) -> None:
         project = tmp_path / "proj"
@@ -361,3 +406,123 @@ Alternate.
         body = response.json()
         assert body["segments"][0]["text"] == "Alternate."
         assert len(body["available_files"]) >= 2
+
+    def test_patch_updates_cue_text(self, client: TestClient, tmp_path: Path) -> None:
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"x")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text(SAMPLE_SRT)
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 20,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.patch(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review/cues/0",
+            json={"text": "Edited hello."},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["segments"][0]["text"] == "Edited hello."
+        assert body["segments"][0]["start"] == pytest.approx(0.0)
+        assert body["segments"][1]["text"] == "This is a longer line of narration."
+        assert "Edited hello." in srt.read_text(encoding="utf-8")
+
+    def test_patch_rejects_empty_text(self, client: TestClient, tmp_path: Path) -> None:
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"x")
+        (project_dir / "lesson.en.srt").write_text(SAMPLE_SRT)
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 20,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.patch(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review/cues/0",
+            json={"text": "   "},
+        )
+        assert response.status_code == 422
+
+
+class TestUpdateSubtitleCue:
+    def test_rewrites_text_and_keeps_timings(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        srt = project / "lesson.en.srt"
+        srt.write_text(SAMPLE_SRT)
+        tts = project / ".redubber" / "lesson.mp4" / "04_tts"
+        tts.mkdir(parents=True)
+        stale = tts / "000.en.m4a"
+        stale.write_bytes(b"old")
+        assemble = project / ".redubber" / "lesson.mp4" / "05_target_audio_chunks"
+        assemble.mkdir()
+        (assemble / "chunk.m4a").write_bytes(b"mix")
+
+        update_subtitle_cue_text(
+            video_path=video,
+            project_path=str(project),
+            project_name="proj",
+            target_language="eng",
+            cue_index=0,
+            text="Rewritten line",
+        )
+
+        cues = parse_srt(srt.read_text(encoding="utf-8"))
+        assert cues[0][2] == "Rewritten line"
+        assert cues[0][0] == pytest.approx(0.0)
+        assert cues[0][1] == pytest.approx(3.5)
+        assert cues[1][2] == "This is a longer line of narration."
+        assert not stale.exists()
+        assert not assemble.exists()
+
+    def test_rejects_out_of_range_index(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        (project / "lesson.en.srt").write_text(SAMPLE_SRT)
+
+        with pytest.raises(SubtitleReviewError, match="out of range"):
+            update_subtitle_cue_text(
+                video_path=video,
+                project_path=str(project),
+                project_name="proj",
+                target_language="eng",
+                cue_index=99,
+                text="nope",
+            )
+
+    def test_srt_timestamp_roundtrip(self, tmp_path: Path) -> None:
+        assert seconds_to_srt_timestamp(3.5) == "00:00:03,500"
+        assert seconds_to_srt_timestamp(3723.04) == "01:02:03,040"
+        path = tmp_path / "x.srt"
+        write_srt_cues(path, [(0.0, 1.25, "Hi")])
+        assert parse_srt(path.read_text(encoding="utf-8")) == [(0.0, 1.25, "Hi")]

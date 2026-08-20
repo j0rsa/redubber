@@ -10,6 +10,8 @@ import { ProjectSettingsPanel } from '../components/ProjectSettingsPanel/Project
 import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { SubtitleReview } from '../components/SubtitleReview/SubtitleReview';
 import { RetryRedubDialog } from '../components/RetryRedubDialog/RetryRedubDialog';
+import { ResetDubDialog } from '../components/ResetDubDialog/ResetDubDialog';
+import type { ResetToStageId } from '../components/ResetDubDialog/stages';
 import { useSettings } from '../hooks/useSettings';
 import { useUIStore } from '../stores/uiStore';
 import { apiClient } from '../api/client';
@@ -133,6 +135,7 @@ export const ProjectDetail = () => {
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
   const [resetDubError, setResetDubError] = useState<string | null>(null);
+  const [lastResetTo, setLastResetTo] = useState<ResetToStageId>('start');
   const [retryVideo, setRetryVideo] = useState<VideoFile | null>(null);
 
   const handleScan = async () => {
@@ -181,12 +184,16 @@ export const ProjectDetail = () => {
     if (!projectId) return;
     setResettingDubIds((prev) => new Set(prev).add(video.id));
     try {
-      await apiClient.post(`/projects/${projectId}/videos/${video.id}/reset-dub`);
+      await apiClient.post(
+        `/projects/${projectId}/videos/${video.id}/reset-dub`,
+        null,
+        { params: { reset_to: lastResetTo } },
+      );
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
-      const message = getApiErrorMessage(err, 'Failed to retry remove dub');
+      const message = getApiErrorMessage(err, 'Failed to retry reset redub');
       setResetDubError(message);
-      console.error('Failed to retry remove dub:', err);
+      console.error('Failed to retry reset redub:', err);
     } finally {
       setResettingDubIds((prev) => {
         const s = new Set(prev);
@@ -244,17 +251,22 @@ export const ProjectDetail = () => {
     }
   };
 
-  const handleResetDub = async (videoId: number) => {
+  const handleResetDub = async (videoId: number, resetTo: ResetToStageId) => {
     if (!projectId) return;
     setResetDubError(null);
+    setLastResetTo(resetTo);
     setResettingDubIds((prev) => new Set(prev).add(videoId));
     try {
-      await apiClient.post(`/projects/${projectId}/videos/${videoId}/reset-dub`);
+      await apiClient.post(
+        `/projects/${projectId}/videos/${videoId}/reset-dub`,
+        null,
+        { params: { reset_to: resetTo } },
+      );
       setConfirmResetVideo(null);
       setResetDubError(null);
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
-      const message = getApiErrorMessage(err, 'Failed to remove dub');
+      const message = getApiErrorMessage(err, 'Failed to reset redub');
       setResetDubError(message);
       await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
       await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
@@ -392,44 +404,19 @@ export const ProjectDetail = () => {
           </div>
         )}
 
-        {/* ── Remove dub confirmation dialog ── */}
+        {/* ── Reset redub dialog ── */}
         {confirmResetVideo && (
-          <div className={styles.confirmOverlay}>
-            <div className={styles.confirmDialog}>
-              <h2 className={styles.confirmTitle}>Remove dub?</h2>
-              <p className={styles.confirmBody}>
-                This deletes the generated subtitle and the dubbed audio track
-                (identified by language tag) of{' '}
-                <strong>{confirmResetVideo.filename}</strong>. The original-language
-                track is kept. A backup is saved under{' '}
-                <code>.redubber/backups/</code> before any change.
-              </p>
-              {resetDubError && (
-                <div className={styles.confirmError} role="alert">
-                  {resetDubError}
-                </div>
-              )}
-              <div className={styles.confirmActions}>
-                <button
-                  className={styles.confirmDeleteButton}
-                  onClick={() => void handleResetDub(confirmResetVideo.id)}
-                  disabled={resettingDubIds.has(confirmResetVideo.id)}
-                >
-                  {resettingDubIds.has(confirmResetVideo.id) ? 'Removing…' : 'Remove dub'}
-                </button>
-                <button
-                  className={styles.confirmCancelButton}
-                  onClick={() => {
-                    setConfirmResetVideo(null);
-                    setResetDubError(null);
-                  }}
-                  disabled={resettingDubIds.has(confirmResetVideo.id)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
+          <ResetDubDialog
+            videoFilename={confirmResetVideo.filename}
+            currentStage="complete"
+            isSubmitting={resettingDubIds.has(confirmResetVideo.id)}
+            errorMessage={resetDubError}
+            onCancel={() => {
+              setConfirmResetVideo(null);
+              setResetDubError(null);
+            }}
+            onConfirm={(resetTo) => void handleResetDub(confirmResetVideo.id, resetTo)}
+          />
         )}
 
         {retryVideo && (
@@ -568,6 +555,8 @@ export const ProjectDetail = () => {
             error={subtitleReview.error}
             selectedSrtPath={reviewSrtPath}
             onSrtPathChange={setReviewSrtPath}
+            onSaveCue={subtitleReview.saveCue}
+            savingCueIndex={subtitleReview.savingCueIndex}
           />
         )}
       </div>

@@ -4,7 +4,7 @@ Handles SQLite operations for project indexing and file management.
 """
 
 import sqlite3
-import os
+from pathlib import Path
 from typing import List, Dict, Optional
 
 
@@ -419,26 +419,49 @@ class DatabaseManager:
             return [dict(row) for row in cursor.fetchall()]
 
     def get_subtitle_files_for_video(
-        self, project_id: int, video_filename: str
+        self,
+        project_id: int,
+        video_filename: str,
+        video_path: Optional[str] = None,
     ) -> List[Dict]:
-        """Get subtitle files that match a video filename pattern."""
+        """Get subtitle files that are sidecars of a video.
+
+        Matches ``video.srt`` / ``video.en.srt`` but not ``video2.srt``.
+        When ``video_path`` is given, only subtitles in the same directory
+        as the video are returned.
+        """
+        from app.services.existing_subtitles import (
+            subtitle_belongs_to_video,
+            subtitle_filename_belongs_to_video,
+        )
+
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # Remove video extension and look for matching subtitle files
-            base_name = os.path.splitext(video_filename)[0]
-
             cursor.execute(
                 """
-                SELECT * FROM subtitle_files 
-                WHERE project_id = ? AND filename LIKE ?
+                SELECT * FROM subtitle_files
+                WHERE project_id = ?
                 ORDER BY filename
             """,
-                (project_id, f"{base_name}%"),
+                (project_id,),
             )
 
-            return [dict(row) for row in cursor.fetchall()]
+            rows = [dict(row) for row in cursor.fetchall()]
+
+        matched: List[Dict] = []
+        video = Path(video_path) if video_path else None
+        for row in rows:
+            filename = row.get("filename") or ""
+            file_path = row.get("file_path") or ""
+            if video is not None and file_path:
+                if not subtitle_belongs_to_video(Path(file_path), video):
+                    continue
+            elif not subtitle_filename_belongs_to_video(filename, video_filename):
+                continue
+            matched.append(row)
+        return matched
 
     def get_project_by_id(self, project_id: int) -> Optional[Dict]:
         """Get project by ID."""

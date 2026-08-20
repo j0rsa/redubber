@@ -114,7 +114,7 @@ export const WithPipelineStatus: Story = {
   },
 };
 
-/** Video id=4 is finalized — shows "Remove dub" instead of Redub. */
+/** Video id=4 is finalized — shows "Reset redub" instead of Redub. */
 export const WithReplacedVideo: Story = {
   args: {
     videos: [
@@ -145,7 +145,7 @@ export const WithReplacedVideo: Story = {
   },
 };
 
-/** Finalized dub without pipeline_status.replaced — still shows Remove dub. */
+/** Finalized dub without pipeline_status.replaced — still shows Reset redub. */
 export const TargetStateWithoutReplacedFlag: Story = {
   args: {
     videos: [
@@ -231,6 +231,52 @@ export const WithGeneratedSubs: Story = {
     selectedIds: new Set<number>(),
     onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
     onRedubSingle: (path) => console.log('redub', path),
+    onReviewSubs: (id) => console.log('review', id),
+  },
+};
+
+/** Quality-rule badge next to a subtitle that has hallucination / density issues. */
+export const WithSubtitleQualityWarnings: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 1,
+        filename: 'clean.mp4',
+        subtitles: [
+          { language: 'rus', embedded: false, path: '/videos/clean.ru.srt' },
+          { language: 'eng', embedded: false, path: '/videos/clean.en.srt' },
+        ],
+      }),
+      createMockVideo({
+        id: 2,
+        filename: 'hallucinated.mp4',
+        subtitles: [
+          { language: 'rus', embedded: false, path: '/videos/hallucinated.ru.srt' },
+          {
+            language: 'eng',
+            embedded: false,
+            path: '/videos/hallucinated.en.srt',
+            quality_issue_count: 2,
+            quality_issues: [
+              {
+                rule_id: 'known_hallucination_phrase',
+                label: 'Known STT phrase',
+                message: "contains common STT hallucination phrase(s): 'thank you for watching'",
+                segment_index: 3,
+              },
+              {
+                rule_id: 'excessive_cps',
+                label: 'Text too dense',
+                message: '45.0 chars/s (>40.0) — text too dense for duration',
+                segment_index: 3,
+              },
+            ],
+          },
+        ],
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
     onReviewSubs: (id) => console.log('review', id),
   },
 };

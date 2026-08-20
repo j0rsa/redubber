@@ -1039,13 +1039,16 @@ class TaskQueueManager:
         video_path: str,
         project_id: int,
         video_id: int,
+        reset_to: str = "start",
     ) -> str:
-        """Submit an async job to remove a finalized dub (strip track + delete subs).
+        """Submit an async job to revert a finalized dub.
 
         Args:
             video_path: Absolute path to the video file.
             project_id: Project the video belongs to.
             video_id: Database ID of the video record.
+            reset_to: Last pipeline stage to keep. Subtitles are deleted only
+                when this is ``start``.
 
         Returns:
             Unique task ID for status polling.
@@ -1066,14 +1069,15 @@ class TaskQueueManager:
             self._tasks[task_id] = initial_status
 
         asyncio.ensure_future(
-            self._process_reset_dub_task(task_id, project_id, video_id)
+            self._process_reset_dub_task(task_id, project_id, video_id, reset_to)
         )
 
         logger.info(
-            "Reset-dub task %s submitted for video %s (project %s)",
+            "Reset-dub task %s submitted for video %s (project %s, reset_to=%s)",
             task_id,
             video_path,
             project_id,
+            reset_to,
         )
         return task_id
 
@@ -1082,6 +1086,7 @@ class TaskQueueManager:
         task_id: str,
         project_id: int,
         video_id: int,
+        reset_to: str = "start",
     ) -> None:
         """Run dub reset in the thread pool (ffmpeg remux can take a while)."""
         from app.core.config import settings
@@ -1124,6 +1129,7 @@ class TaskQueueManager:
                     project_name=project["name"],
                     target_language=target_language,
                     source_language=source_language,
+                    reset_to=reset_to,
                 )
 
             await self._update_task_status(

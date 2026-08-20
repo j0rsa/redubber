@@ -1,6 +1,7 @@
 import { type ChangeEvent, Fragment, useMemo } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
+import { QualityWarningBadge } from './QualityWarningBadge/QualityWarningBadge';
 import { formatDuration, formatSize } from '../utils/format';
 import { isVideoInTargetState } from '../utils/language';
 import { formatFolderLabel, groupVideosByFolder } from '../utils/groupVideosByFolder';
@@ -18,7 +19,7 @@ export interface FileGridProps {
   onRedubSingle?: (videoPath: string) => void;
   /** Called when the user clicks "Retry" on a failed redub row. */
   onRetryFailed?: (video: VideoFile) => void;
-  /** Called when the user clicks "Retry remove dub" on a failed reset-dub row. */
+  /** Called when the user clicks "Retry reset redub" on a failed reset-dub row. */
   onRetryResetDub?: (video: VideoFile) => void;
   /** Called when the user clicks "Replace Original" after the pipeline completes. */
   onFinalize?: (videoId: number) => void;
@@ -30,7 +31,7 @@ export interface FileGridProps {
   generatingSubsIds?: Set<number>;
   /** Open the generated-subtitle review screen for a video. */
   onReviewSubs?: (videoId: number) => void;
-  /** Called when the user clicks "Remove dub" on a finalized video. */
+  /** Called when the user clicks "Reset redub" on a finalized video. */
   onResetDub?: (videoId: number) => void;
   /** Maps videoId → true while dub reset is in progress. */
   resettingDubIds?: Set<number>;
@@ -132,6 +133,9 @@ const VideoRow = ({
           <span style={{ color: '#757575', fontSize: '12px' }}>
             {sub.embedded ? 'embedded' : 'external'}
           </span>
+          {(sub.quality_issues?.length ?? 0) > 0 && (
+            <QualityWarningBadge issues={sub.quality_issues ?? []} compact />
+          )}
         </div>
       ))}
     </td>
@@ -169,9 +173,9 @@ const VideoRow = ({
             onClick={() => onResetDub(video.id)}
             className={styles.resetDubButton}
             disabled={resettingDubIds?.has(video.id)}
-            title="Remove the dubbed audio track and generated subtitle"
+            title="Reset the redub to an earlier pipeline step"
           >
-            {resettingDubIds?.has(video.id) ? 'Removing…' : 'Remove dub'}
+            {resettingDubIds?.has(video.id) ? 'Resetting…' : 'Reset redub'}
           </button>
         ) : isFailedResetDub && onRetryResetDub ? (
           <button
@@ -180,7 +184,7 @@ const VideoRow = ({
             className={styles.retryButton}
             disabled={resettingDubIds?.has(video.id)}
           >
-            {resettingDubIds?.has(video.id) ? 'Retrying…' : 'Retry remove dub'}
+            {resettingDubIds?.has(video.id) ? 'Retrying…' : 'Retry reset redub'}
           </button>
         ) : isFailedRedub && onRetryFailed ? (
           <button

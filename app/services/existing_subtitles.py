@@ -15,13 +15,46 @@ from utils import detect_subtitle_language, normalize_lang_code
 
 log = logging.getLogger(__name__)
 
-SUBTITLE_EXTS = {".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv"}
+SUBTITLE_EXTS = {
+    ".srt",
+    ".vtt",
+    ".ass",
+    ".ssa",
+    ".sub",
+    ".sbv",
+    ".ttml",
+    ".dfxp",
+    ".stl",
+    ".scc",
+}
 
 # Pipeline convention: generated / staged cues live at 03_subtitles/<stem>.en.srt
 WORKDIR_SUBTITLE_NAME_SUFFIX = ".en.srt"
 
 # Live-task progress after STT + subtitle generation (see docs/redubbing.md).
 SUBTITLES_READY_PROGRESS = 38
+
+
+def subtitle_filename_belongs_to_video(sub_filename: str, video_filename: str) -> bool:
+    """True when a subtitle filename is a sidecar of a video filename.
+
+    ``01.mp4`` matches ``01.srt`` / ``01.eng.srt``, but not ``010.eng.srt``
+    or ``02.eng.srt``.
+    """
+    video_stem = Path(video_filename).stem
+    sub_stem = Path(sub_filename).stem
+    return sub_stem == video_stem or sub_stem.startswith(video_stem + ".")
+
+
+def subtitle_belongs_to_video(sub_path: Path, video_path: Path) -> bool:
+    """True when ``sub_path`` is a same-directory sidecar of ``video_path``."""
+    try:
+        same_dir = sub_path.parent.resolve() == video_path.parent.resolve()
+    except OSError:
+        same_dir = sub_path.parent == video_path.parent
+    if not same_dir:
+        return False
+    return subtitle_filename_belongs_to_video(sub_path.name, video_path.name)
 
 
 def iter_sidecar_subtitles(video_path: Path) -> list[Path]:
@@ -32,15 +65,29 @@ def iter_sidecar_subtitles(video_path: Path) -> list[Path]:
     if not parent.is_dir():
         return []
 
-    stem = video_path.stem
     found: list[Path] = []
     for candidate in sorted(parent.iterdir()):
         if not candidate.is_file() or candidate.suffix.lower() not in SUBTITLE_EXTS:
             continue
-        if candidate.stem != stem and not candidate.stem.startswith(stem + "."):
+        if not subtitle_belongs_to_video(candidate, video_path):
             continue
         found.append(candidate)
     return found
+
+
+def external_subtitle_records(video_path: Path) -> list[dict]:
+    """Sidecar subtitle dicts for ``video_analysis.subtitle_matches``."""
+    records: list[dict] = []
+    for sub in iter_sidecar_subtitles(video_path):
+        records.append(
+            {
+                "language": detect_subtitle_language(sub) or "",
+                "embedded": False,
+                "path": str(sub),
+                "filename": sub.name,
+            }
+        )
+    return records
 
 
 def subtitle_matches_language(
