@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 
 from app.schemas.settings import Settings, SettingsResponse, SettingsUpdate
+from app.services.hallucination_rules import (
+    list_hallucination_rule_settings,
+    save_hallucination_rules,
+)
 
 
 def _get_db():
@@ -25,6 +29,9 @@ def _to_response(settings: Settings) -> SettingsResponse:
     data = settings.model_dump()
     data["openai_api_key"] = _mask_api_key(settings.openai_api_key)
     data["env_overrides"] = list(get_env_overrides().keys())
+    data["hallucination_rules"] = [
+        rule.model_dump() for rule in list_hallucination_rule_settings()
+    ]
     return SettingsResponse.model_validate(data)
 
 
@@ -99,6 +106,7 @@ def update_settings(update: SettingsUpdate) -> SettingsResponse:
     current = raw.model_dump()
 
     patch = update.model_dump(exclude_none=True)
+    patch.pop("hallucination_rules", None)
     # Strip fields that are locked by env vars — they cannot be changed via the UI
     env_locked = set(get_env_overrides().keys())
     patch = {k: v for k, v in patch.items() if k not in env_locked}
@@ -118,4 +126,6 @@ def update_settings(update: SettingsUpdate) -> SettingsResponse:
             )
 
     _persist(updated)
+    if update.hallucination_rules is not None:
+        save_hallucination_rules(update.hallucination_rules)
     return _to_response(updated)

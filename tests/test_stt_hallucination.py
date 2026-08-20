@@ -7,8 +7,11 @@ from openai.types.audio.transcription_segment import TranscriptionSegment
 
 from stt_hallucination import (
     STTHallucinationError,
+    HallucinationConfig,
+    HallucinationRuleState,
     analyze_segments,
     assert_segments_acceptable,
+    default_hallucination_config,
 )
 
 
@@ -189,3 +192,66 @@ class TestAssertHelper:
             assert_segments_acceptable(segments, audio_duration=5.0)
         assert "STT quality check failed" in str(exc.value)
         assert exc.value.report.findings
+
+
+def _config_with(
+    *,
+    disabled: set[str] | None = None,
+    thresholds: dict[str, float] | None = None,
+) -> HallucinationConfig:
+    rules = dict(default_hallucination_config().rules)
+    for rule_id in disabled or ():
+        previous = rules[rule_id]
+        rules[rule_id] = HallucinationRuleState(
+            enabled=False, threshold=previous.threshold
+        )
+    for rule_id, threshold in (thresholds or {}).items():
+        previous = rules[rule_id]
+        rules[rule_id] = HallucinationRuleState(
+            enabled=previous.enabled, threshold=threshold
+        )
+    return HallucinationConfig(rules=rules)
+
+
+class TestConfigurableRules:
+    def test_disabled_known_phrase_is_ignored(self) -> None:
+        segments = [_seg("Thank you for watching this video tutorial.")]
+        report = analyze_segments(
+            segments,
+            audio_duration=5.0,
+            config=_config_with(disabled={"known_hallucination_phrase"}),
+        )
+        assert report.passed
+
+    def test_higher_cps_threshold_allows_dense_text(self) -> None:
+        dense = "word " * 80
+        segments = [_seg(dense.strip(), end=2.0)]
+        report = analyze_segments(
+            segments,
+            audio_duration=2.0,
+            config=_config_with(
+                thresholds={"excessive_cps": 500, "transcript_too_dense": 500}
+            ),
+        )
+        assert not any(
+            f.code in {"excessive_cps", "transcript_too_dense"} for f in report.findings
+        )
+
+    def test_lower_duplicate_threshold_flags_two_repeats(self) -> None:
+        repeated = "Thanks for watching and please subscribe now"
+        segments = [
+            _seg(repeated, start=0, end=3),
+            _seg(repeated, start=3, end=6),
+        ]
+        default_report = analyze_segments(
+            segments, audio_duration=6.0, config=default_hallucination_config()
+        )
+        assert not any(
+            f.code == "consecutive_duplicate_segments" for f in default_report.findings
+        )
+        report = analyze_segments(
+            segments,
+            audio_duration=6.0,
+            config=_config_with(thresholds={"consecutive_duplicate_segments": 2}),
+        )
+        assert any(f.code == "consecutive_duplicate_segments" for f in report.findings)

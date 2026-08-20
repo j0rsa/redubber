@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Settings } from './Settings';
 import type { SettingsProps } from './Settings';
-import type { SettingsData } from '../../types/settings';
+import type { SettingsData, HallucinationRuleSetting } from '../../types/settings';
 import { DEFAULT_SETTINGS } from '../../types/settings';
 
 const meta: Meta<typeof Settings> = {
@@ -30,6 +30,61 @@ const baseActions: Pick<SettingsProps, 'onSave'> = {
 
 // ─── Shared settings states ───────────────────────────────────────────────────
 
+const sampleHallucinationRules: HallucinationRuleSetting[] = [
+  {
+    id: 'known_hallucination_phrase',
+    label: 'Known STT phrase',
+    description: 'Flag cues that contain common Whisper boilerplate such as “thanks for watching”.',
+    enabled: true,
+    threshold: null,
+    default_threshold: null,
+    threshold_min: null,
+    threshold_max: null,
+    threshold_step: null,
+    unit: null,
+    comparison: null,
+  },
+  {
+    id: 'excessive_cps',
+    label: 'Text too dense',
+    description: 'Flag a cue whose text is too dense for its duration.',
+    enabled: true,
+    threshold: 40,
+    default_threshold: 40,
+    threshold_min: 5,
+    threshold_max: 200,
+    threshold_step: 1,
+    unit: 'chars/s',
+    comparison: 'gt',
+  },
+  {
+    id: 'consecutive_duplicate_segments',
+    label: 'Consecutive duplicates',
+    description: 'Flag consecutive cues that repeat the exact same text.',
+    enabled: false,
+    threshold: 3,
+    default_threshold: 3,
+    threshold_min: 2,
+    threshold_max: 20,
+    threshold_step: 1,
+    unit: 'cues',
+    comparison: 'min_count',
+  },
+  {
+    id: 'dominant_word_loop',
+    label: 'Dominant word loop',
+    description: 'Flag a transcript where one word makes up too large a share of all tokens.',
+    enabled: true,
+    threshold: 0.5,
+    default_threshold: 0.38,
+    threshold_min: 0.1,
+    threshold_max: 1,
+    threshold_step: 0.01,
+    unit: 'ratio',
+    comparison: 'gte',
+  },
+];
+
 const emptySettings: SettingsData = { ...DEFAULT_SETTINGS };
 
 const configuredSettings: SettingsData = {
@@ -48,6 +103,7 @@ const configuredSettings: SettingsData = {
   openai_retries: 3,
   tts_speed: 1.25,
   audio_chunk_duration: 900,
+  hallucination_rules: sampleHallucinationRules,
 };
 
 // ─── Stories ─────────────────────────────────────────────────────────────────
@@ -163,6 +219,17 @@ export const ProcessingSection: Story = {
       openai_retries: 5,
       audio_chunk_duration: 600,
     },
+    isSaving: false,
+    error: null,
+    successMessage: null,
+  },
+};
+
+/** Hallucination rules with a disabled rule and a custom threshold. */
+export const HallucinationRules: Story = {
+  args: {
+    ...baseActions,
+    settings: configuredSettings,
     isSaving: false,
     error: null,
     successMessage: null,

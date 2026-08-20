@@ -108,6 +108,7 @@ class TestGetSettings:
             "tts_speed",
             "audio_chunk_duration",
             "env_overrides",
+            "hallucination_rules",
         }
         assert set(body.keys()) == expected_keys
 
@@ -394,3 +395,88 @@ class TestAudioChunkDurationValidation:
         """audio_chunk_duration=60 is the minimum valid value and must be accepted."""
         response = client.put("/api/settings", json={"audio_chunk_duration": 60})
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Hallucination detector rules
+# ---------------------------------------------------------------------------
+
+
+class TestHallucinationRulesSettings:
+    """Hallucination rules are seeded from hardcoded defaults and persisted."""
+
+    def test_get_returns_seeded_catalog(self, client: TestClient) -> None:
+        from stt_hallucination import HALLUCINATION_RULE_SPECS
+
+        body = client.get("/api/settings").json()
+        rules = body["hallucination_rules"]
+        assert [rule["id"] for rule in rules] == [spec.id for spec in HALLUCINATION_RULE_SPECS]
+        by_id = {rule["id"]: rule for rule in rules}
+
+        assert by_id["excessive_cps"]["enabled"] is True
+        assert by_id["excessive_cps"]["threshold"] == 40.0
+        assert by_id["known_hallucination_phrase"]["threshold"] is None
+        assert by_id["known_hallucination_phrase"]["enabled"] is True
+        assert by_id["consecutive_duplicate_segments"]["threshold"] == 3.0
+
+    def test_put_disables_rule_and_updates_threshold(self, client: TestClient) -> None:
+        response = client.put(
+            "/api/settings",
+            json={
+                "hallucination_rules": [
+                    {"id": "known_hallucination_phrase", "enabled": False},
+                    {"id": "excessive_cps", "threshold": 55},
+                ]
+            },
+        )
+        assert response.status_code == 200
+        by_id = {rule["id"]: rule for rule in response.json()["hallucination_rules"]}
+        assert by_id["known_hallucination_phrase"]["enabled"] is False
+        assert by_id["excessive_cps"]["threshold"] == 55.0
+        assert by_id["excessive_cps"]["enabled"] is True
+
+        body = client.get("/api/settings").json()
+        by_id = {rule["id"]: rule for rule in body["hallucination_rules"]}
+        assert by_id["known_hallucination_phrase"]["enabled"] is False
+        assert by_id["excessive_cps"]["threshold"] == 55.0
+
+    def test_unknown_rule_rejected_with_422(self, client: TestClient) -> None:
+        response = client.put(
+            "/api/settings",
+            json={"hallucination_rules": [{"id": "not_a_real_rule", "enabled": False}]},
+        )
+        assert response.status_code == 422
+
+    def test_threshold_out_of_range_rejected_with_422(self, client: TestClient) -> None:
+        response = client.put(
+            "/api/settings",
+            json={"hallucination_rules": [{"id": "excessive_cps", "threshold": 1}]},
+        )
+        assert response.status_code == 422
+
+    def test_disabled_rule_is_used_by_detector(self, client: TestClient) -> None:
+        from stt_hallucination import analyze_segments
+        from openai.types.audio.transcription_segment import TranscriptionSegment
+
+        client.put(
+            "/api/settings",
+            json={
+                "hallucination_rules": [
+                    {"id": "known_hallucination_phrase", "enabled": False}
+                ]
+            },
+        )
+        segment = TranscriptionSegment(
+            id=0,
+            seek=0,
+            start=0.0,
+            end=5.0,
+            text="Thank you for watching this video tutorial.",
+            tokens=[],
+            temperature=0.0,
+            avg_logprob=-0.3,
+            compression_ratio=1.2,
+            no_speech_prob=0.05,
+        )
+        report = analyze_segments([segment], audio_duration=5.0)
+        assert not any(f.code == "known_hallucination_phrase" for f in report.findings)

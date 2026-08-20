@@ -36,6 +36,24 @@ export interface SettingsData {
   openai_retries: number;
   /** Audio chunk duration in seconds for Whisper transcription (max ~25 MB per chunk). */
   audio_chunk_duration: number;
+  /** Hallucination-detector rules: enable/disable and tune thresholds. */
+  hallucination_rules: HallucinationRuleSetting[];
+}
+
+export type HallucinationRuleComparison = 'gt' | 'lt' | 'gte' | 'min_count';
+
+export interface HallucinationRuleSetting {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  threshold: number | null;
+  default_threshold: number | null;
+  threshold_min: number | null;
+  threshold_max: number | null;
+  threshold_step: number | null;
+  unit: string | null;
+  comparison: HallucinationRuleComparison | null;
 }
 
 export const DEFAULT_SETTINGS: SettingsData = {
@@ -54,4 +72,5 @@ export const DEFAULT_SETTINGS: SettingsData = {
   openai_timeout: 60,
   openai_retries: 3,
   audio_chunk_duration: 900,
+  hallucination_rules: [],
 };

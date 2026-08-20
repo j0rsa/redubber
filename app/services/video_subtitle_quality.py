@@ -9,6 +9,7 @@ from app.services.subtitle_quality_rules import (
     analyze_subtitle_file,
     unique_rule_ids,
 )
+from stt_hallucination import HallucinationConfig, resolve_hallucination_config
 from utils import detect_subtitle_language
 
 
@@ -22,12 +23,13 @@ def _resolved_key(path: str | Path) -> str:
 def issues_for_subtitle_path(
     path: Path,
     cache: dict[str, tuple[int, list[SubtitleQualityIssue]]],
+    config: HallucinationConfig | None = None,
 ) -> tuple[int, list[SubtitleQualityIssue]]:
     """Return (distinct rule count, all breaches) for ``path``, cached per request."""
     key = _resolved_key(path)
     if key in cache:
         return cache[key]
-    analysis = analyze_subtitle_file(path)
+    analysis = analyze_subtitle_file(path, config=config)
     labels = {rule.id: rule.label for rule in analysis.rules}
     issues = [
         SubtitleQualityIssue(
@@ -56,6 +58,7 @@ def enrich_subtitles_with_quality(
     from app.services.subtitle_review import list_review_srts
 
     cache = cache if cache is not None else {}
+    config = resolve_hallucination_config()
     enriched: list[SubtitleInfo] = []
     seen: set[str] = set()
 
@@ -67,7 +70,7 @@ def enrich_subtitles_with_quality(
         path = Path(path_str)
         key = _resolved_key(path)
         seen.add(key)
-        count, issues = issues_for_subtitle_path(path, cache)
+        count, issues = issues_for_subtitle_path(path, cache, config)
         enriched.append(
             subtitle.model_copy(
                 update={"quality_issue_count": count, "quality_issues": issues}
@@ -84,7 +87,7 @@ def enrich_subtitles_with_quality(
         key = _resolved_key(path)
         if key in seen:
             continue
-        count, issues = issues_for_subtitle_path(path, cache)
+        count, issues = issues_for_subtitle_path(path, cache, config)
         if count == 0:
             continue
         language = detect_subtitle_language(path) or target_language or "und"

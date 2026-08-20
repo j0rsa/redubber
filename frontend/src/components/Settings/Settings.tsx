@@ -1,6 +1,6 @@
 import { useState, useId } from 'react';
 import styles from './Settings.module.css';
-import type { SettingsData, SttModel, TtsModel, VoiceAnalysisModel, VoiceAnalysisAudioModel, DefaultVoice } from '../../types/settings';
+import type { SettingsData, SttModel, TtsModel, VoiceAnalysisModel, VoiceAnalysisAudioModel, DefaultVoice, HallucinationRuleSetting } from '../../types/settings';
 import { AVAILABLE_VOICES } from '../../constants/voices';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -36,6 +36,32 @@ const VOICE_ANALYSIS_MODEL_OPTIONS: { value: VoiceAnalysisModel; label: string }
   { value: 'o3',        label: 'o3 — Most capable reasoning' },
   { value: 'gpt-4o-mini', label: 'gpt-4o-mini — Fastest, cheapest' },
 ];
+
+const thresholdHint = (rule: HallucinationRuleSetting): string => {
+  switch (rule.comparison) {
+    case 'gt':
+      return 'Flag when the measured value is above this';
+    case 'lt':
+      return 'Flag when the measured value is below this';
+    case 'gte':
+      return 'Flag when the measured value is at least this';
+    case 'min_count':
+      return 'Minimum count before flagging';
+    default:
+      return '';
+  }
+};
+
+const formatThreshold = (value: number, step: number | null): string => {
+  if (step != null && step >= 1) {
+    return String(Math.round(value));
+  }
+  if (step != null && step > 0) {
+    const decimals = String(step).split('.')[1]?.length ?? 2;
+    return value.toFixed(decimals);
+  }
+  return String(value);
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -432,6 +458,128 @@ export const Settings = ({
           </div>
         </div>
       </section>
+
+      {/* ── Hallucination detection ──────────────────────────────────────── */}
+      {(localSettings.hallucination_rules ?? []).length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionHeader}>Hallucination Detection</h2>
+          <p className={styles.sectionIntro}>
+            Tune subtitle and transcription quality rules. Disabled rules are skipped
+            during redubbing and on the Review subs screen. Thresholds start from the
+            built-in defaults; save to keep your values.
+          </p>
+
+          {(localSettings.hallucination_rules ?? []).map((rule) => {
+            const hasThreshold = rule.default_threshold != null;
+            const thresholdId = `${rule.id}-threshold`;
+            const toggleId = `${rule.id}-enabled`;
+            const isCustom =
+              hasThreshold &&
+              rule.threshold != null &&
+              rule.default_threshold != null &&
+              rule.threshold !== rule.default_threshold;
+
+            return (
+              <div
+                key={rule.id}
+                className={[
+                  styles.ruleRow,
+                  !rule.enabled ? styles.ruleRowDisabled : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                <div className={styles.ruleMain}>
+                  <label className={styles.toggle} htmlFor={toggleId}>
+                    <input
+                      id={toggleId}
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onChange={(e) =>
+                        setLocalSettings((s) => ({
+                          ...s,
+                          hallucination_rules: (s.hallucination_rules ?? []).map((item) =>
+                            item.id === rule.id
+                              ? { ...item, enabled: e.target.checked }
+                              : item
+                          ),
+                        }))
+                      }
+                    />
+                    <span className={styles.toggleTrack} />
+                    <span className={styles.toggleThumb} />
+                  </label>
+                  <div className={styles.ruleCopy}>
+                    <label className={styles.ruleLabel} htmlFor={toggleId}>
+                      {rule.label}
+                    </label>
+                    <span className={styles.hint}>{rule.description}</span>
+                  </div>
+                </div>
+
+                {hasThreshold && (
+                  <div className={styles.ruleThreshold}>
+                    <label className={styles.ruleThresholdLabel} htmlFor={thresholdId}>
+                      {thresholdHint(rule)}
+                    </label>
+                    <div className={styles.inputWithSuffix}>
+                      <input
+                        id={thresholdId}
+                        type="number"
+                        className={styles.input}
+                        value={
+                          rule.threshold == null
+                            ? ''
+                            : formatThreshold(rule.threshold, rule.threshold_step)
+                        }
+                        min={rule.threshold_min ?? undefined}
+                        max={rule.threshold_max ?? undefined}
+                        step={rule.threshold_step ?? undefined}
+                        disabled={!rule.enabled}
+                        onChange={(e) => {
+                          const parsed = parseFloat(e.target.value);
+                          setLocalSettings((s) => ({
+                            ...s,
+                            hallucination_rules: (s.hallucination_rules ?? []).map((item) =>
+                              item.id === rule.id
+                                ? {
+                                    ...item,
+                                    threshold: Number.isFinite(parsed) ? parsed : item.threshold,
+                                  }
+                                : item
+                            ),
+                          }));
+                        }}
+                      />
+                      {rule.unit && (
+                        <span className={styles.inputSuffix}>{rule.unit}</span>
+                      )}
+                    </div>
+                    {isCustom && rule.default_threshold != null && (
+                      <button
+                        type="button"
+                        className={styles.resetThreshold}
+                        onClick={() =>
+                          setLocalSettings((s) => ({
+                            ...s,
+                            hallucination_rules: (s.hallucination_rules ?? []).map((item) =>
+                              item.id === rule.id
+                                ? { ...item, threshold: rule.default_threshold }
+                                : item
+                            ),
+                          }))
+                        }
+                      >
+                        Reset to {formatThreshold(rule.default_threshold, rule.threshold_step)}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* ── Workspace ────────────────────────────────────────────────────── */}
       <section className={styles.section}>
