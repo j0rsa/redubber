@@ -79,6 +79,8 @@ export interface PipelineStatus {
   // Manual replacement
   file_replaced?: boolean;         // Stage 9: User decision
   replacement_status?: 'pending' | 'replaced' | 'kept_both' | 'cancelled';
+  awaiting_subtitle_review?: boolean;
+  quality_issue_count?: number;
 
   // Legacy
   has_external_subs?: boolean;
@@ -98,7 +100,7 @@ export interface VideoFile {
 export interface TaskStatus {
   task_id: string;
   video_path: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
+  status: 'queued' | 'running' | 'awaiting_subtitle_review' | 'completed' | 'failed';
   stage: string;
   progress: number; // 0-100
   error?: string;
@@ -115,6 +117,9 @@ export interface TaskStatus {
   audio_assembled?: number;
   audio_assembled_total?: number;
   video_mixed?: boolean;
+  subtitle_path?: string;
+  quality_issue_count?: number;
+  quality_issues?: SubtitleQualityIssue[];
   task_type?: 'redub' | 'reset_dub' | 'transcribe';
 }
 
@@ -123,4 +128,8 @@ export interface RedubRequest {
   project_id: number;
   /** When set, re-chunks audio at this size and clears downstream artefacts. */
   audio_chunk_duration?: number;
+  /** Resume from the generated subtitle checkpoint and recheck its quality. */
+  resume_from_subtitles?: boolean;
+  /** Explicitly continue despite generated-subtitle quality warnings. */
+  ignore_subtitle_warnings?: boolean;
 }

@@ -26,6 +26,8 @@ interface SubtitleReviewProps {
   savingCueIndex?: number | null;
   onDeleteCue?: (index: number) => Promise<void>;
   deletingCueIndex?: number | null;
+  onContinueRedub?: () => Promise<void>;
+  continuingRedub?: boolean;
 }
 
 export const SubtitleReview = ({
@@ -41,6 +43,8 @@ export const SubtitleReview = ({
   savingCueIndex = null,
   onDeleteCue,
   deletingCueIndex = null,
+  onContinueRedub,
+  continuingRedub = false,
 }: SubtitleReviewProps) => {
   const [minDuration, setMinDuration] = useState(0);
   const [maxDuration, setMaxDuration] = useState(0);
@@ -332,6 +336,16 @@ export const SubtitleReview = ({
               {data ? `${filtered.length}/${data.total}` : ''}
             </span>
           </div>
+          {onContinueRedub && (
+            <button
+              type="button"
+              className={styles.continueButton}
+              onClick={() => void onContinueRedub()}
+              disabled={continuingRedub}
+            >
+              {continuingRedub ? 'Continuing…' : 'Recheck & continue'}
+            </button>
+          )}
           <button className={styles.close} type="button" onClick={onClose} aria-label="Close">
             ×
           </button>

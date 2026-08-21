@@ -33,6 +33,8 @@ export interface FileGridProps {
   onReviewSubs?: (videoId: number) => void;
   /** Called when the user clicks "Reset redub" on a finalized video. */
   onResetDub?: (videoId: number) => void;
+  /** Opens recovery actions for generated subtitles held by quality warnings. */
+  onResolveSubtitleWarnings?: (video: VideoFile) => void;
   /** Maps videoId → true while dub reset is in progress. */
   resettingDubIds?: Set<number>;
   /** Live task statuses keyed by videoId — used to show real-time progress while a job runs. */
@@ -65,8 +67,10 @@ interface VideoRowProps {
   generatingSubsIds?: Set<number>;
   onReviewSubs?: (videoId: number) => void;
   onResetDub?: (videoId: number) => void;
+  onResolveSubtitleWarnings?: (video: VideoFile) => void;
   resettingDubIds?: Set<number>;
   selectionDisabled: boolean;
+  isAwaitingSubtitleReview: boolean;
 }
 
 const VideoRow = ({
@@ -91,8 +95,10 @@ const VideoRow = ({
   generatingSubsIds,
   onReviewSubs,
   onResetDub,
+  onResolveSubtitleWarnings,
   resettingDubIds,
   selectionDisabled,
+  isAwaitingSubtitleReview,
 }: VideoRowProps) => (
   <tr
     className={`${styles.row} ${isSelected ? styles.rowSelected : ''} ${isComplete ? styles.rowComplete : ''}`}
@@ -154,6 +160,14 @@ const VideoRow = ({
           <a href={`/job/${taskId}`} className={styles.viewJobLink}>
             ▶ View Job
           </a>
+        ) : isAwaitingSubtitleReview && onResolveSubtitleWarnings ? (
+          <button
+            type="button"
+            className={styles.retryButton}
+            onClick={() => onResolveSubtitleWarnings(video)}
+          >
+            Resolve warnings
+          </button>
         ) : isReadyToReplace && onFinalize ? (
           <button
             onClick={() => onFinalize(video.id)}
@@ -233,6 +247,7 @@ export const FileGrid = ({
   generatingSubsIds,
   onReviewSubs,
   onResetDub,
+  onResolveSubtitleWarnings,
   resettingDubIds,
   liveTaskStatuses,
   activeTasks = [],
@@ -243,8 +258,20 @@ export const FileGrid = ({
       .filter((video) => isVideoFinalized(video, targetLanguage))
       .map((video) => video.id),
   );
+  const heldIds = new Set(
+    videos
+      .filter(
+        (video) =>
+          video.pipeline_status?.awaiting_subtitle_review
+          || liveTaskStatuses?.get(video.id)?.status === 'awaiting_subtitle_review',
+      )
+      .map((video) => video.id),
+  );
   const unfinishedVideos = videos.filter(
-    (video) => !finishedIds.has(video.id) && !runningJobIds?.has(video.id),
+    (video) =>
+      !finishedIds.has(video.id)
+      && !heldIds.has(video.id)
+      && !runningJobIds?.has(video.id),
   );
   const unfinishedIds = new Set(unfinishedVideos.map((video) => video.id));
   const selectedCohort = [...selectedIds].some((id) => finishedIds.has(id))
@@ -337,6 +364,9 @@ export const FileGrid = ({
           is_complete: liveTask.status === 'completed',
           failed: liveTask.status === 'failed',
           error: liveTask.error,
+          awaiting_subtitle_review:
+            liveTask.status === 'awaiting_subtitle_review',
+          quality_issue_count: liveTask.quality_issue_count,
           replaced: isReplaced,
         }
       : (liveTask === undefined && !video.pipeline_status && activeTasks.some(t => t.video_path === video.path && (t.status === 'queued' || t.status === 'running')))
@@ -352,9 +382,13 @@ export const FileGrid = ({
         || (failedTaskType === undefined && isReplaced)
       );
     const isFailedRedub = isFailed && !isFailedResetDub;
+    const isAwaitingSubtitleReview = Boolean(
+      displayStatus?.awaiting_subtitle_review,
+    );
     const videoCohort = isReplaced ? 'finished' : 'unfinished';
     const selectionDisabled = Boolean(runningJobIds?.has(video.id))
       || (selectedCohort !== null && selectedCohort !== videoCohort);
+    const finalSelectionDisabled = selectionDisabled || isAwaitingSubtitleReview;
 
     return (
       <VideoRow
@@ -380,8 +414,10 @@ export const FileGrid = ({
         generatingSubsIds={generatingSubsIds}
         onReviewSubs={onReviewSubs}
         onResetDub={onResetDub}
+        onResolveSubtitleWarnings={onResolveSubtitleWarnings}
         resettingDubIds={resettingDubIds}
-        selectionDisabled={selectionDisabled}
+        selectionDisabled={finalSelectionDisabled}
+        isAwaitingSubtitleReview={isAwaitingSubtitleReview}
       />
     );
   };

@@ -19,6 +19,7 @@ export interface JobMonitorViewProps {
   onBack: () => void;
   onCancel: () => void;
   onRetry?: () => void;
+  onResolve?: () => void;
   isRetrying?: boolean;
   retryError?: string | null;
 }
@@ -31,6 +32,7 @@ export const JobMonitorView = ({
   onBack,
   onCancel,
   onRetry,
+  onResolve,
   isRetrying = false,
   retryError = null,
 }: JobMonitorViewProps) => {
@@ -56,15 +58,21 @@ export const JobMonitorView = ({
     queued:    styles.badgeQueued,
     completed: styles.badgeCompleted,
     failed:    styles.badgeFailed,
+    awaiting_subtitle_review: styles.badgeQueued,
   };
   const statusLabel: Record<string, string> = {
-    completed: 'Completed', failed: 'Failed', running: 'Running', queued: 'Queued',
+    completed: 'Completed',
+    failed: 'Failed',
+    running: 'Running',
+    queued: 'Queued',
+    awaiting_subtitle_review: 'Review needed',
   };
 
   const pipelineStatus = {
     progress: task.progress,
     current_stage: task.stage,
     is_complete: task.status === 'completed',
+    awaiting_subtitle_review: task.status === 'awaiting_subtitle_review',
   };
 
   return (
@@ -87,7 +95,7 @@ export const JobMonitorView = ({
           <p className={styles.videoLabel}>Video</p>
           <p className={styles.videoPath}>{task.video_path}</p>
 
-          {task.status === 'running' && (
+          {(task.status === 'running' || task.status === 'awaiting_subtitle_review') && (
             <PipelineStatus status={pipelineStatus} />
           )}
 
@@ -124,6 +132,13 @@ export const JobMonitorView = ({
                 disabled={isRetrying}
               >
                 {isRetrying ? 'Retrying…' : 'Retry redub'}
+              </button>
+            </div>
+          )}
+          {task.status === 'awaiting_subtitle_review' && onResolve && (
+            <div className={styles.actions}>
+              <button className={styles.retryButton} onClick={onResolve}>
+                Resolve subtitle warnings
               </button>
             </div>
           )}
@@ -215,6 +230,12 @@ export const JobMonitor = () => {
         onBack={() => navigate(-1)}
         onCancel={handleCancel}
         onRetry={task?.project_id != null && task.status === 'failed' ? () => setShowRetryDialog(true) : undefined}
+        onResolve={
+          task?.project_id != null
+          && task.status === 'awaiting_subtitle_review'
+            ? () => navigate(`/project/${task.project_id}`)
+            : undefined
+        }
         isRetrying={submitRedub.isPending}
         retryError={submitRedub.isError ? (submitRedub.error as Error).message : null}
       />

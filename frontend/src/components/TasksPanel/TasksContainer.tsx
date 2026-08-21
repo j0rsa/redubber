@@ -8,7 +8,10 @@ import { TasksPanel } from './TasksPanel';
 export const projectGlobalTasks = (tasks: TaskStatus[]) => {
   const visibleTasks = tasks.filter((task) => task.task_type !== 'reset_dub');
   const activeCount = visibleTasks.filter(
-    (task) => task.status === 'queued' || task.status === 'running',
+    (task) =>
+      task.status === 'queued'
+      || task.status === 'running'
+      || task.status === 'awaiting_subtitle_review',
   ).length;
 
   return {

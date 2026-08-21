@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { expect, userEvent, within } from 'storybook/test';
+import { expect, fn, userEvent, within } from 'storybook/test';
 import { FileGrid } from './FileGrid';
 import type { VideoFile } from '../types';
 
@@ -453,5 +453,60 @@ export const SelectUnfinishedByDirectory: Story = {
     await expect(unfinishedB).toBeChecked();
     await expect(unfinishedC).toBeChecked();
     await expect(sectionB).toBeChecked();
+  },
+};
+
+export const GeneratedSubtitleWarningsHoldPipeline: Story = {
+  args: {
+    videos: [
+      createMockVideo({
+        id: 21,
+        filename: 'held-for-review.mp4',
+        path: '/videos/held-for-review.mp4',
+        subtitles: [
+          {
+            language: 'eng',
+            embedded: false,
+            path: '/work/held-for-review.en.srt',
+          },
+        ],
+      }),
+    ],
+    selectedIds: new Set<number>(),
+    onSelectionChange: fn(),
+    onResolveSubtitleWarnings: fn(),
+    liveTaskStatuses: new Map([
+      [
+        21,
+        {
+          task_id: 'held-task',
+          video_path: '/videos/held-for-review.mp4',
+          status: 'awaiting_subtitle_review',
+          stage: 'Subtitle review required',
+          progress: 38,
+          created_at: '2026-08-21T15:00:00Z',
+          quality_issue_count: 1,
+          quality_issues: [
+            {
+              rule_id: 'known_hallucination_phrase',
+              label: 'Known STT phrase',
+              message: 'contains a known hallucination phrase',
+              segment_index: 0,
+            },
+          ],
+        },
+      ],
+    ]),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Review needed')).toBeVisible();
+    await expect(
+      canvas.getByRole('checkbox', { name: 'Select held-for-review.mp4' }),
+    ).toBeDisabled();
+    await userEvent.click(
+      canvas.getByRole('button', { name: 'Resolve warnings' }),
+    );
+    await expect(args.onResolveSubtitleWarnings).toHaveBeenCalledOnce();
   },
 };

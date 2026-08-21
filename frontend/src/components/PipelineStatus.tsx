@@ -9,6 +9,7 @@ interface PipelineStatusProps {
 export const PipelineStatus = ({ status }: PipelineStatusProps) => {
   const getStatusClass = () => {
     if (status.failed) return styles.failed;
+    if (status.awaiting_subtitle_review) return styles.ready;
     if (status.is_complete) return styles.completed;
     if (status.replacement_status === 'pending') return styles.ready;
     if (status.progress > 0) return styles.running;
@@ -17,6 +18,7 @@ export const PipelineStatus = ({ status }: PipelineStatusProps) => {
 
   const getStatusLabel = () => {
     if (status.failed) return 'Failed';
+    if (status.awaiting_subtitle_review) return 'Review needed';
     if (status.is_complete) return 'Complete';
     if (status.replacement_status === 'pending') return 'Ready';
     if (status.current_stage === 'Queued') return 'Queued';

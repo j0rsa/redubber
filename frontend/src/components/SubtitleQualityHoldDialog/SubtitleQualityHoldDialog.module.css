@@ -1,0 +1,97 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop, 900);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog {
+  width: min(560px, 100%);
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-lg);
+}
+
+.title {
+  margin: 0 0 var(--spacing-sm);
+  color: var(--color-text-primary);
+}
+
+.body {
+  margin: 0 0 var(--spacing-md);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.warningBox {
+  max-height: 180px;
+  margin-bottom: var(--spacing-lg);
+  padding: var(--spacing-md);
+  overflow-y: auto;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.warningBox ul {
+  margin: var(--spacing-sm) 0 0;
+  padding-left: var(--spacing-lg);
+}
+
+.warningBox li + li {
+  margin-top: var(--spacing-xs);
+}
+
+.options {
+  display: grid;
+  gap: var(--spacing-sm);
+}
+
+.options button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.options button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.options button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.options span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.options .ignoreButton {
+  border-color: var(--color-warning);
+}
+
+.cancelButton {
+  display: block;
+  margin: var(--spacing-lg) 0 0 auto;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}

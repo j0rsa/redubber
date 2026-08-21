@@ -11,6 +11,7 @@ import { VoiceRefinement } from '../components/VoiceRefinement/VoiceRefinement';
 import { SubtitleReview } from '../components/SubtitleReview/SubtitleReview';
 import { RetryRedubDialog } from '../components/RetryRedubDialog/RetryRedubDialog';
 import { ResetDubDialog } from '../components/ResetDubDialog/ResetDubDialog';
+import { SubtitleQualityHoldDialog } from '../components/SubtitleQualityHoldDialog/SubtitleQualityHoldDialog';
 import type { ResetToStageId } from '../components/ResetDubDialog/stages';
 import { useSettings } from '../hooks/useSettings';
 import { useUIStore } from '../stores/uiStore';
@@ -81,6 +82,15 @@ export const ProjectDetail = () => {
         if (ts) taskStatusByVideoId.set(video.id, ts);
         continue;
       }
+      const heldTask = activeTasks.find(
+        (t) =>
+          t.video_path === video.path
+          && t.status === 'awaiting_subtitle_review',
+      );
+      if (heldTask) {
+        taskStatusByVideoId.set(video.id, heldTask);
+        continue;
+      }
       const failedTask = activeTasks.find(
         (t) => t.video_path === video.path && t.status === 'failed',
       );
@@ -137,6 +147,10 @@ export const ProjectDetail = () => {
   const [resetDubError, setResetDubError] = useState<string | null>(null);
   const [lastResetTo, setLastResetTo] = useState<ResetToStageId>('start');
   const [retryVideo, setRetryVideo] = useState<VideoFile | null>(null);
+  const [subtitleHold, setSubtitleHold] = useState<{
+    video: VideoFile;
+    task: TaskStatus;
+  } | null>(null);
 
   useEffect(() => {
     if (!videos) return;
@@ -286,6 +300,28 @@ export const ProjectDetail = () => {
 
   const handleRetryFailed = (video: VideoFile) => {
     setRetryVideo(video);
+  };
+
+  const handleResolveSubtitleWarnings = (video: VideoFile) => {
+    const task = taskStatusByVideoId.get(video.id);
+    if (task?.status !== 'awaiting_subtitle_review') return;
+    setSubtitleHold({ video, task });
+  };
+
+  const handleResumeFromSubtitles = async (ignoreWarnings: boolean) => {
+    if (!projectId || !subtitleHold) return;
+    const result = await submitRedub.mutateAsync({
+      video_path: subtitleHold.video.path,
+      project_id: projectId,
+      resume_from_subtitles: true,
+      ignore_subtitle_warnings: ignoreWarnings,
+    });
+    setReviewVideoId(null);
+    setReviewSrtPath(null);
+    setSubtitleHold(null);
+    if (result?.task_id) {
+      navigate(`/job/${result.task_id}`);
+    }
   };
 
   const handleRetryConfirm = async (audioChunkDuration: number) => {
@@ -519,6 +555,23 @@ export const ProjectDetail = () => {
             onConfirm={(audioChunkDuration) => void handleRetryConfirm(audioChunkDuration)}
           />
         )}
+        {subtitleHold && reviewVideoId === null && (
+          <SubtitleQualityHoldDialog
+            videoFilename={subtitleHold.video.filename}
+            issues={subtitleHold.task.quality_issues ?? []}
+            isSubmitting={submitRedub.isPending}
+            onCancel={() => setSubtitleHold(null)}
+            onRetry={() => {
+              setRetryVideo(subtitleHold.video);
+              setSubtitleHold(null);
+            }}
+            onEdit={() => {
+              setReviewSrtPath(subtitleHold.task.subtitle_path ?? null);
+              setReviewVideoId(subtitleHold.video.id);
+            }}
+            onIgnore={() => void handleResumeFromSubtitles(true)}
+          />
+        )}
 
         {/* ── Error banners ── */}
         {scanVideos.isError && (
@@ -605,6 +658,7 @@ export const ProjectDetail = () => {
                 const video = videos?.find((v) => v.id === videoId) ?? null;
                 setConfirmResetVideo(video);
               }}
+              onResolveSubtitleWarnings={handleResolveSubtitleWarnings}
               resettingDubIds={resettingDubIds}
               liveTaskStatuses={taskStatusByVideoId}
               activeTasks={activeTasks}
@@ -645,6 +699,12 @@ export const ProjectDetail = () => {
             savingCueIndex={subtitleReview.savingCueIndex}
             onDeleteCue={subtitleReview.deleteCue}
             deletingCueIndex={subtitleReview.deletingCueIndex}
+            onContinueRedub={
+              subtitleHold?.video.id === reviewVideoId
+                ? () => handleResumeFromSubtitles(false)
+                : undefined
+            }
+            continuingRedub={submitRedub.isPending}
           />
         )}
       </div>
