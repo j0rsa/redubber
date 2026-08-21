@@ -19,7 +19,6 @@ import { formatDuration } from '../utils/format';
 import { getApiErrorMessage } from '../utils/apiError';
 import { useSubtitleReview } from '../hooks/useSubtitleReview';
 import { isVideoInTargetState } from '../utils/language';
-import { writeDebugLog } from '../utils/debugLog';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -54,26 +53,6 @@ export const ProjectDetail = () => {
       if (video) runningJobs.set(video.id, task.task_id);
     }
   }
-
-  // #region agent log
-  useEffect(() => {
-    writeDebugLog({
-      hypothesisId: 'B',
-      location: 'ProjectDetail.tsx:runningJobs',
-      message: 'Project task-to-video projection',
-      data: {
-        projectId,
-        activeTasks: activeTasks.map((task) => ({
-          taskId: task.task_id,
-          taskType: task.task_type,
-          status: task.status,
-          progress: task.progress,
-        })),
-        runningJobs: [...runningJobs.entries()],
-      },
-    });
-  }, [activeTasks, projectId, videos]);
-  // #endregion
 
   const prevActiveTaskIds = useRef<Set<string>>(new Set());
 
@@ -278,27 +257,11 @@ export const ProjectDetail = () => {
     setLastResetTo(resetTo);
     setResettingDubIds((prev) => new Set(prev).add(videoId));
     try {
-      // #region agent log
-      writeDebugLog({
-        hypothesisId: 'A',
-        location: 'ProjectDetail.tsx:handleResetDub:request',
-        message: 'Reset dub request initiated',
-        data: { projectId, videoId, resetTo },
-      });
-      // #endregion
-      const response = await apiClient.post(
+      await apiClient.post(
         `/projects/${projectId}/videos/${videoId}/reset-dub`,
         null,
         { params: { reset_to: resetTo } },
       );
-      // #region agent log
-      writeDebugLog({
-        hypothesisId: 'A',
-        location: 'ProjectDetail.tsx:handleResetDub:response',
-        message: 'Reset dub request accepted',
-        data: { projectId, videoId, taskId: response.data?.task_id },
-      });
-      // #endregion
       setConfirmResetVideo(null);
       setResetDubError(null);
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
