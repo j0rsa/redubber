@@ -1,11 +1,10 @@
-import { type ChangeEvent, Fragment, useEffect, useMemo } from 'react';
+import { type ChangeEvent, Fragment, useMemo } from 'react';
 import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
 import { QualityWarningBadge } from './QualityWarningBadge/QualityWarningBadge';
 import { formatDuration, formatSize } from '../utils/format';
 import { isVideoInTargetState } from '../utils/language';
 import { formatFolderLabel, groupVideosByFolder } from '../utils/groupVideosByFolder';
-import { writeDebugLog } from '../utils/debugLog';
 import styles from './FileGrid.module.css';
 
 export interface FileGridProps {
@@ -251,25 +250,6 @@ export const FileGrid = ({
 
   const showFolderHeaders = folderGroups.length > 1
     || (folderGroups.length === 1 && folderGroups[0]?.folder !== '.');
-
-  // #region agent log
-  useEffect(() => {
-    writeDebugLog({
-      hypothesisId: 'D',
-      location: 'FileGrid.tsx:statusInputs',
-      message: 'Video row progress inputs',
-      data: {
-        rows: videos.map((video) => ({
-          videoId: video.id,
-          persistedProgress: video.pipeline_status?.progress,
-          liveTaskId: liveTaskStatuses?.get(video.id)?.task_id,
-          liveProgress: liveTaskStatuses?.get(video.id)?.progress,
-          runningTaskId: runningJobIds?.get(video.id),
-        })),
-      },
-    });
-  }, [liveTaskStatuses, runningJobIds, videos]);
-  // #endregion
 
   const handleSelectAll = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
