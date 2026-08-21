@@ -304,8 +304,27 @@ export const ProjectDetail = () => {
 
   const handleResolveSubtitleWarnings = (video: VideoFile) => {
     const task = taskStatusByVideoId.get(video.id);
-    if (task?.status !== 'awaiting_subtitle_review') return;
-    setSubtitleHold({ video, task });
+    if (task?.status === 'awaiting_subtitle_review') {
+      setSubtitleHold({ video, task });
+      return;
+    }
+    const pipeline = video.pipeline_status;
+    if (!pipeline?.awaiting_subtitle_review) return;
+    setSubtitleHold({
+      video,
+      task: {
+        task_id: `persisted-subtitle-hold-${video.id}`,
+        video_path: video.path,
+        project_id,
+        status: 'awaiting_subtitle_review',
+        stage: pipeline.current_stage,
+        progress: pipeline.progress,
+        created_at: new Date().toISOString(),
+        subtitle_path: pipeline.subtitle_path,
+        quality_issue_count: pipeline.quality_issue_count,
+        quality_issues: pipeline.quality_issues,
+      },
+    });
   };
 
   const handleResumeFromSubtitles = async (ignoreWarnings: boolean) => {

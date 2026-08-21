@@ -170,6 +170,8 @@ class PipelineStatusResponse(BaseModel):
         description="True when generated subtitle warnings must be resolved before TTS.",
     )
     quality_issue_count: int = Field(default=0, ge=0)
+    subtitle_path: str | None = Field(default=None)
+    quality_issues: list[SubtitleQualityIssue] = Field(default_factory=list)
     replaced: bool = Field(
         default=False,
         description="True if original file has been replaced (finalization complete)",
