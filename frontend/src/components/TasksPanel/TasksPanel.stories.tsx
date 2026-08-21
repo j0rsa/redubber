@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
+import { expect, within } from 'storybook/test';
 import { TasksPanel, TasksIndicator } from './TasksPanel';
+import { projectGlobalTasks } from './TasksContainer';
 import type { TaskStatus } from '../../types';
 
 // ── Shared mock data ────────────────────────────────────────────────────────
@@ -44,6 +46,17 @@ const singleRunningTask: TaskStatus = {
   started_at: '2024-07-10T11:00:30Z',
 };
 
+const resetDubTask: TaskStatus = {
+  task_id: 'task-reset-001',
+  video_path: '/videos/projects/2024/resetting_movie.mp4',
+  status: 'running',
+  stage: 'Resetting redub',
+  progress: 40,
+  task_type: 'reset_dub',
+  created_at: '2024-07-10T11:05:00Z',
+  started_at: '2024-07-10T11:05:01Z',
+};
+
 // ── Panel meta ──────────────────────────────────────────────────────────────
 
 const panelMeta: Meta<typeof TasksPanel> = {
@@ -82,6 +95,25 @@ export const SingleTask: PanelStory = {
     isOpen: true,
     onClose: noop,
     onViewJob: noop,
+  },
+};
+
+/** Reset jobs stay in the project row and are omitted from the global task projection. */
+export const GlobalProjectionOmitsResetDub: PanelStory = {
+  args: {
+    tasks: projectGlobalTasks([
+      { ...runningTask1, task_type: 'redub' },
+      resetDubTask,
+    ]).activeTasks,
+    isOpen: true,
+    onClose: noop,
+    onViewJob: noop,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Active Tasks (1)')).toBeInTheDocument();
+    await expect(canvas.getByText('meeting.mp4')).toBeInTheDocument();
+    await expect(canvas.queryByText('resetting_movie.mp4')).not.toBeInTheDocument();
   },
 };
 
