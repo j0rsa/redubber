@@ -4,6 +4,7 @@ import styles from './ResetDubDialog.module.css';
 
 export interface ResetDubDialogProps {
   videoFilename: string;
+  selectionCount?: number;
   currentStage?: ResetStageId;
   isSubmitting?: boolean;
   errorMessage?: string | null;
@@ -13,6 +14,7 @@ export interface ResetDubDialogProps {
 
 export const ResetDubDialog = ({
   videoFilename,
+  selectionCount,
   currentStage = 'complete',
   isSubmitting = false,
   errorMessage,
@@ -44,8 +46,14 @@ export const ResetDubDialog = ({
         <h2 id="reset-dub-title" className={styles.title}>Reset redub</h2>
         <p className={styles.body}>
           Move back from the current step to choose how far to rewind{' '}
-          <strong>{videoFilename}</strong>. The video file is always reverted to the
-          original-language track.
+          <strong>
+            {selectionCount
+              ? `${selectionCount} selected video${selectionCount === 1 ? '' : 's'}`
+              : videoFilename}
+          </strong>
+          . {selectionCount == null || selectionCount === 1
+            ? 'The video file is'
+            : 'Each video file is'} always reverted to the original-language track.
         </p>
 
         {errorMessage && (

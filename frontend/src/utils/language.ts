@@ -1,3 +1,5 @@
+import type { VideoFile } from '../types';
+
 const ISO639_1_TO_2: Record<string, string> = {
   en: 'eng',
   es: 'spa',
@@ -42,4 +44,13 @@ export function isVideoInTargetState(
     (sub) => normalizeLangCode(sub.language) === target,
   );
   return hasTargetAudio && hasTargetSub;
+}
+
+/** True when a video is finalized, including disk-derived target-language state. */
+export function isVideoFinalized(
+  video: Pick<VideoFile, 'pipeline_status' | 'audio_streams' | 'subtitles'>,
+  targetLanguage: string,
+): boolean {
+  return Boolean(video.pipeline_status?.replaced)
+    || isVideoInTargetState(video.audio_streams, video.subtitles, targetLanguage);
 }
