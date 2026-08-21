@@ -557,6 +557,8 @@ export const ProjectDetail = () => {
             onSrtPathChange={setReviewSrtPath}
             onSaveCue={subtitleReview.saveCue}
             savingCueIndex={subtitleReview.savingCueIndex}
+            onDeleteCue={subtitleReview.deleteCue}
+            deletingCueIndex={subtitleReview.deletingCueIndex}
           />
         )}
       </div>

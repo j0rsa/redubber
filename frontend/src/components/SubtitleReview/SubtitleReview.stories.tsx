@@ -89,6 +89,9 @@ export const Default: Story = {
     onSaveCue: async (index, text) => {
       console.log('save cue', index, text);
     },
+    onDeleteCue: async (index) => {
+      console.log('delete cue', index);
+    },
   },
 };
 

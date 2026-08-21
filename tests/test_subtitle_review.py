@@ -14,6 +14,7 @@ from app.services.subtitle_review import (
     SubtitleReviewError,
     build_subtitle_review,
     chunk_for_time,
+    delete_subtitle_cue,
     find_review_srt,
     is_safe_chunk_name,
     list_review_srts,
@@ -192,7 +193,9 @@ class TestAnalyzeSubtitleQuality:
         ]
         analysis = analyze_subtitle_quality(cues)
         duplicate = [
-            b for b in analysis.breaches if b.rule_id == "consecutive_duplicate_segments"
+            b
+            for b in analysis.breaches
+            if b.rule_id == "consecutive_duplicate_segments"
         ]
         assert {b.segment_index for b in duplicate} == {0, 1, 2}
 
@@ -213,7 +216,9 @@ class TestAnalyzeSubtitleQuality:
             (264.0, 269.0, "7. Not with the water as a fill."),
         ]
         analysis = analyze_subtitle_quality(cues)
-        numbered = [b for b in analysis.breaches if b.rule_id == "numbered_enumeration_loop"]
+        numbered = [
+            b for b in analysis.breaches if b.rule_id == "numbered_enumeration_loop"
+        ]
         assert len(numbered) == 4
         assert {b.segment_index for b in numbered} == {0, 1, 2, 3}
 
@@ -441,7 +446,9 @@ Alternate.
         assert body["segments"][1]["text"] == "This is a longer line of narration."
         assert "Edited hello." in srt.read_text(encoding="utf-8")
 
-    def test_patch_refreshes_cached_quality(self, client: TestClient, tmp_path: Path) -> None:
+    def test_patch_refreshes_cached_quality(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
         from app.services.video_subtitle_quality import load_quality_cache
 
         project_dir = tmp_path / "proj"
@@ -522,6 +529,46 @@ Alternate.
         )
         assert response.status_code == 422
 
+    def test_delete_removes_cue(self, client: TestClient, tmp_path: Path) -> None:
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"x")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text(SAMPLE_SRT)
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 20,
+                "audio_streams": [],
+                "subtitles": [],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        response = client.delete(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review/cues/1"
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert [segment["index"] for segment in body["segments"]] == [0, 1]
+        assert [segment["text"] for segment in body["segments"]] == [
+            "Hello there.",
+            "Short.",
+        ]
+        assert [cue[2] for cue in parse_srt(srt.read_text(encoding="utf-8"))] == [
+            "Hello there.",
+            "Short.",
+        ]
+
 
 class TestUpdateSubtitleCue:
     def test_rewrites_text_and_keeps_timings(self, tmp_path: Path) -> None:
@@ -579,3 +626,81 @@ class TestUpdateSubtitleCue:
         path = tmp_path / "x.srt"
         write_srt_cues(path, [(0.0, 1.25, "Hi")])
         assert parse_srt(path.read_text(encoding="utf-8")) == [(0.0, 1.25, "Hi")]
+
+
+class TestDeleteSubtitleCue:
+    def test_rewrites_all_copies_and_invalidates_indexed_audio(
+        self, tmp_path: Path
+    ) -> None:
+        from app.services.existing_subtitles import workdir_subtitle_dest
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        sidecar = project / "lesson.en.srt"
+        sidecar.write_text(SAMPLE_SRT)
+        staged = workdir_subtitle_dest(video, str(project), "proj")
+        staged.parent.mkdir(parents=True)
+        staged.write_text(SAMPLE_SRT)
+
+        root = project / ".redubber" / "lesson.mp4"
+        tts = root / "04_tts"
+        tts.mkdir()
+        (tts / "000.en.m4a").write_bytes(b"tts0")
+        (tts / "001.en.m4a").write_bytes(b"tts1")
+        assemble = root / "05_target_audio_chunks"
+        assemble.mkdir()
+        (assemble / "chunk.m4a").write_bytes(b"mix")
+        dubbed = root / "lesson.dubbed.mp4"
+        dubbed.write_bytes(b"video")
+
+        delete_subtitle_cue(
+            video_path=video,
+            project_path=str(project),
+            project_name="proj",
+            target_language="eng",
+            cue_index=1,
+            srt_path=str(sidecar),
+        )
+
+        expected = [(0.0, 3.5, "Hello there."), (15.0, 16.2, "Short.")]
+        assert parse_srt(sidecar.read_text(encoding="utf-8")) == expected
+        assert parse_srt(staged.read_text(encoding="utf-8")) == expected
+        assert not tts.exists()
+        assert not assemble.exists()
+        assert not dubbed.exists()
+
+    def test_can_delete_last_remaining_cue(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        srt = project / "lesson.en.srt"
+        srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nOnly cue.\n")
+
+        delete_subtitle_cue(
+            video_path=video,
+            project_path=str(project),
+            project_name="proj",
+            target_language="eng",
+            cue_index=0,
+        )
+
+        assert srt.read_text(encoding="utf-8") == ""
+
+    def test_rejects_out_of_range_index(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        video = project / "lesson.mp4"
+        video.write_bytes(b"x")
+        (project / "lesson.en.srt").write_text(SAMPLE_SRT)
+
+        with pytest.raises(SubtitleReviewError, match="out of range"):
+            delete_subtitle_cue(
+                video_path=video,
+                project_path=str(project),
+                project_name="proj",
+                target_language="eng",
+                cue_index=99,
+            )

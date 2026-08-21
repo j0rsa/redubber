@@ -17,6 +17,7 @@ export const useSubtitleReview = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingCueIndex, setSavingCueIndex] = useState<number | null>(null);
+  const [deletingCueIndex, setDeletingCueIndex] = useState<number | null>(null);
 
   const fetchReview = useCallback(async () => {
     if (!projectId || !videoId) return;
@@ -59,6 +60,23 @@ export const useSubtitleReview = ({
     [projectId, videoId, srtPath],
   );
 
+  const deleteCue = useCallback(
+    async (index: number) => {
+      if (!projectId || !videoId) return;
+      setDeletingCueIndex(index);
+      try {
+        const { data: body } = await apiClient.delete<SubtitleReviewData>(
+          `/projects/${projectId}/videos/${videoId}/subtitle-review/cues/${index}`,
+          { params: srtPath ? { srt_path: srtPath } : {} },
+        );
+        setData(body);
+      } finally {
+        setDeletingCueIndex(null);
+      }
+    },
+    [projectId, videoId, srtPath],
+  );
+
   useEffect(() => {
     if (!projectId || !videoId) {
       setData(null);
@@ -68,5 +86,14 @@ export const useSubtitleReview = ({
     void fetchReview();
   }, [projectId, videoId, fetchReview]);
 
-  return { data, loading, error, reload: fetchReview, saveCue, savingCueIndex };
+  return {
+    data,
+    loading,
+    error,
+    reload: fetchReview,
+    saveCue,
+    savingCueIndex,
+    deleteCue,
+    deletingCueIndex,
+  };
 };
