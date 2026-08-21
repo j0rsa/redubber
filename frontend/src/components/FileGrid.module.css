@@ -84,6 +84,18 @@
   text-align: left;
 }
 
+.folderHeaderContent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+}
+
+.folderHeaderContent:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* ── Cells ───────────────────────────────────────────────────────────────── */
 
 .cell {

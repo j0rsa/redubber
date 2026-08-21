@@ -286,6 +286,25 @@ export const FileGrid = ({
     onSelectionChange(next);
   };
 
+  const handleSelectFolder = (folderVideos: VideoFile[], checked: boolean) => {
+    const folderUnfinishedIds = new Set(
+      folderVideos
+        .filter(
+          (video) => unfinishedIds.has(video.id) && !runningJobIds?.has(video.id),
+        )
+        .map((video) => video.id),
+    );
+    const next = new Set(selectedIds);
+    for (const id of folderUnfinishedIds) {
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+    }
+    onSelectionChange(next);
+  };
+
   const renderVideoRow = (video: VideoFile) => {
     const liveTask = liveTaskStatuses?.get(video.id);
     const isRunning = (runningJobIds?.has(video.id) ?? false)
@@ -394,18 +413,47 @@ export const FileGrid = ({
           </tr>
         </thead>
         <tbody>
-          {folderGroups.map((group) => (
-            <Fragment key={group.folder}>
-              {showFolderHeaders && (
-                <tr className={styles.folderHeaderRow}>
-                  <td className={styles.folderHeaderCell} colSpan={8}>
-                    {formatFolderLabel(group.folder)}
-                  </td>
-                </tr>
-              )}
-              {group.videos.map((video) => renderVideoRow(video))}
-            </Fragment>
-          ))}
+          {folderGroups.map((group) => {
+            const folderLabel = formatFolderLabel(group.folder);
+            const folderUnfinished = group.videos.filter(
+              (video) => unfinishedIds.has(video.id),
+            );
+            const folderAllSelected = folderUnfinished.length > 0
+              && folderUnfinished.every((video) => selectedIds.has(video.id));
+            const folderSomeSelected = folderUnfinished.some(
+              (video) => selectedIds.has(video.id),
+            ) && !folderAllSelected;
+
+            return (
+              <Fragment key={group.folder}>
+                {showFolderHeaders && (
+                  <tr className={styles.folderHeaderRow}>
+                    <td className={styles.folderHeaderCell} colSpan={8}>
+                      <label className={styles.folderHeaderContent}>
+                        <input
+                          type="checkbox"
+                          checked={folderAllSelected}
+                          ref={(element) => {
+                            if (element) element.indeterminate = folderSomeSelected;
+                          }}
+                          onChange={(event) => {
+                            handleSelectFolder(group.videos, event.target.checked);
+                          }}
+                          aria-label={`Select unfinished videos in ${folderLabel}`}
+                          disabled={
+                            folderUnfinished.length === 0
+                            || selectedCohort === 'finished'
+                          }
+                        />
+                        <span>{folderLabel}</span>
+                      </label>
+                    </td>
+                  </tr>
+                )}
+                {group.videos.map((video) => renderVideoRow(video))}
+              </Fragment>
+            );
+          })}
         </tbody>
         {videos.length > 0 && (
           <tfoot>
