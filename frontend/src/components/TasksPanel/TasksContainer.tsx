@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useActiveTasks } from '../../hooks/useActiveTasks';
+import { writeDebugLog } from '../../utils/debugLog';
 import { TasksIndicator } from './TasksPanel';
 import { TasksPanel } from './TasksPanel';
 
@@ -12,6 +13,22 @@ export const TasksContainer = () => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
   const { activeTasks, activeCount, hasActive } = useActiveTasks();
+
+  // #region agent log
+  useEffect(() => {
+    writeDebugLog({
+      hypothesisId: 'C',
+      location: 'TasksContainer.tsx:activeTasks',
+      message: 'Global task UI projection',
+      data: {
+        activeCount,
+        hasActive,
+        taskIds: activeTasks.map((task) => task.task_id),
+        panelOpen: isOpen,
+      },
+    });
+  }, [activeCount, activeTasks, hasActive, isOpen]);
+  // #endregion
 
   const handleViewJob = (taskId: string) => {
     setIsOpen(false);
