@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.infrastructure.task_queue import TaskQueueManager, TaskStatus
 from app.schemas.models import TaskCreate
 from app.services.subtitle_quality_gate import should_pause_for_subtitle_review
 
@@ -46,3 +47,40 @@ def test_ignore_requires_subtitle_resume() -> None:
             project_id=1,
             ignore_subtitle_warnings=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_hold_status_keeps_recovery_metadata() -> None:
+    manager = TaskQueueManager()
+    task = TaskStatus(
+        task_id="held",
+        video_path="/tmp/video.mp4",
+        stage="running",
+        progress=35,
+        status="running",
+    )
+    manager._tasks[task.task_id] = task
+
+    await manager._update_task_status(
+        task.task_id,
+        stage="Subtitle review required",
+        progress=38,
+        status="awaiting_subtitle_review",
+        subtitle_path="/tmp/video.en.srt",
+        quality_issue_count=1,
+        quality_issues=(
+            {
+                "rule_id": "known_hallucination_phrase",
+                "label": "Known STT phrase",
+                "message": "known phrase",
+                "segment_index": 0,
+            },
+        ),
+    )
+
+    held = await manager.get_status(task.task_id)
+    assert held is not None
+    assert held.status == "awaiting_subtitle_review"
+    assert held.subtitle_path == "/tmp/video.en.srt"
+    assert held.quality_issue_count == 1
+    assert held.quality_issues[0]["rule_id"] == "known_hallucination_phrase"

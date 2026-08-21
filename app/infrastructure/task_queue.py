@@ -1031,6 +1031,9 @@ class TaskQueueManager:
                 "audio_assembled",
                 "audio_assembled_total",
                 "video_mixed",
+                "subtitle_path",
+                "quality_issue_count",
+                "quality_issues",
             ):
                 if key in counters:
                     updates[key] = counters[key]
