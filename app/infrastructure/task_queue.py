@@ -385,6 +385,9 @@ class TaskQueueManager:
         from app.core.project_paths import get_project_working_dir
         from database import DatabaseManager
         from pipeline_status import clear_downstream_stages
+        from app.services.subtitle_quality_hold import (
+            clear_subtitle_quality_hold_for_video,
+        )
 
         db = DatabaseManager(_config_settings.database_url)
         project = db.get_project_by_id(project_id)
@@ -392,6 +395,9 @@ class TaskQueueManager:
             return
 
         working_dir = str(get_project_working_dir(project["path"], project["name"]))
+        clear_subtitle_quality_hold_for_video(
+            video_path, project["path"], project["name"]
+        )
         clear_downstream_stages(
             video_path=video_path,
             project_path=project["path"],
@@ -705,6 +711,16 @@ class TaskQueueManager:
                     quality_issue_count=quality_issue_count,
                     ignore_warnings=task.ignore_subtitle_warnings,
                 ):
+                    from app.services.subtitle_quality_hold import (
+                        write_subtitle_quality_hold,
+                    )
+
+                    write_subtitle_quality_hold(
+                        root=reproj.get_file_working_dir(Reproj.Section.ROOT),
+                        subtitle_path=generated_subtitle_path,
+                        quality_issue_count=quality_issue_count,
+                        quality_issues=quality_issues,
+                    )
                     await self._update_task_status(
                         task_id,
                         stage="Subtitle review required",
@@ -723,6 +739,14 @@ class TaskQueueManager:
                         quality_issue_count,
                     )
                     return
+
+            from app.services.subtitle_quality_hold import (
+                clear_subtitle_quality_hold,
+            )
+
+            clear_subtitle_quality_hold(
+                reproj.get_file_working_dir(Reproj.Section.ROOT)
+            )
 
             # Stage 4: ASYNC TTS generation (KEY OPTIMIZATION - 5x faster!)
             await self._update_task_status(

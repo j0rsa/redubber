@@ -81,6 +81,8 @@ export interface PipelineStatus {
   replacement_status?: 'pending' | 'replaced' | 'kept_both' | 'cancelled';
   awaiting_subtitle_review?: boolean;
   quality_issue_count?: number;
+  subtitle_path?: string;
+  quality_issues?: SubtitleQualityIssue[];
 
   // Legacy
   has_external_subs?: boolean;

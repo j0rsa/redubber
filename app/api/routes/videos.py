@@ -173,7 +173,7 @@ async def list_videos(
 
     # Surface the most recent failed or subtitle-review-held task on each video.
     failed_tasks: dict[str, str] = {}  # video_path → error message
-    held_tasks: dict[str, int] = {}  # video_path → quality issue count
+    held_tasks: dict[str, dict] = {}
     try:
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
@@ -186,7 +186,11 @@ async def list_videos(
                 and t.video_path
                 and t.video_path not in held_tasks
             ):
-                held_tasks[t.video_path] = t.quality_issue_count
+                held_tasks[t.video_path] = {
+                    "quality_issue_count": t.quality_issue_count,
+                    "subtitle_path": t.subtitle_path,
+                    "quality_issues": list(t.quality_issues),
+                }
     except Exception:
         pass
 
@@ -226,7 +230,21 @@ async def list_videos(
         )
 
         task_error = failed_tasks.get(record["file_path"], "")
-        held_issue_count = held_tasks.get(record["file_path"], 0)
+        held_data = held_tasks.get(record["file_path"])
+        if held_data is None:
+            from app.services.subtitle_quality_hold import (
+                hold_marker_for_video,
+                read_subtitle_quality_hold,
+            )
+
+            held_data = read_subtitle_quality_hold(
+                hold_marker_for_video(
+                    record["file_path"],
+                    project_path,
+                    project_record["name"],
+                )
+            )
+        held_issue_count = int((held_data or {}).get("quality_issue_count") or 0)
 
         # Detect pre-redubbed files: ≥2 audio tracks where one matches the project target
         # language, AND a subtitle in the target language is present.
@@ -277,6 +295,8 @@ async def list_videos(
                     error=task_error,
                     awaiting_subtitle_review=bool(held_issue_count),
                     quality_issue_count=held_issue_count,
+                    subtitle_path=(held_data or {}).get("subtitle_path"),
+                    quality_issues=(held_data or {}).get("quality_issues") or [],
                 )
 
         results.append(

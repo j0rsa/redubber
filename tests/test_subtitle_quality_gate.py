@@ -6,6 +6,12 @@ from pydantic import ValidationError
 from app.infrastructure.task_queue import TaskQueueManager, TaskStatus
 from app.schemas.models import TaskCreate
 from app.services.subtitle_quality_gate import should_pause_for_subtitle_review
+from app.services.subtitle_quality_hold import (
+    clear_subtitle_quality_hold,
+    hold_marker_for_root,
+    read_subtitle_quality_hold,
+    write_subtitle_quality_hold,
+)
 
 
 def test_generated_subtitle_warnings_pause_pipeline() -> None:
@@ -84,3 +90,28 @@ async def test_hold_status_keeps_recovery_metadata() -> None:
     assert held.subtitle_path == "/tmp/video.en.srt"
     assert held.quality_issue_count == 1
     assert held.quality_issues[0]["rule_id"] == "known_hallucination_phrase"
+
+
+def test_hold_marker_survives_process_state(tmp_path) -> None:
+    write_subtitle_quality_hold(
+        root=tmp_path,
+        subtitle_path="/tmp/video.en.srt",
+        quality_issue_count=1,
+        quality_issues=(
+            {
+                "rule_id": "known_hallucination_phrase",
+                "label": "Known STT phrase",
+                "message": "known phrase",
+                "segment_index": 0,
+            },
+        ),
+    )
+
+    marker = hold_marker_for_root(tmp_path)
+    persisted = read_subtitle_quality_hold(marker)
+    assert persisted is not None
+    assert persisted["quality_issue_count"] == 1
+    assert persisted["subtitle_path"] == "/tmp/video.en.srt"
+
+    clear_subtitle_quality_hold(tmp_path)
+    assert not marker.exists()
