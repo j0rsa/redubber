@@ -330,6 +330,52 @@ class TestScanStagesSubsAndProgress:
         names = sorted(Path(sub["path"]).name for sub in body[0]["subtitles"])
         assert names == ["01.eng.srt", "01.kor.srt"]
 
+    def test_scan_caches_hallucination_quality(self, client, tmp_path: Path) -> None:
+        from unittest.mock import patch
+
+        from app.core.config import settings
+        from app.services.video_subtitle_quality import load_quality_cache
+        from database import DatabaseManager
+
+        project_dir = tmp_path / "videos"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"fake-video")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text(
+            "1\n00:00:00,000 --> 00:00:05,000\nThank you for watching this video.\n",
+            encoding="utf-8",
+        )
+
+        created = client.post(
+            "/api/projects/", json={"path": str(project_dir), "name": "Demo"}
+        )
+        assert created.status_code == 201
+        project_id = created.json()["id"]
+
+        db = DatabaseManager(settings.database_url)
+        cached = load_quality_cache(db, project_id)
+        hit = cached[str(srt.resolve())]
+        assert hit.issue_count >= 1
+        assert any(
+            issue.rule_id == "known_hallucination_phrase" for issue in hit.issues
+        )
+        assert hit.video_path == str(video.resolve())
+
+        with patch(
+            "app.services.video_subtitle_quality.analyze_subtitle_file",
+            side_effect=AssertionError("listing must not re-analyze after scan"),
+        ):
+            videos = client.get(f"/api/projects/{project_id}/videos")
+
+        assert videos.status_code == 200
+        eng = next(
+            sub
+            for sub in videos.json()[0]["subtitles"]
+            if str(sub["path"]).endswith("lesson.en.srt")
+        )
+        assert eng["quality_issue_count"] >= 1
+
 
 class TestTranscriptionTaskDedupe:
     @pytest.mark.asyncio

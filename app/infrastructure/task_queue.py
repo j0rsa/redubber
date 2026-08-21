@@ -585,9 +585,21 @@ class TaskQueueManager:
                 )
 
                 def generate_subtitles_step() -> None:
+                    from database import DatabaseManager
                     from redubber import Redubber
+                    from app.services.video_subtitle_quality import (
+                        refresh_subtitle_quality_for_paths,
+                    )
+
                     _r = Redubber(openai_token=_get_openai_key(), interactive=False)
-                    _r.generate_subtitles(reproj, segments)
+                    srt_path = _r.generate_subtitles(reproj, segments)
+                    if project_id is not None:
+                        refresh_subtitle_quality_for_paths(
+                            DatabaseManager(settings.database_url),
+                            project_id=project_id,
+                            video_path=video_path,
+                            paths=[srt_path],
+                        )
 
                 await loop.run_in_executor(self._executor, generate_subtitles_step)
 

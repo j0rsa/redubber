@@ -441,6 +441,59 @@ Alternate.
         assert body["segments"][1]["text"] == "This is a longer line of narration."
         assert "Edited hello." in srt.read_text(encoding="utf-8")
 
+    def test_patch_refreshes_cached_quality(self, client: TestClient, tmp_path: Path) -> None:
+        from app.services.video_subtitle_quality import load_quality_cache
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        video = project_dir / "lesson.mp4"
+        video.write_bytes(b"x")
+        srt = project_dir / "lesson.en.srt"
+        srt.write_text(SAMPLE_SRT)
+
+        db = DatabaseManager(settings.database_url)
+        project_id = db.add_project(str(project_dir), "Demo")
+        db.save_video_analysis(
+            project_id,
+            {
+                "filename": "lesson.mp4",
+                "path": str(video),
+                "size_mb": 1.0,
+                "duration_seconds": 20,
+                "audio_streams": [],
+                "subtitles": [
+                    {
+                        "language": "eng",
+                        "embedded": False,
+                        "path": str(srt),
+                        "filename": srt.name,
+                    }
+                ],
+            },
+        )
+        video_id = db.get_video_analysis(project_id)[0]["id"]
+
+        dirty = client.patch(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review/cues/0",
+            json={"text": "Thank you for watching this video."},
+        )
+        assert dirty.status_code == 200
+        cached = load_quality_cache(db, project_id)[str(srt.resolve())]
+        assert cached.issue_count >= 1
+        assert any(
+            issue.rule_id == "known_hallucination_phrase" for issue in cached.issues
+        )
+
+        clean = client.patch(
+            f"/api/projects/{project_id}/videos/{video_id}/subtitle-review/cues/0",
+            json={"text": "A normal spoken line."},
+        )
+        assert clean.status_code == 200
+        cached = load_quality_cache(db, project_id)[str(srt.resolve())]
+        assert not any(
+            issue.rule_id == "known_hallucination_phrase" for issue in cached.issues
+        )
+
     def test_patch_rejects_empty_text(self, client: TestClient, tmp_path: Path) -> None:
         project_dir = tmp_path / "proj"
         project_dir.mkdir()
