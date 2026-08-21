@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { useState } from 'react';
+import { expect, userEvent, within } from 'storybook/test';
 import { FileGrid } from './FileGrid';
 import type { VideoFile } from '../types';
 
@@ -42,6 +44,34 @@ const fiveVideos: VideoFile[] = [
   createMockVideo({ id: 4, filename: 'chapter_03.mp4', path: '/videos/chapter_03.mp4', size_mb: 210, duration_seconds: 1800 }),
   createMockVideo({ id: 5, filename: 'outro.mp4', path: '/videos/outro.mp4', size_mb: 95, duration_seconds: 420 }),
 ];
+
+const mixedCohortVideos: VideoFile[] = [
+  createMockVideo({ id: 1, filename: 'unfinished-one.mp4', path: '/videos/unfinished-one.mp4' }),
+  createMockVideo({ id: 2, filename: 'unfinished-two.mp4', path: '/videos/unfinished-two.mp4' }),
+  createMockVideo({
+    id: 3,
+    filename: 'finished.mp4',
+    path: '/videos/finished.mp4',
+    pipeline_status: {
+      progress: 100,
+      current_stage: 'Complete',
+      is_complete: true,
+      replaced: true,
+    },
+  }),
+];
+
+const InteractiveMixedCohorts = () => {
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  return (
+    <FileGrid
+      videos={mixedCohortVideos}
+      selectedIds={selectedIds}
+      onSelectionChange={setSelectedIds}
+      targetLanguage="eng"
+    />
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Stories
@@ -308,5 +338,40 @@ export const GroupedByFolder: Story = {
     ],
     selectedIds: new Set<number>(),
     onSelectionChange: (ids) => console.log('Selection changed:', [...ids]),
+  },
+};
+
+export const SelectAllUsesUnfinishedCohort: Story = {
+  render: () => <InteractiveMixedCohorts />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const selectAll = canvas.getByRole('checkbox', { name: 'Select all videos' });
+    const unfinishedOne = canvas.getByRole('checkbox', { name: 'Select unfinished-one.mp4' });
+    const unfinishedTwo = canvas.getByRole('checkbox', { name: 'Select unfinished-two.mp4' });
+    const finished = canvas.getByRole('checkbox', { name: 'Select finished.mp4' });
+
+    await expect(finished).toBeEnabled();
+    await userEvent.click(selectAll);
+    await expect(unfinishedOne).toBeChecked();
+    await expect(unfinishedTwo).toBeChecked();
+    await expect(finished).not.toBeChecked();
+    await expect(finished).toBeDisabled();
+  },
+};
+
+export const FinishedSelectionLocksUnfinishedCohort: Story = {
+  render: () => <InteractiveMixedCohorts />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const selectAll = canvas.getByRole('checkbox', { name: 'Select all videos' });
+    const unfinishedOne = canvas.getByRole('checkbox', { name: 'Select unfinished-one.mp4' });
+    const unfinishedTwo = canvas.getByRole('checkbox', { name: 'Select unfinished-two.mp4' });
+    const finished = canvas.getByRole('checkbox', { name: 'Select finished.mp4' });
+
+    await userEvent.click(finished);
+    await expect(finished).toBeChecked();
+    await expect(unfinishedOne).toBeDisabled();
+    await expect(unfinishedTwo).toBeDisabled();
+    await expect(selectAll).toBeDisabled();
   },
 };

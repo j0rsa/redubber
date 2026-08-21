@@ -18,7 +18,7 @@ import { apiClient } from '../api/client';
 import { formatDuration } from '../utils/format';
 import { getApiErrorMessage } from '../utils/apiError';
 import { useSubtitleReview } from '../hooks/useSubtitleReview';
-import { isVideoInTargetState } from '../utils/language';
+import { isVideoFinalized } from '../utils/language';
 import type { VideoFile, TaskStatus } from '../types';
 import styles from './ProjectDetail.module.css';
 
@@ -31,12 +31,7 @@ export const ProjectDetail = () => {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
 
   const isFinalized = (video: VideoFile) =>
-    Boolean(video.pipeline_status?.replaced)
-    || isVideoInTargetState(
-      video.audio_streams,
-      video.subtitles,
-      project?.target_language ?? '',
-    );
+    isVideoFinalized(video, project?.target_language ?? '');
 
   // activeTasks polls every 3s when jobs are running — use it as the source of truth
   const { activeTasks, hasActive } = useActiveTasks();
@@ -118,7 +113,11 @@ export const ProjectDetail = () => {
   };
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [batchProgress, setBatchProgress] = useState<{ submitted: number; total: number } | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{
+    operation: 'redub' | 'reset';
+    submitted: number;
+    total: number;
+  } | null>(null);
   const [finalizingIds, setFinalizingIds] = useState<Set<number>>(new Set());
   const [generatingSubsIds, setGeneratingSubsIds] = useState<Set<number>>(new Set());
   const [reviewVideoId, setReviewVideoId] = useState<number | null>(null);
@@ -134,9 +133,26 @@ export const ProjectDetail = () => {
   }, [reviewVideoId]);
   const [resettingDubIds, setResettingDubIds] = useState<Set<number>>(new Set());
   const [confirmResetVideo, setConfirmResetVideo] = useState<VideoFile | null>(null);
+  const [confirmBulkReset, setConfirmBulkReset] = useState(false);
   const [resetDubError, setResetDubError] = useState<string | null>(null);
   const [lastResetTo, setLastResetTo] = useState<ResetToStageId>('start');
   const [retryVideo, setRetryVideo] = useState<VideoFile | null>(null);
+
+  useEffect(() => {
+    if (!videos) return;
+    const visibleIds = new Set(
+      videos
+        .filter(
+          (video) => !hideCompleted
+            || !isVideoFinalized(video, project?.target_language ?? ''),
+        )
+        .map((video) => video.id),
+    );
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [hideCompleted, project?.target_language, videos]);
 
   const handleScan = async () => {
     if (!projectId) return;
@@ -144,9 +160,28 @@ export const ProjectDetail = () => {
     catch (err) { console.error('Failed to scan videos:', err); }
   };
 
+  const submitResetDub = async (videoId: number, resetTo: ResetToStageId) => {
+    if (!projectId) return;
+    setResettingDubIds((prev) => new Set(prev).add(videoId));
+    try {
+      await apiClient.post(
+        `/projects/${projectId}/videos/${videoId}/reset-dub`,
+        null,
+        { params: { reset_to: resetTo } },
+      );
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } finally {
+      setResettingDubIds((prev) => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+    }
+  };
+
   const handleBatchRedub = async (videoFiles: VideoFile[]) => {
     if (!projectId) return;
-    setBatchProgress({ submitted: 0, total: videoFiles.length });
+    setBatchProgress({ operation: 'redub', submitted: 0, total: videoFiles.length });
     for (const video of videoFiles) {
       try {
         await submitRedub.mutateAsync({ video_path: video.path, project_id: projectId });
@@ -159,9 +194,55 @@ export const ProjectDetail = () => {
     setSelectedIds(new Set());
   };
 
+  const handleBatchReset = async (resetTo: ResetToStageId) => {
+    if (!videos) return;
+    const targets = videos.filter(
+      (video) => selectedIds.has(video.id)
+        && isFinalized(video)
+        && !runningJobs.has(video.id),
+    );
+    setResetDubError(null);
+    setLastResetTo(resetTo);
+    setBatchProgress({ operation: 'reset', submitted: 0, total: targets.length });
+    for (const video of targets) {
+      try {
+        await submitResetDub(video.id, resetTo);
+        setBatchProgress((prev) => prev
+          ? { ...prev, submitted: prev.submitted + 1 }
+          : null);
+      } catch (err) {
+        console.error(`Failed to reset ${video.filename}:`, err);
+      }
+    }
+    setBatchProgress(null);
+    setSelectedIds(new Set());
+    setConfirmBulkReset(false);
+    await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
+    await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+  };
+
   const handleRedubSelected = () => {
     if (!videos) return;
-    void handleBatchRedub(videos.filter((v) => selectedIds.has(v.id)));
+    void handleBatchRedub(
+      videos.filter(
+        (video) => selectedIds.has(video.id)
+          && !isFinalized(video)
+          && !runningJobs.has(video.id),
+      ),
+    );
+  };
+
+  const handleBulkPrimary = () => {
+    if (!videos) return;
+    const hasFinishedSelection = videos.some(
+      (video) => selectedIds.has(video.id) && isFinalized(video),
+    );
+    if (hasFinishedSelection) {
+      setResetDubError(null);
+      setConfirmBulkReset(true);
+      return;
+    }
+    handleRedubSelected();
   };
 
   const handleRedubAll = () => {
@@ -252,30 +333,17 @@ export const ProjectDetail = () => {
   };
 
   const handleResetDub = async (videoId: number, resetTo: ResetToStageId) => {
-    if (!projectId) return;
     setResetDubError(null);
     setLastResetTo(resetTo);
-    setResettingDubIds((prev) => new Set(prev).add(videoId));
     try {
-      await apiClient.post(
-        `/projects/${projectId}/videos/${videoId}/reset-dub`,
-        null,
-        { params: { reset_to: resetTo } },
-      );
+      await submitResetDub(videoId, resetTo);
       setConfirmResetVideo(null);
       setResetDubError(null);
-      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
       const message = getApiErrorMessage(err, 'Failed to reset redub');
       setResetDubError(message);
       await queryClient.invalidateQueries({ queryKey: ['videos', projectId] });
       await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-    } finally {
-      setResettingDubIds((prev) => {
-        const s = new Set(prev);
-        s.delete(videoId);
-        return s;
-      });
     }
   };
 
@@ -338,6 +406,10 @@ export const ProjectDetail = () => {
         .filter((v) => selectedIds.has(v.id))
         .reduce((sum, v) => sum + (v.duration_seconds || 0), 0)
     : 0;
+  const selectedFinishedCount = videos?.filter(
+    (video) => selectedIds.has(video.id) && isFinalized(video),
+  ).length ?? 0;
+  const bulkAction = selectedFinishedCount > 0 ? 'Reset Selected' : 'Redub Selected';
   const totalCount = videos?.filter((v) => !isFinalized(v) && !runningJobs.has(v.id)).length ?? 0;
 
   return (
@@ -418,6 +490,20 @@ export const ProjectDetail = () => {
             onConfirm={(resetTo) => void handleResetDub(confirmResetVideo.id, resetTo)}
           />
         )}
+        {confirmBulkReset && selectedFinishedCount > 0 && (
+          <ResetDubDialog
+            videoFilename=""
+            selectionCount={selectedFinishedCount}
+            currentStage="complete"
+            isSubmitting={batchProgress?.operation === 'reset'}
+            errorMessage={resetDubError}
+            onCancel={() => {
+              setConfirmBulkReset(false);
+              setResetDubError(null);
+            }}
+            onConfirm={(resetTo) => void handleBatchReset(resetTo)}
+          />
+        )}
 
         {retryVideo && (
           <RetryRedubDialog
@@ -475,17 +561,17 @@ export const ProjectDetail = () => {
             <div className={styles.bulkBar}>
               <span className={styles.bulkBarInfo}>
                 {batchProgress
-                  ? `Submitting ${batchProgress.submitted}/${batchProgress.total}…`
+                  ? `${batchProgress.operation === 'reset' ? 'Resetting' : 'Submitting'} ${batchProgress.submitted}/${batchProgress.total}…`
                   : selectedCount > 0
                   ? `${selectedCount} selected · ${formatDuration(selectedDurationSeconds)}`
                   : 'No selection'}
               </span>
               <button
                 className={styles.bulkButtonPrimary}
-                onClick={handleRedubSelected}
+                onClick={handleBulkPrimary}
                 disabled={selectedCount === 0 || batchProgress !== null}
               >
-                Redub Selected{selectedCount > 0 ? ` (${selectedCount})` : ''}
+                {bulkAction}{selectedCount > 0 ? ` (${selectedCount})` : ''}
               </button>
               <button
                 className={styles.bulkButtonOutline}

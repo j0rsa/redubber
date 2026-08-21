@@ -3,7 +3,7 @@ import type { VideoFile, TaskStatus } from '../types';
 import { PipelineStatus } from './PipelineStatus';
 import { QualityWarningBadge } from './QualityWarningBadge/QualityWarningBadge';
 import { formatDuration, formatSize } from '../utils/format';
-import { isVideoInTargetState } from '../utils/language';
+import { isVideoFinalized } from '../utils/language';
 import { formatFolderLabel, groupVideosByFolder } from '../utils/groupVideosByFolder';
 import styles from './FileGrid.module.css';
 
@@ -66,6 +66,7 @@ interface VideoRowProps {
   onReviewSubs?: (videoId: number) => void;
   onResetDub?: (videoId: number) => void;
   resettingDubIds?: Set<number>;
+  selectionDisabled: boolean;
 }
 
 const VideoRow = ({
@@ -91,6 +92,7 @@ const VideoRow = ({
   onReviewSubs,
   onResetDub,
   resettingDubIds,
+  selectionDisabled,
 }: VideoRowProps) => (
   <tr
     className={`${styles.row} ${isSelected ? styles.rowSelected : ''} ${isComplete ? styles.rowComplete : ''}`}
@@ -101,7 +103,7 @@ const VideoRow = ({
         checked={isSelected}
         onChange={(e) => onRowSelect(video.id, e.target.checked)}
         aria-label={`Select ${video.filename}`}
-        disabled={isComplete}
+        disabled={selectionDisabled}
       />
     </td>
     <td className={styles.cell} data-label="Filename">
@@ -236,9 +238,24 @@ export const FileGrid = ({
   activeTasks = [],
   targetLanguage = '',
 }: FileGridProps) => {
-  const selectableVideos = videos.filter((v) => !v.pipeline_status?.replaced);
-  const allSelected = selectableVideos.length > 0 && selectableVideos.every((v) => selectedIds.has(v.id));
-  const someSelected = selectableVideos.some((v) => selectedIds.has(v.id)) && !allSelected;
+  const finishedIds = new Set(
+    videos
+      .filter((video) => isVideoFinalized(video, targetLanguage))
+      .map((video) => video.id),
+  );
+  const unfinishedVideos = videos.filter(
+    (video) => !finishedIds.has(video.id) && !runningJobIds?.has(video.id),
+  );
+  const unfinishedIds = new Set(unfinishedVideos.map((video) => video.id));
+  const selectedCohort = [...selectedIds].some((id) => finishedIds.has(id))
+    ? 'finished'
+    : [...selectedIds].some((id) => unfinishedIds.has(id))
+      ? 'unfinished'
+      : null;
+  const allSelected = unfinishedVideos.length > 0
+    && unfinishedVideos.every((video) => selectedIds.has(video.id));
+  const someSelected = unfinishedVideos.some((video) => selectedIds.has(video.id))
+    && !allSelected;
 
   const totalDuration = videos.reduce((sum, v) => sum + (v.duration_seconds || 0), 0);
   const totalSize = videos.reduce((sum, v) => sum + (v.size_mb || 0), 0);
@@ -253,7 +270,7 @@ export const FileGrid = ({
 
   const handleSelectAll = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      onSelectionChange(new Set(selectableVideos.map((v) => v.id)));
+      onSelectionChange(new Set(unfinishedVideos.map((video) => video.id)));
     } else {
       onSelectionChange(new Set());
     }
@@ -275,8 +292,7 @@ export const FileGrid = ({
       && liveTask?.status !== 'failed';
     const taskId = runningJobIds?.get(video.id);
     const isSelected = selectedIds.has(video.id);
-    const isReplaced = (video.pipeline_status?.replaced ?? false)
-      || isVideoInTargetState(video.audio_streams, video.subtitles, targetLanguage);
+    const isReplaced = isVideoFinalized(video, targetLanguage);
     const isReadyToReplace = (video.pipeline_status?.is_complete ?? false) && !isReplaced;
     const isComplete = isReplaced;
     const canReviewSubs =
@@ -317,6 +333,9 @@ export const FileGrid = ({
         || (failedTaskType === undefined && isReplaced)
       );
     const isFailedRedub = isFailed && !isFailedResetDub;
+    const videoCohort = isReplaced ? 'finished' : 'unfinished';
+    const selectionDisabled = Boolean(runningJobIds?.has(video.id))
+      || (selectedCohort !== null && selectedCohort !== videoCohort);
 
     return (
       <VideoRow
@@ -343,6 +362,7 @@ export const FileGrid = ({
         onReviewSubs={onReviewSubs}
         onResetDub={onResetDub}
         resettingDubIds={resettingDubIds}
+        selectionDisabled={selectionDisabled}
       />
     );
   };
@@ -361,7 +381,7 @@ export const FileGrid = ({
                 }}
                 onChange={handleSelectAll}
                 aria-label="Select all videos"
-                disabled={videos.length === 0}
+                disabled={unfinishedVideos.length === 0 || selectedCohort === 'finished'}
               />
             </th>
             <th>Filename</th>

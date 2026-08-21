@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { expect, within } from 'storybook/test';
 import { ResetDubDialog } from './ResetDubDialog';
 
 const meta: Meta<typeof ResetDubDialog> = {
@@ -30,5 +31,20 @@ export const WithError: Story = {
   args: {
     ...Default.args,
     errorMessage: 'Video is not in the final redubbed state.',
+  },
+};
+
+export const BulkSelection: Story = {
+  args: {
+    ...Default.args,
+    videoFilename: '',
+    selectionCount: 3,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('3 selected videos')).toBeVisible();
+    await expect(
+      canvas.getByText(/Each video file is always reverted/),
+    ).toBeVisible();
   },
 };
