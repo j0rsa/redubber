@@ -73,6 +73,48 @@ const InteractiveMixedCohorts = () => {
   );
 };
 
+const groupedCohortVideos: VideoFile[] = [
+  createMockVideo({
+    id: 11,
+    filename: 'unfinished-a.mp4',
+    path: '/projects/course/section-a/unfinished-a.mp4',
+  }),
+  createMockVideo({
+    id: 12,
+    filename: 'finished-a.mp4',
+    path: '/projects/course/section-a/finished-a.mp4',
+    pipeline_status: {
+      progress: 100,
+      current_stage: 'Complete',
+      is_complete: true,
+      replaced: true,
+    },
+  }),
+  createMockVideo({
+    id: 13,
+    filename: 'unfinished-b.mp4',
+    path: '/projects/course/section-b/unfinished-b.mp4',
+  }),
+  createMockVideo({
+    id: 14,
+    filename: 'unfinished-c.mp4',
+    path: '/projects/course/section-b/unfinished-c.mp4',
+  }),
+];
+
+const InteractiveGroupedCohorts = () => {
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  return (
+    <FileGrid
+      projectPath="/projects/course"
+      videos={groupedCohortVideos}
+      selectedIds={selectedIds}
+      onSelectionChange={setSelectedIds}
+      targetLanguage="eng"
+    />
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Stories
 // ---------------------------------------------------------------------------
@@ -373,5 +415,43 @@ export const FinishedSelectionLocksUnfinishedCohort: Story = {
     await expect(unfinishedOne).toBeDisabled();
     await expect(unfinishedTwo).toBeDisabled();
     await expect(selectAll).toBeDisabled();
+  },
+};
+
+export const SelectUnfinishedByDirectory: Story = {
+  render: () => <InteractiveGroupedCohorts />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const sectionA = canvas.getByRole('checkbox', {
+      name: 'Select unfinished videos in section-a',
+    });
+    const sectionB = canvas.getByRole('checkbox', {
+      name: 'Select unfinished videos in section-b',
+    });
+    const unfinishedA = canvas.getByRole('checkbox', {
+      name: 'Select unfinished-a.mp4',
+    });
+    const finishedA = canvas.getByRole('checkbox', {
+      name: 'Select finished-a.mp4',
+    });
+    const unfinishedB = canvas.getByRole('checkbox', {
+      name: 'Select unfinished-b.mp4',
+    });
+    const unfinishedC = canvas.getByRole('checkbox', {
+      name: 'Select unfinished-c.mp4',
+    });
+
+    await userEvent.click(sectionA);
+    await expect(unfinishedA).toBeChecked();
+    await expect(finishedA).not.toBeChecked();
+    await expect(finishedA).toBeDisabled();
+    await expect(unfinishedB).not.toBeChecked();
+    await expect(sectionA).toBeChecked();
+
+    await userEvent.click(sectionB);
+    await expect(unfinishedA).toBeChecked();
+    await expect(unfinishedB).toBeChecked();
+    await expect(unfinishedC).toBeChecked();
+    await expect(sectionB).toBeChecked();
   },
 };
