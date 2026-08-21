@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within } from 'storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
 import { ResetDubDialog } from './ResetDubDialog';
 
 const meta: Meta<typeof ResetDubDialog> = {
@@ -17,6 +17,17 @@ export const Default: Story = {
     currentStage: 'complete',
     onCancel: () => console.log('cancel'),
     onConfirm: (resetTo) => console.log('reset to', resetTo),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByRole('slider')).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: 'Mix' }));
+    await expect(
+      canvas.getByRole('button', { name: 'Mix' }),
+    ).toHaveAttribute('aria-current', 'step');
+    await expect(
+      canvas.getByRole('button', { name: 'Reset to Mix' }),
+    ).toBeEnabled();
   },
 };
 

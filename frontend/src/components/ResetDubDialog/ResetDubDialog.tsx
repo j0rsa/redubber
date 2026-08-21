@@ -62,9 +62,9 @@ export const ResetDubDialog = ({
           </div>
         )}
 
-        <label className={styles.fieldLabel} htmlFor="reset-stage-slider">
+        <div className={styles.fieldLabel}>
           Reset to
-        </label>
+        </div>
         <div
           className={styles.sliderWrap}
           style={{ ['--node-count' as string]: currentIndex + 1 }}
@@ -79,18 +79,6 @@ export const ResetDubDialog = ({
               }}
             />
           </div>
-          <input
-            id="reset-stage-slider"
-            className={styles.slider}
-            type="range"
-            min={0}
-            max={currentIndex}
-            step={1}
-            value={selectedIndex}
-            disabled={isSubmitting || currentIndex === 0}
-            aria-valuetext={selected.label}
-            onChange={(event) => setSelectedIndex(Number(event.target.value))}
-          />
           <div className={styles.nodes}>
             {RESET_STAGES.slice(0, currentIndex + 1).map((stage, index) => {
               const isCurrent = index === currentIndex;
