@@ -12,7 +12,9 @@ class ProjectCreate(BaseModel):
     """Request schema for creating/opening a project."""
 
     path: str = Field(..., description="Absolute path to project directory")
-    name: str | None = Field(default=None, description="Project display name. Defaults to the folder name.")
+    name: str | None = Field(
+        default=None, description="Project display name. Defaults to the folder name."
+    )
 
 
 class ProjectResponse(BaseModel):
@@ -30,7 +32,8 @@ class ProjectResponse(BaseModel):
         default="", description="Custom instructions for TTS voice"
     )
     source_language_override: str = Field(
-        default="", description="Auto-detected or user-overridden source language (e.g., 'rus', 'eng')"
+        default="",
+        description="Auto-detected or user-overridden source language (e.g., 'rus', 'eng')",
     )
     target_language: str = Field(
         default="eng",
@@ -39,8 +42,12 @@ class ProjectResponse(BaseModel):
     working_directory: str = Field(
         default="", description="Resolved working directory for project artefacts"
     )
-    total_videos: int = Field(default=0, description="Total number of video files in the project")
-    replaced_videos: int = Field(default=0, description="Number of videos that have been redubbed and replaced")
+    total_videos: int = Field(
+        default=0, description="Total number of video files in the project"
+    )
+    replaced_videos: int = Field(
+        default=0, description="Number of videos that have been redubbed and replaced"
+    )
     total_duration_seconds: float = Field(
         default=0, description="Sum of all video durations in the project (seconds)"
     )
@@ -53,7 +60,10 @@ class ProjectResponse(BaseModel):
         if not self.working_directory:
             try:
                 from app.core.project_paths import get_project_working_dir
-                self.working_directory = str(get_project_working_dir(self.path, self.name))
+
+                self.working_directory = str(
+                    get_project_working_dir(self.path, self.name)
+                )
             except Exception:
                 pass
         return self
@@ -151,9 +161,19 @@ class PipelineStatusResponse(BaseModel):
     progress: int = Field(ge=0, le=100, description="Progress percentage (0-100)")
     current_stage: str = Field(..., description="Current pipeline stage name")
     is_complete: bool = Field(..., description="True if all pipeline stages complete")
-    failed: bool = Field(default=False, description="True if the last task for this video failed")
+    failed: bool = Field(
+        default=False, description="True if the last task for this video failed"
+    )
     error: str = Field(default="", description="Error message if failed")
-    replaced: bool = Field(default=False, description="True if original file has been replaced (finalization complete)")
+    awaiting_subtitle_review: bool = Field(
+        default=False,
+        description="True when generated subtitle warnings must be resolved before TTS.",
+    )
+    quality_issue_count: int = Field(default=0, ge=0)
+    replaced: bool = Field(
+        default=False,
+        description="True if original file has been replaced (finalization complete)",
+    )
 
 
 class VideoAnalysis(BaseModel):
@@ -190,6 +210,30 @@ class TaskCreate(BaseModel):
             "and the video is re-chunked at this size before transcription."
         ),
     )
+    resume_from_subtitles: bool = Field(
+        default=False,
+        description=(
+            "Resume from the generated subtitle checkpoint without rerunning STT. "
+            "The subtitle file is rechecked before TTS."
+        ),
+    )
+    ignore_subtitle_warnings: bool = Field(
+        default=False,
+        description=(
+            "Allow a generated subtitle with quality warnings to proceed. "
+            "Only valid together with resume_from_subtitles."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_subtitle_resume(self) -> "TaskCreate":
+        if self.ignore_subtitle_warnings and not self.resume_from_subtitles:
+            raise ValueError("ignore_subtitle_warnings requires resume_from_subtitles")
+        if self.resume_from_subtitles and self.audio_chunk_duration is not None:
+            raise ValueError(
+                "resume_from_subtitles cannot be combined with audio_chunk_duration"
+            )
+        return self
 
 
 class TaskStatusResponse(BaseModel):
@@ -197,9 +241,9 @@ class TaskStatusResponse(BaseModel):
 
     task_id: str = Field(..., description="Unique task identifier (UUID)")
     video_path: str = Field(..., description="Target video file path")
-    status: Literal["queued", "running", "completed", "failed"] = Field(
-        ..., description="Current task status"
-    )
+    status: Literal[
+        "queued", "running", "awaiting_subtitle_review", "completed", "failed"
+    ] = Field(..., description="Current task status")
     stage: str = Field(..., description="Current processing stage description")
     progress: int = Field(ge=0, le=100, description="Progress percentage (0-100)")
     error: str | None = Field(
@@ -218,6 +262,9 @@ class TaskStatusResponse(BaseModel):
     audio_assembled: int | None = Field(default=None)
     audio_assembled_total: int | None = Field(default=None)
     video_mixed: bool | None = Field(default=None)
+    subtitle_path: str | None = Field(default=None)
+    quality_issue_count: int = Field(default=0, ge=0)
+    quality_issues: list[SubtitleQualityIssue] = Field(default_factory=list)
     task_type: Literal["redub", "reset_dub", "transcribe"] = Field(
         default="redub",
         description="Kind of background job (redub pipeline, remove dub, or STT-only).",

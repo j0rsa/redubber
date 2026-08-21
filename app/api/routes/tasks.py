@@ -36,6 +36,9 @@ def _task_to_response(t) -> TaskStatusResponse:
         audio_assembled=t.audio_assembled,
         audio_assembled_total=t.audio_assembled_total,
         video_mixed=t.video_mixed,
+        subtitle_path=t.subtitle_path,
+        quality_issue_count=t.quality_issue_count,
+        quality_issues=list(t.quality_issues),
         task_type=t.task_type,
     )
 
@@ -105,7 +108,11 @@ async def submit_redub_task(
             video_path=task.video_path,
             project_id=str(task.project_id),
             audio_chunk_duration=task.audio_chunk_duration,
+            resume_from_subtitles=task.resume_from_subtitles,
+            ignore_subtitle_warnings=task.ignore_subtitle_warnings,
         )
+        if task.resume_from_subtitles:
+            await task_manager.resolve_subtitle_holds(task.video_path)
     except Exception as e:
         # Queue full or other error
         raise HTTPException(

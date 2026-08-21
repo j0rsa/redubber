@@ -5,7 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 
 from app.core.dependencies import get_db, get_scanner
 from app.infrastructure.task_queue import TaskQueueManager
@@ -163,8 +171,9 @@ async def list_videos(
     working_dir = str(get_project_working_dir(project_path, project_record["name"]))
     target_lang = project_record.get("target_language") or ""
 
-    # Build a map of video_path → most-recent failed task so we can surface errors
+    # Surface the most recent failed or subtitle-review-held task on each video.
     failed_tasks: dict[str, str] = {}  # video_path → error message
+    held_tasks: dict[str, int] = {}  # video_path → quality issue count
     try:
         task_manager: TaskQueueManager = request.app.state.task_manager
         all_tasks = await task_manager.list_tasks()
@@ -172,6 +181,12 @@ async def list_videos(
             if t.status == "failed" and t.video_path and t.error:
                 if t.video_path not in failed_tasks:
                     failed_tasks[t.video_path] = t.error
+            if (
+                t.status == "awaiting_subtitle_review"
+                and t.video_path
+                and t.video_path not in held_tasks
+            ):
+                held_tasks[t.video_path] = t.quality_issue_count
     except Exception:
         pass
 
@@ -211,6 +226,7 @@ async def list_videos(
         )
 
         task_error = failed_tasks.get(record["file_path"], "")
+        held_issue_count = held_tasks.get(record["file_path"], 0)
 
         # Detect pre-redubbed files: ≥2 audio tracks where one matches the project target
         # language, AND a subtitle in the target language is present.
@@ -242,14 +258,25 @@ async def list_videos(
                 or pipeline_status_obj.has_target_audio
                 or pipeline_status_obj.final_file_exists
             )
-            if actual_work_done or pipeline_status_obj.is_complete or task_error:
+            if (
+                actual_work_done
+                or pipeline_status_obj.is_complete
+                or task_error
+                or held_issue_count
+            ):
                 pipeline_status = PipelineStatusResponse(
                     progress=pipeline_status_obj.progress_percent,
-                    current_stage=pipeline_status_obj.current_stage,
+                    current_stage=(
+                        "Subtitle review required"
+                        if held_issue_count
+                        else pipeline_status_obj.current_stage
+                    ),
                     is_complete=pipeline_status_obj.is_complete,
                     replaced=pipeline_status_obj.replaced,
                     failed=bool(task_error),
                     error=task_error,
+                    awaiting_subtitle_review=bool(held_issue_count),
+                    quality_issue_count=held_issue_count,
                 )
 
         results.append(
@@ -488,7 +515,9 @@ async def reset_dubbed_video(
             "assemble",
             "mix",
         ],
-        Query(description="Last pipeline stage to keep. Subtitles are deleted only at start."),
+        Query(
+            description="Last pipeline stage to keep. Subtitles are deleted only at start."
+        ),
     ] = "start",
 ) -> dict[str, str]:
     """Queue a job to revert the dubbed video and prune later pipeline stages.
@@ -522,7 +551,10 @@ async def reset_dubbed_video(
     audio_streams = record.get("audio_streams") or []
     subtitles = record.get("subtitle_matches") or []
     if not is_video_in_target_state(audio_streams, subtitles, target_language):
-        from app.services.dub_reset import _RESET_REJECTED_MSG, reconcile_video_with_disk
+        from app.services.dub_reset import (
+            _RESET_REJECTED_MSG,
+            reconcile_video_with_disk,
+        )
 
         reconcile_video_with_disk(
             db,
@@ -544,8 +576,7 @@ async def reset_dubbed_video(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
-                    f"A job for this video is already {t.status} "
-                    f"(task_id={t.task_id})"
+                    f"A job for this video is already {t.status} (task_id={t.task_id})"
                 ),
             )
 

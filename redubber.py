@@ -83,6 +83,7 @@ class Redubber(BaseModel):
     audio_chunk_duration: int = 15 * 60
     tts_concurrency: int = 20
     target_language: str = "eng"  # ISO 639-2/B code for dubbing output language
+    allow_stt_quality_issues: bool = False
 
     class Config:
         arbitrary_types_allowed = True
@@ -99,6 +100,7 @@ class Redubber(BaseModel):
         audio_chunk_duration: int = 15 * 60,
         tts_concurrency: int = 20,
         target_language: str = "eng",
+        allow_stt_quality_issues: bool = False,
     ):
         """Initialize the Redubber class.
 
@@ -113,6 +115,8 @@ class Redubber(BaseModel):
             audio_chunk_duration: Duration in seconds for audio chunks sent to Whisper.
             tts_concurrency: Number of parallel threads for TTS segment generation.
             target_language: ISO 639-2/B code for dubbing output language (default 'eng').
+            allow_stt_quality_issues: Preserve flagged STT segments so the redub
+                pipeline can generate an editable subtitle and pause before TTS.
         """
         super().__init__(
             openai_token=openai_token,
@@ -125,7 +129,32 @@ class Redubber(BaseModel):
             audio_chunk_duration=audio_chunk_duration,
             tts_concurrency=tts_concurrency,
             target_language=target_language,
+            allow_stt_quality_issues=allow_stt_quality_issues,
         )
+
+    def _check_stt_quality(
+        self,
+        segments: list[TranscriptionSegment],
+        *,
+        audio_duration: float,
+        source_label: str,
+        chunk_label: str | None = None,
+    ) -> None:
+        try:
+            self._check_stt_quality(
+                segments,
+                audio_duration=audio_duration,
+                source_label=source_label,
+                chunk_label=chunk_label,
+            )
+        except STTHallucinationError:
+            if not self.allow_stt_quality_issues:
+                raise
+            log.warning(
+                "STT quality warnings retained for subtitle review: %s%s",
+                source_label,
+                f" ({chunk_label})" if chunk_label else "",
+            )
 
     def can_redub(self, source):
         result = os.path.splitext(source)[1] in self.supported_video_formats
@@ -220,7 +249,8 @@ class Redubber(BaseModel):
         from video_analyzer import get_video_info_with_duration
 
         stream_count = len(
-            get_video_info_with_duration(Path(reproj.file_path)).get("audio_streams") or []
+            get_video_info_with_duration(Path(reproj.file_path)).get("audio_streams")
+            or []
         )
         if stream_count < 1:
             raise RuntimeError(
@@ -447,7 +477,9 @@ class Redubber(BaseModel):
                     f"Audio file {audio_filename} is too short ({audio_duration:.3f}s), minimum is 0.1s"
                 )
 
-            client = OpenAI(api_key=self.openai_token, base_url=self.openai_base_url or None)
+            client = OpenAI(
+                api_key=self.openai_token, base_url=self.openai_base_url or None
+            )
             # https://platform.openai.com/docs/api-reference/audio/verbose-json-object
             try:
                 with open(audio_file, "rb") as audio_file_buffer:
@@ -480,12 +512,24 @@ class Redubber(BaseModel):
                         duration = raw_transcription.duration or 0.0
                     else:
                         # gpt-4o models return no segments — treat the whole chunk as one
-                        from openai.types.audio.transcription_segment import TranscriptionSegment as _Seg
-                        segments = [_Seg(
-                            id=0, seek=0, start=0.0, end=audio_duration,
-                            text=translated_text, tokens=[], temperature=0.0,
-                            avg_logprob=0.0, compression_ratio=1.0, no_speech_prob=0.0,
-                        )]
+                        from openai.types.audio.transcription_segment import (
+                            TranscriptionSegment as _Seg,
+                        )
+
+                        segments = [
+                            _Seg(
+                                id=0,
+                                seek=0,
+                                start=0.0,
+                                end=audio_duration,
+                                text=translated_text,
+                                tokens=[],
+                                temperature=0.0,
+                                avg_logprob=0.0,
+                                compression_ratio=1.0,
+                                no_speech_prob=0.0,
+                            )
+                        ]
                         duration = audio_duration
                     # Wrap into TranslationVerbose-compatible structure for uniform handling
                     transcript = TranslationVerbose(
@@ -523,7 +567,7 @@ class Redubber(BaseModel):
             - min((s.start for s in transcript_segments), default=0.0)
         )
         try:
-            assert_segments_acceptable(
+            self._check_stt_quality(
                 transcript_segments,
                 audio_duration=chunk_duration,
                 source_label=reproj.file_path,
@@ -569,7 +613,9 @@ class Redubber(BaseModel):
                 srt_file.write(f"{text}\n\n")
 
     def tts(self, text, output_file):
-        client = OpenAI(api_key=self.openai_token, base_url=self.openai_base_url or None)
+        client = OpenAI(
+            api_key=self.openai_token, base_url=self.openai_base_url or None
+        )
         log.debug(
             f"TTS request: voice={self.voice}, has_instructions={bool(self.voice_instructions)}, text_len={len(text)}"
         )
@@ -629,7 +675,9 @@ class Redubber(BaseModel):
         if not text or not text.strip():
             return text
 
-        client = OpenAI(api_key=self.openai_token, base_url=self.openai_base_url or None)
+        client = OpenAI(
+            api_key=self.openai_token, base_url=self.openai_base_url or None
+        )
         try:
             response = client.chat.completions.create(
                 model=self.model,
@@ -889,7 +937,7 @@ class Redubber(BaseModel):
         total_duration = max((s.end for s in all_segments), default=0.0) - min(
             (s.start for s in all_segments), default=0.0
         )
-        assert_segments_acceptable(
+        self._check_stt_quality(
             all_segments,
             audio_duration=total_duration,
             source_label=reproj.file_path,
@@ -1819,12 +1867,36 @@ def finalize_redubbing(
 
     # Step 9b: Copy subtitle file next to original as <name>.<lang2>.srt
     _ISO639_2_TO_1: dict[str, str] = {
-        "eng": "en", "jpn": "ja", "fra": "fr", "spa": "es", "deu": "de",
-        "ita": "it", "por": "pt", "rus": "ru", "zho": "zh", "kor": "ko",
-        "ara": "ar", "hin": "hi", "nld": "nl", "pol": "pl", "swe": "sv",
-        "nor": "no", "dan": "da", "fin": "fi", "tur": "tr", "vie": "vi",
-        "tha": "th", "ind": "id", "msa": "ms", "ces": "cs", "slk": "sk",
-        "hun": "hu", "ron": "ro", "bul": "bg", "ukr": "uk", "hrv": "hr",
+        "eng": "en",
+        "jpn": "ja",
+        "fra": "fr",
+        "spa": "es",
+        "deu": "de",
+        "ita": "it",
+        "por": "pt",
+        "rus": "ru",
+        "zho": "zh",
+        "kor": "ko",
+        "ara": "ar",
+        "hin": "hi",
+        "nld": "nl",
+        "pol": "pl",
+        "swe": "sv",
+        "nor": "no",
+        "dan": "da",
+        "fin": "fi",
+        "tur": "tr",
+        "vie": "vi",
+        "tha": "th",
+        "ind": "id",
+        "msa": "ms",
+        "ces": "cs",
+        "slk": "sk",
+        "hun": "hu",
+        "ron": "ro",
+        "bul": "bg",
+        "ukr": "uk",
+        "hrv": "hr",
     }
     lang2 = _ISO639_2_TO_1.get(target_language.lower(), target_language[:2].lower())
 
