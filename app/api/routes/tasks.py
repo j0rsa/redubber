@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -15,6 +17,23 @@ from app.schemas.models import (
 )
 
 router = APIRouter()
+
+
+# region agent log
+@router.post("/debug/frontend-log", include_in_schema=False)
+async def append_frontend_debug_log(payload: dict) -> dict[str, bool]:
+    """Temporary runtime instrumentation sink for the duplicate-progress investigation."""
+    entry = {
+        "hypothesisId": payload.get("hypothesisId"),
+        "location": payload.get("location"),
+        "message": payload.get("message"),
+        "data": payload.get("data", {}),
+        "timestamp": payload.get("timestamp", int(time.time() * 1000)),
+    }
+    with Path("/opt/cursor/logs/debug.log").open("a", encoding="utf-8") as debug_log:
+        debug_log.write(json.dumps(entry, separators=(",", ":")) + "\n")
+    return {"ok": True}
+# endregion
 
 
 def _task_to_response(t) -> TaskStatusResponse:
