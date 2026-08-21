@@ -81,6 +81,7 @@
   color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
   letter-spacing: 0.2px;
+  text-align: left;
 }
 
 /* ── Cells ───────────────────────────────────────────────────────────────── */
@@ -413,6 +414,7 @@
     display: block;
     padding: 0 0 var(--spacing-xs);
     font-size: var(--font-size-xs);
+    text-align: left;
   }
 
   /* Actions: full-width button */
