@@ -315,7 +315,7 @@ export const ProjectDetail = () => {
       task: {
         task_id: `persisted-subtitle-hold-${video.id}`,
         video_path: video.path,
-        project_id,
+        project_id: projectId,
         status: 'awaiting_subtitle_review',
         stage: pipeline.current_stage,
         progress: pipeline.progress,
