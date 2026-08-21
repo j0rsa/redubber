@@ -129,7 +129,22 @@ export const WithReplacedVideo: Story = {
           { index: 0, language: 'eng', codec: 'aac', channels: 2, sample_rate: 48000 },
           { index: 1, language: 'rus', codec: 'aac', channels: 2, sample_rate: 48000 },
         ],
-        subtitles: [{ language: 'eng', embedded: false, path: '/videos/chapter_03.en.srt' }],
+        subtitles: [
+          {
+            language: 'eng',
+            embedded: false,
+            path: '/videos/chapter_03.en.srt',
+            quality_issue_count: 1,
+            quality_issues: [
+              {
+                rule_id: 'known_hallucination_phrase',
+                label: 'Known STT phrase',
+                message: "contains common STT hallucination phrase(s): 'thank you for watching'",
+                segment_index: 3,
+              },
+            ],
+          },
+        ],
         pipeline_status: {
           progress: 100,
           current_stage: 'Complete',

@@ -279,6 +279,26 @@ class DatabaseManager:
                     (spec.id, spec.default_threshold),
                 )
 
+            # Cached subtitle quality / hallucination analysis (populated on scan)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS subtitle_quality (
+                    project_id INTEGER NOT NULL,
+                    video_path TEXT NOT NULL DEFAULT '',
+                    file_path TEXT NOT NULL,
+                    quality_issue_count INTEGER NOT NULL DEFAULT 0,
+                    quality_issues TEXT NOT NULL DEFAULT '[]',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (project_id, file_path),
+                    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_subtitle_quality_project
+                ON subtitle_quality(project_id)
+                """
+            )
+
             conn.commit()
 
     def get_app_settings(self) -> Optional[Dict]:
@@ -316,6 +336,86 @@ class DatabaseManager:
                 "SELECT rule_id, enabled, threshold FROM hallucination_rules"
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    def list_subtitle_quality(self, project_id: int) -> List[Dict]:
+        """Return cached subtitle quality rows for a project."""
+        import json
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT project_id, video_path, file_path,
+                       quality_issue_count, quality_issues
+                FROM subtitle_quality
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            )
+            results: List[Dict] = []
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                try:
+                    row_dict["quality_issues"] = json.loads(
+                        row_dict.get("quality_issues") or "[]"
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    row_dict["quality_issues"] = []
+                results.append(row_dict)
+            return results
+
+    def upsert_subtitle_quality(
+        self,
+        project_id: int,
+        video_path: str,
+        file_path: str,
+        quality_issue_count: int,
+        quality_issues: List[Dict],
+    ) -> None:
+        """Insert or replace cached quality analysis for one subtitle file."""
+        import json
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO subtitle_quality
+                    (project_id, video_path, file_path,
+                     quality_issue_count, quality_issues, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(project_id, file_path) DO UPDATE SET
+                    video_path = excluded.video_path,
+                    quality_issue_count = excluded.quality_issue_count,
+                    quality_issues = excluded.quality_issues,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    project_id,
+                    video_path,
+                    file_path,
+                    int(quality_issue_count),
+                    json.dumps(quality_issues),
+                ),
+            )
+            conn.commit()
+
+    def delete_subtitle_quality_for_paths(
+        self, project_id: int, file_paths: List[str]
+    ) -> None:
+        """Drop cached quality rows for specific subtitle paths."""
+        if not file_paths:
+            return
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                """
+                DELETE FROM subtitle_quality
+                WHERE project_id = ? AND file_path = ?
+                """,
+                [(project_id, path) for path in file_paths],
+            )
+            conn.commit()
 
     def upsert_hallucination_rules(self, rules: List[Dict]) -> None:
         """Insert or update hallucination-rule enable flags and thresholds."""
@@ -393,6 +493,7 @@ class DatabaseManager:
                     "tts_preview_cache",
                     "voice_instruction_generations",
                     "voice_selection_history",
+                    "subtitle_quality",
                 ):
                     cursor.execute(
                         f"DELETE FROM {table} WHERE project_id = ?", (project_id,)
@@ -659,6 +760,9 @@ class DatabaseManager:
             cursor.execute("DELETE FROM video_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM subtitle_files WHERE project_id = ?", (project_id,))
             cursor.execute("DELETE FROM video_analysis WHERE project_id = ?", (project_id,))
+            cursor.execute(
+                "DELETE FROM subtitle_quality WHERE project_id = ?", (project_id,)
+            )
             cursor.execute(
                 """
                 UPDATE projects

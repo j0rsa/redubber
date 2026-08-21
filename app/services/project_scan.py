@@ -86,3 +86,13 @@ def scan_project_files(
             project_name=project["name"],
             target_language=target_lang,
         )
+        from app.services.video_subtitle_quality import refresh_project_subtitle_quality
+
+        refresh_project_subtitle_quality(
+            db,
+            project_id=project_id,
+            project_path=project_path,
+            project_name=project["name"],
+            target_language=target_lang or "eng",
+            video_records=video_records,
+        )

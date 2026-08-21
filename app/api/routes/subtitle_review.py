@@ -18,6 +18,7 @@ from app.services.subtitle_review import (
     tts_file_for_index,
     update_subtitle_cue_text,
 )
+from app.services.video_subtitle_quality import refresh_subtitle_quality_for_video
 from database import DatabaseManager
 
 router = APIRouter()
@@ -106,6 +107,15 @@ async def patch_subtitle_cue(
             cue_index=cue_index,
             text=payload.text,
             srt_path=payload.srt_path,
+        )
+        refresh_subtitle_quality_for_video(
+            db,
+            project_id=project_id,
+            video_path=record["file_path"],
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=project.get("target_language") or "eng",
+            subtitles=record.get("subtitle_matches") or [],
         )
         return build_subtitle_review(
             project_id=project_id,

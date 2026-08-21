@@ -82,4 +82,19 @@ def sync_video_metadata(db, project_id: int, video_path: str) -> None:
         conn.commit()
 
     db.refresh_project_duration_size(project_id)
+
+    project = db.get_project_by_id(project_id)
+    if project:
+        from app.services.video_subtitle_quality import refresh_subtitle_quality_for_video
+
+        refresh_subtitle_quality_for_video(
+            db,
+            project_id=project_id,
+            video_path=video_path,
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=project.get("target_language") or "eng",
+            subtitles=subtitle_matches,
+        )
+
     log.info("Metadata sync complete")

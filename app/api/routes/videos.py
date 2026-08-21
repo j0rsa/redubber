@@ -19,7 +19,11 @@ from app.schemas.models import (
 )
 from app.services.project_scan import scan_project_files
 from app.services.dub_reset import RESET_TO_STAGES
-from app.services.video_subtitle_quality import enrich_subtitles_with_quality
+from app.services.video_subtitle_quality import (
+    enrich_subtitles_with_quality,
+    quality_cache_for_listing,
+    refresh_subtitle_quality_for_paths,
+)
 from database import DatabaseManager
 from file_scanner import FileScanner
 from pipeline_status import get_pipeline_status
@@ -158,7 +162,6 @@ async def list_videos(
 
     working_dir = str(get_project_working_dir(project_path, project_record["name"]))
     target_lang = project_record.get("target_language") or ""
-    quality_cache: dict = {}
 
     # Build a map of video_path → most-recent failed task so we can surface errors
     failed_tasks: dict[str, str] = {}  # video_path → error message
@@ -174,6 +177,14 @@ async def list_videos(
 
     # Get video analysis records
     video_records = db.get_video_analysis(project_id)
+    quality_cache = quality_cache_for_listing(
+        db,
+        project_id=project_id,
+        project_path=project_path,
+        project_name=project_record["name"],
+        target_language=target_lang or "eng",
+        video_records=video_records,
+    )
 
     results: list[VideoAnalysis] = []
     for record in video_records:
@@ -448,6 +459,12 @@ async def generate_subtitles_for_video(
 
     r = Redubber(openai_token="x", interactive=False)  # no API calls needed
     srt_path = r.generate_subtitles(reproj, all_segments)
+    refresh_subtitle_quality_for_paths(
+        db,
+        project_id=project_id,
+        video_path=video_path,
+        paths=[srt_path],
+    )
 
     return {"status": "generated", "path": srt_path}
 

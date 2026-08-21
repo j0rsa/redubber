@@ -35,14 +35,17 @@
 .row {
   border-bottom: 1px solid var(--color-border-light);
   transition: background-color var(--transition-fast);
+  position: relative;
 }
 
 .row:last-child {
   border-bottom: none;
 }
 
-.row:hover {
+.row:hover,
+.row:focus-within {
   background: var(--color-bg-secondary);
+  z-index: 5;
 }
 
 .rowSelected {
@@ -50,13 +53,20 @@
 }
 
 .rowComplete {
-  opacity: 0.55;
+  background: var(--color-bg-secondary);
   pointer-events: auto; /* keep action buttons clickable */
+}
+
+.rowComplete .filename,
+.rowComplete .duration,
+.rowComplete .size,
+.rowComplete .audioStream,
+.rowComplete .subtitle {
+  color: var(--color-text-tertiary);
 }
 
 .rowSelected:hover {
   background: var(--color-primary-light);
-  filter: brightness(0.97);
 }
 
 .folderHeaderRow {

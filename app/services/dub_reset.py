@@ -458,6 +458,11 @@ def reset_dubbed_video(
                     "Could not delete working-dir subtitle %s: %s", working_srt, exc
                 )
 
+        db.delete_subtitle_quality_for_paths(
+            project_id,
+            [str(Path(path).resolve()) for path in deleted],
+        )
+
     backup_path = backup_video_before_reset(video_path, project_path, project_name)
 
     try:
