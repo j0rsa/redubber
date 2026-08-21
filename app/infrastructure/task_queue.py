@@ -20,10 +20,13 @@ logger = logging.getLogger(__name__)
 def _get_openai_key() -> str:
     """Read the OpenAI API key from DB settings, falling back to env var."""
     from app.services.settings_service import get_openai_api_key
+
     return get_openai_api_key()
 
 
-TaskStatusType = Literal["queued", "running", "completed", "failed"]
+TaskStatusType = Literal[
+    "queued", "running", "awaiting_subtitle_review", "completed", "failed"
+]
 TaskKind = Literal["redub", "reset_dub", "transcribe"]
 
 
@@ -55,6 +58,11 @@ class TaskStatus:
     audio_assembled_total: int | None = None
     video_mixed: bool | None = None
     audio_chunk_duration: int | None = None
+    resume_from_subtitles: bool = False
+    ignore_subtitle_warnings: bool = False
+    subtitle_path: str | None = None
+    quality_issue_count: int = 0
+    quality_issues: tuple[dict[str, object], ...] = ()
     task_type: TaskKind = "redub"
 
 
@@ -125,6 +133,8 @@ class TaskQueueManager:
         video_path: str,
         project_id: str | int,
         audio_chunk_duration: int | None = None,
+        resume_from_subtitles: bool = False,
+        ignore_subtitle_warnings: bool = False,
     ) -> str:
         """Submit a new redubbing task to the queue.
 
@@ -149,6 +159,8 @@ class TaskQueueManager:
             status="queued",
             project_id=int(project_id),
             audio_chunk_duration=audio_chunk_duration,
+            resume_from_subtitles=resume_from_subtitles,
+            ignore_subtitle_warnings=ignore_subtitle_warnings,
             task_type="redub",
         )
 
@@ -177,6 +189,21 @@ class TaskQueueManager:
         """
         async with self._lock:
             return self._tasks.get(task_id)
+
+    async def resolve_subtitle_holds(self, video_path: str) -> None:
+        """Mark prior subtitle-review holds as handed off to a resumed task."""
+        async with self._lock:
+            for task_id, task in self._tasks.items():
+                if (
+                    task.video_path == video_path
+                    and task.status == "awaiting_subtitle_review"
+                ):
+                    self._tasks[task_id] = replace(
+                        task,
+                        status="completed",
+                        stage="Continued in a new task",
+                        completed_at=datetime.now(),
+                    )
 
     async def list_tasks(self) -> list[TaskStatus]:
         """Return tasks sorted: running first, queued next, then others by creation time."""
@@ -311,7 +338,9 @@ class TaskQueueManager:
     def _resolve_reproj_root(video_path: str, project_id: int | None) -> str:
         """Return the working-directory root for a Reproj, honouring project settings."""
         if project_id is None:
-            raise ValueError(f"Cannot resolve working directory: project_id is None for {video_path}")
+            raise ValueError(
+                f"Cannot resolve working directory: project_id is None for {video_path}"
+            )
         from app.core.config import settings as _config_settings
         from app.core.project_paths import get_project_working_dir
         from database import DatabaseManager
@@ -319,7 +348,9 @@ class TaskQueueManager:
         db = DatabaseManager(_config_settings.database_url)
         project = db.get_project_by_id(project_id)
         if not project:
-            raise ValueError(f"Cannot resolve working directory: project {project_id} not found")
+            raise ValueError(
+                f"Cannot resolve working directory: project {project_id} not found"
+            )
         wd = get_project_working_dir(project["path"], project["name"])
         wd.mkdir(parents=True, exist_ok=True)
         return str(wd)
@@ -402,7 +433,7 @@ class TaskQueueManager:
             find_reusable_subtitle,
         )
 
-        _skip_stt_hint = False
+        _skip_stt_hint = task.resume_from_subtitles
         if project_id is not None:
             try:
                 from database import DatabaseManager as _HintDB
@@ -455,7 +486,9 @@ class TaskQueueManager:
                 )
 
             # Create Reproj for working directories
-            reproj_root = self._resolve_reproj_root(video_path, task.project_id if task else None)
+            reproj_root = self._resolve_reproj_root(
+                video_path, task.project_id if task else None
+            )
 
             def create_reproj_and_extract() -> tuple[Reproj, list, bool]:
                 """Blocking operation: create reproj and extract segments.
@@ -470,9 +503,13 @@ class TaskQueueManager:
                     root=reproj_root,
                 )
 
-                _stt_model, _base_url, _tts_speed, _default_chunk_duration, _tts_concurrency = (
-                    self._resolve_tool_settings()
-                )
+                (
+                    _stt_model,
+                    _base_url,
+                    _tts_speed,
+                    _default_chunk_duration,
+                    _tts_concurrency,
+                ) = self._resolve_tool_settings()
                 _audio_chunk_duration = (
                     task.audio_chunk_duration
                     if task.audio_chunk_duration is not None
@@ -488,6 +525,7 @@ class TaskQueueManager:
                 if project_id is not None:
                     try:
                         from database import DatabaseManager
+
                         _db = DatabaseManager(settings.database_url)
                         _project = _db.get_project_by_id(project_id)
                         if _project:
@@ -500,7 +538,29 @@ class TaskQueueManager:
                 from app.services.existing_subtitles import (
                     segments_from_subtitle_file,
                     stage_existing_subtitle,
+                    workdir_subtitle_dest,
                 )
+
+                if task.resume_from_subtitles:
+                    if not _project_path:
+                        raise ValueError(
+                            "Cannot resume subtitles without a valid project"
+                        )
+                    generated_subtitle = workdir_subtitle_dest(
+                        Path(video_path), _project_path, _project_name
+                    )
+                    resumed_segments = segments_from_subtitle_file(generated_subtitle)
+                    if not resumed_segments:
+                        raise ValueError(
+                            "Generated subtitles are unavailable; retry transcription instead"
+                        )
+                    logger.info(
+                        "Task %s: resuming from %d edited subtitle cues (%s)",
+                        task_id,
+                        len(resumed_segments),
+                        generated_subtitle,
+                    )
+                    return reproj, resumed_segments, False
 
                 if _project_path and task.audio_chunk_duration is None:
                     staged_sub = stage_existing_subtitle(
@@ -530,6 +590,7 @@ class TaskQueueManager:
                     audio_chunk_duration=_audio_chunk_duration,
                     tts_concurrency=_tts_concurrency,
                     target_language=_target_language,
+                    allow_stt_quality_issues=True,
                 )
 
                 # Extract and transcribe segments
@@ -555,8 +616,12 @@ class TaskQueueManager:
             _audio_chunk_count = 0
             _transcript_count = 0
             try:
-                _ac_dir = Path(reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS))
-                _audio_chunk_count = len([f for f in _ac_dir.iterdir() if f.suffix in (".m4a", ".mp3")])
+                _ac_dir = Path(
+                    reproj.get_file_working_dir(Reproj.Section.SOURCE_AUDIO_CHUNKS)
+                )
+                _audio_chunk_count = len(
+                    [f for f in _ac_dir.iterdir() if f.suffix in (".m4a", ".mp3")]
+                )
                 _stt_dir = Path(reproj.get_file_working_dir(Reproj.Section.STT))
                 _transcript_count = len([f for f in _stt_dir.glob("*.seg")])
             except Exception:
@@ -574,39 +639,90 @@ class TaskQueueManager:
                 )
             else:
                 await self._update_task_status(
-                    task_id, stage="Transcription complete", progress=35, status="running",
-                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
+                    task_id,
+                    stage="Transcription complete",
+                    progress=35,
+                    status="running",
+                    audio_chunks=_audio_chunk_count,
+                    transcripts=_transcript_count,
                 )
 
                 # Stage 3b: Generate subtitles
                 await self._update_task_status(
-                    task_id, stage="Generating subtitles", progress=35, status="running",
-                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
+                    task_id,
+                    stage="Generating subtitles",
+                    progress=35,
+                    status="running",
+                    audio_chunks=_audio_chunk_count,
+                    transcripts=_transcript_count,
                 )
 
-                def generate_subtitles_step() -> None:
+                def generate_subtitles_step() -> tuple[
+                    str, int, tuple[dict[str, object], ...]
+                ]:
                     from database import DatabaseManager
                     from redubber import Redubber
                     from app.services.video_subtitle_quality import (
-                        refresh_subtitle_quality_for_paths,
+                        store_subtitle_quality,
                     )
 
                     _r = Redubber(openai_token=_get_openai_key(), interactive=False)
                     srt_path = _r.generate_subtitles(reproj, segments)
+                    issue_count = 0
+                    quality_issues: tuple[dict[str, object], ...] = ()
                     if project_id is not None:
-                        refresh_subtitle_quality_for_paths(
+                        issue_count, issues = store_subtitle_quality(
                             DatabaseManager(settings.database_url),
                             project_id=project_id,
                             video_path=video_path,
-                            paths=[srt_path],
+                            subtitle_path=srt_path,
                         )
+                        quality_issues = tuple(issue.model_dump() for issue in issues)
+                    return str(srt_path), issue_count, quality_issues
 
-                await loop.run_in_executor(self._executor, generate_subtitles_step)
+                (
+                    generated_subtitle_path,
+                    quality_issue_count,
+                    quality_issues,
+                ) = await loop.run_in_executor(self._executor, generate_subtitles_step)
 
                 await self._update_task_status(
-                    task_id, stage="Subtitles generated", progress=SUBTITLES_READY_PROGRESS, status="running",
-                    audio_chunks=_audio_chunk_count, transcripts=_transcript_count, subtitles=1,
+                    task_id,
+                    stage="Subtitles generated",
+                    progress=SUBTITLES_READY_PROGRESS,
+                    status="running",
+                    audio_chunks=_audio_chunk_count,
+                    transcripts=_transcript_count,
+                    subtitles=1,
                 )
+
+                from app.services.subtitle_quality_gate import (
+                    should_pause_for_subtitle_review,
+                )
+
+                if should_pause_for_subtitle_review(
+                    generated_in_task=True,
+                    quality_issue_count=quality_issue_count,
+                    ignore_warnings=task.ignore_subtitle_warnings,
+                ):
+                    await self._update_task_status(
+                        task_id,
+                        stage="Subtitle review required",
+                        progress=SUBTITLES_READY_PROGRESS,
+                        status="awaiting_subtitle_review",
+                        audio_chunks=_audio_chunk_count,
+                        transcripts=_transcript_count,
+                        subtitles=1,
+                        subtitle_path=generated_subtitle_path,
+                        quality_issue_count=quality_issue_count,
+                        quality_issues=quality_issues,
+                    )
+                    logger.warning(
+                        "Task %s paused before TTS: generated subtitles breached %d quality rule(s)",
+                        task_id,
+                        quality_issue_count,
+                    )
+                    return
 
             # Stage 4: ASYNC TTS generation (KEY OPTIMIZATION - 5x faster!)
             await self._update_task_status(
@@ -624,7 +740,10 @@ class TaskQueueManager:
             _project_voice_instructions = ""
             _async_tts_concurrency = 20
             try:
-                from app.services.settings_service import get_settings as _get_settings_tts
+                from app.services.settings_service import (
+                    get_settings as _get_settings_tts,
+                )
+
                 _tts_settings = _get_settings_tts()
                 _openai_timeout = _tts_settings.openai_timeout
                 _openai_retries = _tts_settings.openai_retries
@@ -637,8 +756,13 @@ class TaskQueueManager:
             # Load voice and instructions from project settings
             try:
                 from database import DatabaseManager as _DM
+
                 _db2 = _DM(settings.database_url)
-                _proj2 = _db2.get_project_by_id(task.project_id) if task and task.project_id else None
+                _proj2 = (
+                    _db2.get_project_by_id(task.project_id)
+                    if task and task.project_id
+                    else None
+                )
                 if _proj2:
                     _project_voice = _proj2.get("voice") or _project_voice
                     _project_voice_instructions = _proj2.get("voice_instructions") or ""
@@ -690,9 +814,15 @@ class TaskQueueManager:
 
             # Stage 5-11: Assemble audio and mix with video (blocking operations)
             await self._update_task_status(
-                task_id, stage="Assembling audio", progress=75, status="running",
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
-                subtitles=1, tts_segments=_tts_done, tts_total=_tts_total,
+                task_id,
+                stage="Assembling audio",
+                progress=75,
+                status="running",
+                audio_chunks=_audio_chunk_count,
+                transcripts=_transcript_count,
+                subtitles=1,
+                tts_segments=_tts_done,
+                tts_total=_tts_total,
             )
 
             _assembly_total_chunks = 1  # will be set inside assemble_and_mix
@@ -700,7 +830,10 @@ class TaskQueueManager:
             def assemble_and_mix() -> str:
                 """Blocking operation: assemble audio and mix with video."""
                 try:
-                    from app.services.settings_service import get_settings as _get_settings_mix
+                    from app.services.settings_service import (
+                        get_settings as _get_settings_mix,
+                    )
+
                     _mix_settings = _get_settings_mix()
                     _mix_tts_speed = _mix_settings.tts_speed
                     _mix_audio_chunk_duration = _mix_settings.audio_chunk_duration
@@ -723,6 +856,7 @@ class TaskQueueManager:
 
                 # Compute total assembly chunks so we can report progress
                 import math as _math
+
                 _max_seg = 50  # matches assemble_long_audio default
                 nonlocal _assembly_total_chunks
                 _assembly_total_chunks = max(1, _math.ceil(len(segments) / _max_seg))
@@ -757,8 +891,13 @@ class TaskQueueManager:
                 _source_lang = "und"
                 try:
                     from database import DatabaseManager as _DM2
+
                     _db3 = _DM2(settings.database_url)
-                    _proj3 = _db3.get_project_by_id(task.project_id) if task and task.project_id else None
+                    _proj3 = (
+                        _db3.get_project_by_id(task.project_id)
+                        if task and task.project_id
+                        else None
+                    )
                     if _proj3:
                         _dubbed_lang = _proj3.get("target_language") or "eng"
                         _source_lang = _proj3.get("source_language_override") or "und"
@@ -781,10 +920,12 @@ class TaskQueueManager:
                 # Validate → replace original with backup → clean up temp files
                 from redubber import finalize_redubbing
                 from database import DatabaseManager as _DM3
+
                 _db4 = _DM3(settings.database_url)
                 _replace = False
                 try:
                     from app.services.settings_service import get_settings as _gs_final
+
                     _replace = _gs_final().auto_process
                 except Exception:
                     pass
@@ -800,10 +941,17 @@ class TaskQueueManager:
 
             # Run blocking operation in executor
             await self._update_task_status(
-                task_id, stage="Mixing audio with video", progress=85, status="running",
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
-                subtitles=1, tts_segments=_tts_done, tts_total=_tts_total,
-                audio_assembled=_assembly_total_chunks, audio_assembled_total=_assembly_total_chunks,
+                task_id,
+                stage="Mixing audio with video",
+                progress=85,
+                status="running",
+                audio_chunks=_audio_chunk_count,
+                transcripts=_transcript_count,
+                subtitles=1,
+                tts_segments=_tts_done,
+                tts_total=_tts_total,
+                audio_assembled=_assembly_total_chunks,
+                audio_assembled_total=_assembly_total_chunks,
             )
 
             final_video_path = await loop.run_in_executor(
@@ -820,9 +968,13 @@ class TaskQueueManager:
                 progress=100,
                 status="completed",
                 completed_at=datetime.now(),
-                audio_chunks=_audio_chunk_count, transcripts=_transcript_count,
-                subtitles=1, tts_segments=_tts_done, tts_total=_tts_total,
-                audio_assembled=_assembly_total_chunks, audio_assembled_total=_assembly_total_chunks,
+                audio_chunks=_audio_chunk_count,
+                transcripts=_transcript_count,
+                subtitles=1,
+                tts_segments=_tts_done,
+                tts_total=_tts_total,
+                audio_assembled=_assembly_total_chunks,
+                audio_assembled_total=_assembly_total_chunks,
                 video_mixed=True,
             )
 
@@ -870,8 +1022,16 @@ class TaskQueueManager:
                 updates["completed_at"] = completed_at
 
             # Apply counter fields — only update if explicitly passed
-            for key in ("audio_chunks", "transcripts", "tts_segments", "tts_total",
-                        "subtitles", "audio_assembled", "audio_assembled_total", "video_mixed"):
+            for key in (
+                "audio_chunks",
+                "transcripts",
+                "tts_segments",
+                "tts_total",
+                "subtitles",
+                "audio_assembled",
+                "audio_assembled_total",
+                "video_mixed",
+            ):
                 if key in counters:
                     updates[key] = counters[key]
 
@@ -948,7 +1108,10 @@ class TaskQueueManager:
         project_id = task.project_id
 
         await self._update_task_status(
-            task_id, stage="Extracting audio", progress=5, status="running",
+            task_id,
+            stage="Extracting audio",
+            progress=5,
+            status="running",
             started_at=datetime.now(),
         )
 
@@ -967,10 +1130,11 @@ class TaskQueueManager:
                 if project_id is not None:
                     try:
                         from database import DatabaseManager
+
                         _db = DatabaseManager(settings.database_url)
                         _project = _db.get_project_by_id(project_id)
                         if _project:
-                            target_language = (_project.get("target_language") or "eng")
+                            target_language = _project.get("target_language") or "eng"
                             project_path = _project.get("path") or ""
                             project_name = _project.get("name") or ""
                     except Exception:
@@ -1000,6 +1164,7 @@ class TaskQueueManager:
 
                 try:
                     from app.services.settings_service import get_settings as _gs
+
                     s = _gs()
                     stt_model = s.stt_model
                     base_url = s.openai_base_url
@@ -1028,7 +1193,10 @@ class TaskQueueManager:
                 return len(segments)
 
             await self._update_task_status(
-                task_id, stage="Transcribing", progress=20, status="running",
+                task_id,
+                stage="Transcribing",
+                progress=20,
+                status="running",
             )
 
             segment_count = await loop.run_in_executor(self._executor, run_stt)
@@ -1040,7 +1208,9 @@ class TaskQueueManager:
                 status="completed",
                 completed_at=datetime.now(),
             )
-            logger.info("Transcription task %s completed: %d segments", task_id, segment_count)
+            logger.info(
+                "Transcription task %s completed: %d segments", task_id, segment_count
+            )
 
         except Exception as e:
             logger.exception("Transcription task %s failed", task_id)
@@ -1120,6 +1290,7 @@ class TaskQueueManager:
         loop = asyncio.get_event_loop()
 
         try:
+
             def run_reset() -> dict:
                 db = DatabaseManager(settings.database_url)
                 project = db.get_project_by_id(project_id)

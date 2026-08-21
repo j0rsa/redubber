@@ -27,7 +27,9 @@ class TestTasksAPI:
         )
         assert response.status_code in [202, 400]
 
-    def test_submit_redub_accepts_audio_chunk_duration(self, client: TestClient) -> None:
+    def test_submit_redub_accepts_audio_chunk_duration(
+        self, client: TestClient
+    ) -> None:
         """POST /api/redub accepts optional audio_chunk_duration override."""
         response = client.post(
             "/api/redub",
@@ -39,7 +41,9 @@ class TestTasksAPI:
         )
         assert response.status_code in [202, 400]
 
-    def test_submit_redub_rejects_invalid_chunk_duration(self, client: TestClient) -> None:
+    def test_submit_redub_rejects_invalid_chunk_duration(
+        self, client: TestClient
+    ) -> None:
         """POST /api/redub rejects out-of-range audio_chunk_duration."""
         response = client.post(
             "/api/redub",
@@ -47,6 +51,29 @@ class TestTasksAPI:
                 "video_path": "/test/video.mp4",
                 "project_id": 1,
                 "audio_chunk_duration": 30,
+            },
+        )
+        assert response.status_code == 422
+
+    def test_ignore_warnings_requires_subtitle_resume(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/redub",
+            json={
+                "video_path": "/test/video.mp4",
+                "project_id": 1,
+                "ignore_subtitle_warnings": True,
+            },
+        )
+        assert response.status_code == 422
+
+    def test_subtitle_resume_rejects_chunk_override(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/redub",
+            json={
+                "video_path": "/test/video.mp4",
+                "project_id": 1,
+                "resume_from_subtitles": True,
+                "audio_chunk_duration": 600,
             },
         )
         assert response.status_code == 422
