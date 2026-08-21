@@ -404,3 +404,24 @@
   border-color: var(--color-primary);
   color: white;
 }
+
+.deleteCue {
+  border: 1px solid var(--color-error);
+  background: transparent;
+  color: var(--color-error);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deleteCue:hover:not(:disabled) {
+  background: var(--color-error);
+  color: white;
+}
+
+.deleteCue:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

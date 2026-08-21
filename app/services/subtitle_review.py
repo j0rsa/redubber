@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -222,7 +223,9 @@ def resolve_review_srt(
     if srt_path:
         resolved = str(Path(srt_path).resolve())
         if resolved not in allowed:
-            raise SubtitleReviewError("Requested subtitle file is not available for this video")
+            raise SubtitleReviewError(
+                "Requested subtitle file is not available for this video"
+            )
         return Path(resolved)
 
     return Path(options[0].path)
@@ -337,19 +340,33 @@ def invalidate_downstream_audio(
     cue_index: int,
 ) -> None:
     """Drop stale TTS / assembled / mixed audio after a cue text change."""
-    import shutil
-
     dirs = artefact_dirs(video_path, project_path, project_name)
     tts_path = tts_file_for_index(dirs["tts"], cue_index)
     if tts_path is not None:
         tts_path.unlink(missing_ok=True)
 
-    assemble_dir = dirs["root"] / "05_target_audio_chunks"
+    _invalidate_assembled_audio(dirs["root"], video_path)
+
+
+def _invalidate_assembled_audio(root: Path, video_path: Path) -> None:
+    assemble_dir = root / "05_target_audio_chunks"
     if assemble_dir.is_dir():
         shutil.rmtree(assemble_dir)
 
-    dubbed = dirs["root"] / f"{video_path.stem}.dubbed{video_path.suffix}"
+    dubbed = root / f"{video_path.stem}.dubbed{video_path.suffix}"
     dubbed.unlink(missing_ok=True)
+
+
+def invalidate_all_downstream_audio(
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+) -> None:
+    """Drop all index-based audio after deleting a cue shifts later indices."""
+    dirs = artefact_dirs(video_path, project_path, project_name)
+    if dirs["tts"].is_dir():
+        shutil.rmtree(dirs["tts"])
+    _invalidate_assembled_audio(dirs["root"], video_path)
 
 
 def update_subtitle_cue_text(
@@ -396,9 +413,47 @@ def update_subtitle_cue_text(
     ):
         write_srt_cues(path, cues)
 
-    invalidate_downstream_audio(
-        video_path, project_path, project_name, cue_index
+    invalidate_downstream_audio(video_path, project_path, project_name, cue_index)
+    return selected
+
+
+def delete_subtitle_cue(
+    *,
+    video_path: Path,
+    project_path: str,
+    project_name: str,
+    target_language: str,
+    cue_index: int,
+    srt_path: str | None = None,
+) -> Path:
+    """Delete one cue and invalidate audio whose indices no longer match."""
+    if cue_index < 0:
+        raise SubtitleReviewError("Cue index must be >= 0")
+
+    selected = resolve_review_srt(
+        video_path,
+        project_path,
+        project_name,
+        target_language,
+        srt_path=srt_path,
     )
+    try:
+        cues = parse_srt(selected.read_text(encoding="utf-8", errors="replace"))
+    except OSError as exc:
+        raise SubtitleReviewError(f"Could not read subtitle file: {exc}") from exc
+
+    if cue_index >= len(cues):
+        raise SubtitleReviewError(
+            f"Cue index {cue_index} is out of range for this subtitle file"
+        )
+
+    cues.pop(cue_index)
+    for path in _related_subtitle_write_paths(
+        selected, video_path, project_path, project_name, target_language
+    ):
+        write_srt_cues(path, cues)
+
+    invalidate_all_downstream_audio(video_path, project_path, project_name)
     return selected
 
 

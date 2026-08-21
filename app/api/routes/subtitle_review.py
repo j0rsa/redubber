@@ -14,6 +14,7 @@ from app.services.subtitle_review import (
     SubtitleReviewError,
     artefact_dirs,
     build_subtitle_review,
+    delete_subtitle_cue,
     is_safe_chunk_name,
     tts_file_for_index,
     update_subtitle_cue_text,
@@ -126,6 +127,54 @@ async def patch_subtitle_cue(
             project_name=project["name"],
             target_language=project.get("target_language") or "eng",
             srt_path=payload.srt_path,
+        )
+    except SubtitleReviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+
+@router.delete(
+    "/projects/{project_id}/videos/{video_id}/subtitle-review/cues/{cue_index}",
+    response_model=SubtitleReviewResponse,
+)
+async def delete_subtitle_review_cue(
+    project_id: int,
+    video_id: int,
+    cue_index: int,
+    db: Annotated[DatabaseManager, Depends(get_db)],
+    srt_path: Annotated[str | None, Query()] = None,
+) -> SubtitleReviewResponse:
+    """Delete one subtitle cue and return the updated review."""
+    project, record = _video_context(project_id, video_id, db)
+    try:
+        delete_subtitle_cue(
+            video_path=Path(record["file_path"]),
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=project.get("target_language") or "eng",
+            cue_index=cue_index,
+            srt_path=srt_path,
+        )
+        refresh_subtitle_quality_for_video(
+            db,
+            project_id=project_id,
+            video_path=record["file_path"],
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=project.get("target_language") or "eng",
+            subtitles=record.get("subtitle_matches") or [],
+        )
+        return build_subtitle_review(
+            project_id=project_id,
+            video_id=video_id,
+            video_path=Path(record["file_path"]),
+            filename=record["filename"],
+            project_path=project["path"],
+            project_name=project["name"],
+            target_language=project.get("target_language") or "eng",
+            srt_path=srt_path,
         )
     except SubtitleReviewError as exc:
         raise HTTPException(

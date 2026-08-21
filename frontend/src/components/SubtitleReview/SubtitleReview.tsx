@@ -24,6 +24,8 @@ interface SubtitleReviewProps {
   onSrtPathChange?: (path: string) => void;
   onSaveCue?: (index: number, text: string) => Promise<void>;
   savingCueIndex?: number | null;
+  onDeleteCue?: (index: number) => Promise<void>;
+  deletingCueIndex?: number | null;
 }
 
 export const SubtitleReview = ({
@@ -37,6 +39,8 @@ export const SubtitleReview = ({
   onSrtPathChange,
   onSaveCue,
   savingCueIndex = null,
+  onDeleteCue,
+  deletingCueIndex = null,
 }: SubtitleReviewProps) => {
   const [minDuration, setMinDuration] = useState(0);
   const [maxDuration, setMaxDuration] = useState(0);
@@ -44,6 +48,7 @@ export const SubtitleReview = ({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftText, setDraftText] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ index: number; message: string } | null>(null);
   const origAudio = useRef<HTMLAudioElement | null>(null);
   const ttsAudio = useRef<HTMLAudioElement | null>(null);
   const stopAtRef = useRef<number | null>(null);
@@ -58,6 +63,7 @@ export const SubtitleReview = ({
       setPlaying(null);
       setEditingIndex(null);
       setSaveError(null);
+      setDeleteError(null);
     }
   }, [isOpen]);
 
@@ -188,6 +194,25 @@ export const SubtitleReview = ({
       setSaveError(detail || (err instanceof Error ? err.message : 'Failed to save cue'));
     } finally {
       committingRef.current = false;
+    }
+  };
+
+  const deleteCue = async (segment: SubtitleReviewSegment) => {
+    if (!onDeleteCue || deletingCueIndex !== null) return;
+    if (!window.confirm(`Delete subtitle segment ${segment.index + 1}?`)) return;
+
+    setDeleteError(null);
+    stopAll();
+    setPlaying(null);
+    try {
+      await onDeleteCue(segment.index);
+      cancelEdit();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setDeleteError({
+        index: segment.index,
+        message: detail || (err instanceof Error ? err.message : 'Failed to delete cue'),
+      });
     }
   };
 
@@ -399,26 +424,44 @@ export const SubtitleReview = ({
                   {editingIndex === segment.index && saveError && (
                     <p className={styles.cueSaveError} role="alert">{saveError}</p>
                   )}
+                  {deleteError?.index === segment.index && (
+                    <p className={styles.cueSaveError} role="alert">{deleteError.message}</p>
+                  )}
                 </div>
-                {hasTts && (
+                {(hasTts || onDeleteCue) && (
                   <div className={styles.cueActions}>
-                    <button
-                      type="button"
-                      className={`${styles.play} ${isOrig ? styles.playActive : ''}`}
-                      disabled={!segment.original}
-                      title={segment.original ? 'Play original audio chunk' : 'Original chunk not available'}
-                      onClick={() => void playOriginal(segment)}
-                    >
-                      {isOrig ? '■ orig' : '▶ orig'}
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.play} ${isDub ? styles.playActive : ''}`}
-                      title="Play dubbed TTS segment"
-                      onClick={() => void playTts(segment)}
-                    >
-                      {isDub ? '■ dub' : '▶ dub'}
-                    </button>
+                    {hasTts && (
+                      <>
+                        <button
+                          type="button"
+                          className={`${styles.play} ${isOrig ? styles.playActive : ''}`}
+                          disabled={!segment.original}
+                          title={segment.original ? 'Play original audio chunk' : 'Original chunk not available'}
+                          onClick={() => void playOriginal(segment)}
+                        >
+                          {isOrig ? '■ orig' : '▶ orig'}
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.play} ${isDub ? styles.playActive : ''}`}
+                          title="Play dubbed TTS segment"
+                          onClick={() => void playTts(segment)}
+                        >
+                          {isDub ? '■ dub' : '▶ dub'}
+                        </button>
+                      </>
+                    )}
+                    {onDeleteCue && (
+                      <button
+                        type="button"
+                        className={styles.deleteCue}
+                        disabled={deletingCueIndex !== null || savingCueIndex !== null}
+                        aria-label={`Delete subtitle segment ${segment.index + 1}`}
+                        onClick={() => void deleteCue(segment)}
+                      >
+                        {deletingCueIndex === segment.index ? 'Deleting…' : 'Delete'}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
