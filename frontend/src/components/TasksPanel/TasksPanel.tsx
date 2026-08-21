@@ -44,6 +44,7 @@ export const TasksIndicator = ({ activeCount, isOpen, onClick }: TasksIndicatorP
 const statusIcon: Record<TaskStatus['status'], string> = {
   running: '🔄',
   queued: '⏳',
+  awaiting_subtitle_review: '⚠️',
   completed: '✅',
   failed: '❌',
 };
@@ -56,7 +57,8 @@ interface TaskCardProps {
 const TaskCard = ({ task, onViewJob }: TaskCardProps) => {
   const icon = statusIcon[task.status] ?? '🔄';
   const name = basename(task.video_path);
-  const showProgress = task.status === 'running';
+  const showProgress =
+    task.status === 'running' || task.status === 'awaiting_subtitle_review';
 
   return (
     <div className={styles.taskCard}>
@@ -93,12 +95,12 @@ const TaskCard = ({ task, onViewJob }: TaskCardProps) => {
         </p>
       )}
 
-      {task.status === 'running' && (
+      {(task.status === 'running' || task.status === 'awaiting_subtitle_review') && (
         <button
           className={styles.viewDetails}
           onClick={() => onViewJob(task.task_id)}
         >
-          View Details →
+          {task.status === 'awaiting_subtitle_review' ? 'Resolve warnings →' : 'View Details →'}
         </button>
       )}
     </div>

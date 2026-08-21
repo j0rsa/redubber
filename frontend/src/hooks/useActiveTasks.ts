@@ -12,7 +12,7 @@ const RECENT_FAILURE_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * Polls GET /api/tasks every 3 seconds when work is running, every 10s otherwise.
- * Returns active (queued/running) tasks plus any failed tasks from the last 5 minutes.
+ * Returns active/actionable tasks plus any failed tasks from the last 5 minutes.
  */
 export const useActiveTasks = (): ActiveTasksResult => {
   const { data } = useQuery<TaskStatus[]>({
@@ -28,7 +28,10 @@ export const useActiveTasks = (): ActiveTasksResult => {
         (t) => t.status === 'running' && t.stage?.toLowerCase().includes('tts')
       );
       const hasActive = tasks.some(
-        (t) => t.status === 'queued' || t.status === 'running'
+        (t) =>
+          t.status === 'queued'
+          || t.status === 'running'
+          || t.status === 'awaiting_subtitle_review'
       );
       if (hasTTSRunning) return 1000;  // 1s during TTS — most visually active stage
       if (hasActive) return 3000;
@@ -38,7 +41,11 @@ export const useActiveTasks = (): ActiveTasksResult => {
 
   const now = Date.now();
   const activeTasks = (data ?? []).filter((t) => {
-    if (t.status === 'queued' || t.status === 'running') return true;
+    if (
+      t.status === 'queued'
+      || t.status === 'running'
+      || t.status === 'awaiting_subtitle_review'
+    ) return true;
     if (t.status === 'failed') {
       const created = new Date(t.created_at).getTime();
       return now - created < RECENT_FAILURE_WINDOW_MS;
@@ -47,7 +54,10 @@ export const useActiveTasks = (): ActiveTasksResult => {
   });
 
   const activeCount = (data ?? []).filter(
-    (t) => t.status === 'queued' || t.status === 'running'
+    (t) =>
+      t.status === 'queued'
+      || t.status === 'running'
+      || t.status === 'awaiting_subtitle_review'
   ).length;
 
   return {
