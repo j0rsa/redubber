@@ -435,6 +435,13 @@
   padding: 2px 6px;
   cursor: pointer;
   white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.cue:hover .deleteCue,
+.cue:focus-within .deleteCue {
+  opacity: 1;
 }
 
 .deleteCue:hover:not(:disabled) {
