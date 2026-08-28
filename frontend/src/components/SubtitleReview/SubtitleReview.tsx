@@ -106,6 +106,14 @@ export const SubtitleReview = ({
     };
   }, [isOpen]);
 
+  const firstBreachedCueIndex = useMemo(() => {
+    const breaches = data?.quality_breaches ?? [];
+    const indices = breaches
+      .filter((b) => b.segment_index != null)
+      .map((b) => b.segment_index as number);
+    return indices.length ? Math.min(...indices) : null;
+  }, [data?.quality_breaches]);
+
   if (!isOpen) return null;
 
   const stopAll = () => {
@@ -240,13 +248,6 @@ export const SubtitleReview = ({
       .map((breach) => breach.rule_id),
   ).size;
   const fileLevelBreaches = qualityBreaches.filter((breach) => breach.segment_index == null);
-
-  const firstBreachedCueIndex = useMemo(() => {
-    const indices = qualityBreaches
-      .filter((b) => b.segment_index != null)
-      .map((b) => b.segment_index as number);
-    return indices.length ? Math.min(...indices) : null;
-  }, [qualityBreaches]);
 
   const scrollToFirstBreach = () => {
     if (firstBreachedCueIndex == null) return;
