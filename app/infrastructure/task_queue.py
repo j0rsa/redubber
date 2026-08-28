@@ -453,7 +453,7 @@ class TaskQueueManager:
                             project_path=_hint_project["path"],
                             project_name=_hint_project["name"],
                             language=_hint_project.get("target_language") or "eng",
-                            include_unsuffixed=True,
+                            include_unsuffixed=False,
                         )
                         is not None
                     )
@@ -583,7 +583,7 @@ class TaskQueueManager:
                             project_path=_project_path,
                             project_name=_project_name,
                             language=_target_language,
-                            include_unsuffixed=True,
+                            include_unsuffixed=False,
                         )
                         if staged_sub is not None:
                             existing_segments = segments_from_subtitle_file(staged_sub)
@@ -596,56 +596,58 @@ class TaskQueueManager:
                                 )
                                 return reproj, existing_segments, True
 
-                    # Step 2: any sidecar next to the video — runs even when the
-                    # project-path DB lookup failed. If the sub is already in the
-                    # target language, use it directly. If it is in the source
-                    # language, translate each cue first.
+                    # Step 2: any explicitly-suffixed sidecar next to the video —
+                    # runs even when the project-path DB lookup failed.
+                    # Subs with no language suffix are skipped (unknown language).
+                    # If the suffix matches the target, use directly.
+                    # If it is a different language, translate each cue first.
                     any_sidecars = find_sidecar_subtitles(
-                        Path(video_path), language=None, include_unsuffixed=True
+                        Path(video_path), language=None, include_unsuffixed=False
                     )
                     if any_sidecars:
                         sidecar = any_sidecars[0]
                         detected = normalize_lang_code(
                             detect_subtitle_language(sidecar) or ""
                         )
-                        target_norm = normalize_lang_code(_target_language)
-                        raw_segments = segments_from_subtitle_file(sidecar)
-                        if raw_segments:
-                            needs_translation = bool(
-                                detected and detected != target_norm
-                            )
-                            if needs_translation:
-                                from redubber import Redubber as _R
-                                _r_translate = _R(
-                                    openai_token=_get_openai_key(),
-                                    interactive=False,
-                                    openai_base_url=_base_url,
-                                    target_language=_target_language,
-                                )
-                                for seg in raw_segments:
-                                    seg.text = _r_translate.translate_text_to(
-                                        seg.text, _target_language
-                                    )
-                                logger.info(
-                                    "Task %s: translated %d cues from %s (%s → %s)",
-                                    task_id, len(raw_segments), sidecar,
-                                    detected, _target_language,
-                                )
-                            else:
-                                logger.info(
-                                    "Task %s: using %d cues from target-language sidecar %s",
-                                    task_id, len(raw_segments), sidecar,
-                                )
-                            if _project_path:
-                                dest = workdir_subtitle_dest(
-                                    Path(video_path), _project_path, _project_name
-                                )
-                                dest.parent.mkdir(parents=True, exist_ok=True)
+                        # No detected language → no explicit suffix → skip
+                        if detected:
+                            target_norm = normalize_lang_code(_target_language)
+                            raw_segments = segments_from_subtitle_file(sidecar)
+                            if raw_segments:
+                                needs_translation = detected != target_norm
+                                _r_translate = None
                                 if needs_translation:
-                                    _r_translate.write_srt(raw_segments, str(dest))
+                                    from redubber import Redubber as _R
+                                    _r_translate = _R(
+                                        openai_token=_get_openai_key(),
+                                        interactive=False,
+                                        openai_base_url=_base_url,
+                                        target_language=_target_language,
+                                    )
+                                    for seg in raw_segments:
+                                        seg.text = _r_translate.translate_text_to(
+                                            seg.text, _target_language
+                                        )
+                                    logger.info(
+                                        "Task %s: translated %d cues from %s (%s → %s)",
+                                        task_id, len(raw_segments), sidecar,
+                                        detected, _target_language,
+                                    )
                                 else:
-                                    _shutil.copy2(str(sidecar), str(dest))
-                            return reproj, raw_segments, True
+                                    logger.info(
+                                        "Task %s: using %d cues from target-language sidecar %s",
+                                        task_id, len(raw_segments), sidecar,
+                                    )
+                                if _project_path:
+                                    dest = workdir_subtitle_dest(
+                                        Path(video_path), _project_path, _project_name
+                                    )
+                                    dest.parent.mkdir(parents=True, exist_ok=True)
+                                    if needs_translation and _r_translate:
+                                        _r_translate.write_srt(raw_segments, str(dest))
+                                    else:
+                                        _shutil.copy2(str(sidecar), str(dest))
+                                return reproj, raw_segments, True
 
                 redubber = Redubber(
                     openai_token=_get_openai_key(),
