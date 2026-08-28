@@ -587,6 +587,45 @@ class TaskQueueManager:
                             )
                             return reproj, existing_segments, True
 
+                    # No target-language sub found — check for any sidecar in any
+                    # language (e.g. source-language captions that ship with the video).
+                    # If found, translate each cue to the target language and stage the
+                    # result so subsequent runs can skip this step too.
+                    from app.services.existing_subtitles import find_sidecar_subtitles
+
+                    any_sidecars = find_sidecar_subtitles(
+                        Path(video_path), language=None, include_unsuffixed=False
+                    )
+                    if any_sidecars:
+                        from redubber import Redubber as _R
+
+                        _r_translate = _R(
+                            openai_token=_get_openai_key(),
+                            interactive=False,
+                            openai_base_url=_base_url,
+                            target_language=_target_language,
+                        )
+                        raw_segments = segments_from_subtitle_file(any_sidecars[0])
+                        if raw_segments:
+                            for seg in raw_segments:
+                                seg.text = _r_translate.translate_text_to(
+                                    seg.text, _target_language
+                                )
+                            dest = workdir_subtitle_dest(
+                                Path(video_path), _project_path, _project_name
+                            )
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            _r_translate.write_srt(raw_segments, str(dest))
+                            logger.info(
+                                "Task %s: translated %d cues from %s → %s (%s)",
+                                task_id,
+                                len(raw_segments),
+                                any_sidecars[0],
+                                _target_language,
+                                dest,
+                            )
+                            return reproj, raw_segments, True
+
                 redubber = Redubber(
                     openai_token=_get_openai_key(),
                     interactive=False,
