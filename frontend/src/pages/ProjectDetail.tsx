@@ -174,14 +174,14 @@ export const ProjectDetail = () => {
     catch (err) { console.error('Failed to scan videos:', err); }
   };
 
-  const submitResetDub = async (videoId: number, resetTo: ResetToStageId) => {
+  const submitResetDub = async (videoId: number, resetTo: ResetToStageId, keepSubtitles = false) => {
     if (!projectId) return;
     setResettingDubIds((prev) => new Set(prev).add(videoId));
     try {
       await apiClient.post(
         `/projects/${projectId}/videos/${videoId}/reset-dub`,
         null,
-        { params: { reset_to: resetTo } },
+        { params: { reset_to: resetTo, keep_subtitles: keepSubtitles } },
       );
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } finally {
@@ -208,7 +208,7 @@ export const ProjectDetail = () => {
     setSelectedIds(new Set());
   };
 
-  const handleBatchReset = async (resetTo: ResetToStageId) => {
+  const handleBatchReset = async (resetTo: ResetToStageId, keepSubtitles = false) => {
     if (!videos) return;
     const targets = videos.filter(
       (video) => selectedIds.has(video.id)
@@ -220,7 +220,7 @@ export const ProjectDetail = () => {
     setBatchProgress({ operation: 'reset', submitted: 0, total: targets.length });
     for (const video of targets) {
       try {
-        await submitResetDub(video.id, resetTo);
+        await submitResetDub(video.id, resetTo, keepSubtitles);
         setBatchProgress((prev) => prev
           ? { ...prev, submitted: prev.submitted + 1 }
           : null);
@@ -387,11 +387,11 @@ export const ProjectDetail = () => {
     }
   };
 
-  const handleResetDub = async (videoId: number, resetTo: ResetToStageId) => {
+  const handleResetDub = async (videoId: number, resetTo: ResetToStageId, keepSubtitles = false) => {
     setResetDubError(null);
     setLastResetTo(resetTo);
     try {
-      await submitResetDub(videoId, resetTo);
+      await submitResetDub(videoId, resetTo, keepSubtitles);
       setConfirmResetVideo(null);
       setResetDubError(null);
     } catch (err) {
@@ -542,7 +542,7 @@ export const ProjectDetail = () => {
               setConfirmResetVideo(null);
               setResetDubError(null);
             }}
-            onConfirm={(resetTo) => void handleResetDub(confirmResetVideo.id, resetTo)}
+            onConfirm={(resetTo, keepSubs) => void handleResetDub(confirmResetVideo.id, resetTo, keepSubs)}
           />
         )}
         {confirmBulkReset && selectedFinishedCount > 0 && (
@@ -556,7 +556,7 @@ export const ProjectDetail = () => {
               setConfirmBulkReset(false);
               setResetDubError(null);
             }}
-            onConfirm={(resetTo) => void handleBatchReset(resetTo)}
+            onConfirm={(resetTo, keepSubs) => void handleBatchReset(resetTo, keepSubs)}
           />
         )}
 

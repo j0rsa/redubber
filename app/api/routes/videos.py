@@ -539,6 +539,10 @@ async def reset_dubbed_video(
             description="Last pipeline stage to keep. Subtitles are deleted only at start."
         ),
     ] = "start",
+    keep_subtitles: Annotated[
+        bool,
+        Query(description="When reset_to=start, keep the generated subtitle file instead of deleting it."),
+    ] = False,
 ) -> dict[str, str]:
     """Queue a job to revert the dubbed video and prune later pipeline stages.
 
@@ -611,5 +615,6 @@ async def reset_dubbed_video(
         project_id=project_id,
         video_id=video_id,
         reset_to=reset_to,
+        keep_subtitles=keep_subtitles,
     )
     return {"task_id": task_id, "status": "queued"}
