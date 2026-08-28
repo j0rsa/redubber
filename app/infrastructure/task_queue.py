@@ -1208,6 +1208,7 @@ class TaskQueueManager:
                     openai_base_url=base_url,
                     audio_chunk_duration=audio_chunk_duration,
                     target_language=target_language,
+                    allow_stt_quality_issues=True,
                 )
 
                 reproj = Reproj(
