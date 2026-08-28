@@ -392,6 +392,7 @@ def reset_dubbed_video(
     target_language: str,
     source_language: str | None = None,
     reset_to: str = "start",
+    keep_subtitles: bool = False,
 ) -> dict:
     """Revert the dubbed video and optionally prune pipeline artefacts.
 
@@ -438,7 +439,7 @@ def reset_dubbed_video(
     identify_dubbed_stream_index(disk_streams, target_language, source_language)
 
     deleted: list[str] = []
-    delete_subtitles = keep_through == "start"
+    delete_subtitles = keep_through == "start" and not keep_subtitles
     if delete_subtitles:
         for sub_path in find_generated_subtitle_paths(video_path, target_language):
             try:

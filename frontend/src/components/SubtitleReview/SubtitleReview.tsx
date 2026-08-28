@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SubtitleReviewData, SubtitleReviewSegment } from './types';
 import styles from './SubtitleReview.module.css';
 
@@ -241,6 +241,18 @@ export const SubtitleReview = ({
   ).size;
   const fileLevelBreaches = qualityBreaches.filter((breach) => breach.segment_index == null);
 
+  const firstBreachedCueIndex = useMemo(() => {
+    const indices = qualityBreaches
+      .filter((b) => b.segment_index != null)
+      .map((b) => b.segment_index as number);
+    return indices.length ? Math.min(...indices) : null;
+  }, [qualityBreaches]);
+
+  const scrollToFirstBreach = () => {
+    if (firstBreachedCueIndex == null) return;
+    document.getElementById(`cue-${firstBreachedCueIndex}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-label="Subtitle review">
       <div className={styles.panel}>
@@ -258,20 +270,26 @@ export const SubtitleReview = ({
                 onChange={(e) => onSrtPathChange?.(e.target.value)}
                 aria-label="Select subtitle file"
               >
-                {availableFiles.map((file) => (
-                  <option key={file.path} value={file.path}>
-                    {file.label}
-                  </option>
-                ))}
+                {availableFiles.map((file) => {
+                  const sourceTag = ({ generated: 'generated', sidecar: 'external', working_dir: 'edited' } as Record<string, string>)[file.source] ?? file.source;
+                  const hasDuplicate = availableFiles.some((f) => f.path !== file.path && f.label === file.label);
+                  return (
+                    <option key={file.path} value={file.path}>
+                      {hasDuplicate ? `${file.label} — ${sourceTag}` : `${file.label} (${sourceTag})`}
+                    </option>
+                  );
+                })}
               </select>
             </label>
           )}
           <div className={styles.filters}>
             {qualityBreaches.length > 0 && (
-              <span
+              <button
+                type="button"
                 className={styles.warningIndicator}
-                tabIndex={0}
-                aria-label={`${breachedCueRuleCount} rule(s) breached across cues`}
+                onClick={scrollToFirstBreach}
+                title="Click to scroll to first warning"
+                aria-label={`${breachedCueRuleCount} rule(s) breached — click to jump to first`}
               >
                 <span className={styles.warningIcon} aria-hidden="true">!</span>
                 <span className={styles.warningCount}>
@@ -304,7 +322,7 @@ export const SubtitleReview = ({
                     </p>
                   )}
                 </span>
-              </span>
+              </button>
             )}
             <label className={styles.filterLabel}>
               min
@@ -366,6 +384,7 @@ export const SubtitleReview = ({
             return (
               <div
                 key={segment.index}
+                id={`cue-${segment.index}`}
                 className={`${styles.cue} ${isOrig || isDub ? styles.cueActive : ''}`}
               >
                 <div className={styles.cueMain}>

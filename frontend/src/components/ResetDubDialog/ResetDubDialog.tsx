@@ -2,6 +2,34 @@ import { useMemo, useState } from 'react';
 import { RESET_STAGES, stageIndex, type ResetStageId, type ResetToStageId } from './stages';
 import styles from './ResetDubDialog.module.css';
 
+function artifactsSummary(stageId: string, keepSubs = false): { deleted: string[]; kept: string[] } {
+  const deleted: string[] = ['Dubbed video track'];
+  const kept: string[] = ['Original video', 'External subtitle sidecars'];
+
+  if (stageId === 'start') {
+    deleted.push('Extracted audio chunks', 'Transcripts & STT cache', 'TTS audio segments', 'Mixed audio track');
+    if (keepSubs) kept.push('Generated subtitles');
+    else deleted.push('Generated subtitles');
+  } else if (stageId === 'audio') {
+    kept.push('Extracted audio chunks');
+    deleted.push('Transcripts & STT cache', 'TTS audio segments', 'Mixed audio track');
+    kept.push('Generated subtitles');
+  } else if (stageId === 'stt') {
+    kept.push('Extracted audio chunks', 'Transcripts & STT cache', 'Generated subtitles');
+    deleted.push('TTS audio segments', 'Mixed audio track');
+  } else if (stageId === 'subtitles') {
+    kept.push('Extracted audio chunks', 'Transcripts & STT cache', 'Generated subtitles');
+    deleted.push('TTS audio segments', 'Mixed audio track');
+  } else if (stageId === 'tts') {
+    kept.push('Extracted audio chunks', 'Transcripts & STT cache', 'Generated subtitles', 'TTS audio segments');
+    deleted.push('Mixed audio track');
+  } else {
+    kept.push('Extracted audio chunks', 'Transcripts & STT cache', 'Generated subtitles', 'TTS audio segments', 'Mixed audio track');
+  }
+
+  return { deleted, kept };
+}
+
 export interface ResetDubDialogProps {
   videoFilename: string;
   selectionCount?: number;
@@ -9,7 +37,7 @@ export interface ResetDubDialogProps {
   isSubmitting?: boolean;
   errorMessage?: string | null;
   onCancel: () => void;
-  onConfirm: (resetTo: ResetToStageId) => void;
+  onConfirm: (resetTo: ResetToStageId, keepSubtitles: boolean) => void;
 }
 
 export const ResetDubDialog = ({
@@ -23,21 +51,20 @@ export const ResetDubDialog = ({
 }: ResetDubDialogProps) => {
   const currentIndex = Math.max(0, stageIndex(currentStage));
   const [selectedIndex, setSelectedIndex] = useState(currentIndex);
+  const [keepSubtitles, setKeepSubtitles] = useState(false);
 
   const selected = RESET_STAGES[selectedIndex];
   const canSubmit = selectedIndex < currentIndex && selected.id !== 'complete';
-  const deletesSubs = selected.id === 'start';
+  const showKeepSubs = selected.id === 'start';
 
-  const hint = useMemo(() => {
-    if (deletesSubs) {
-      return 'The dubbed audio track is removed and generated subtitles are deleted. The next redub starts from the beginning.';
-    }
-    return `The dubbed audio track is always removed. Subtitles are kept. Later artefacts after ${selected.label} are cleared.`;
-  }, [deletesSubs, selected.label]);
+  const artifacts = useMemo(
+    () => artifactsSummary(selected.id, keepSubtitles),
+    [selected.id, keepSubtitles],
+  );
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onConfirm(selected.id);
+    onConfirm(selected.id, keepSubtitles);
   };
 
   return (
@@ -84,6 +111,7 @@ export const ResetDubDialog = ({
               const isCurrent = index === currentIndex;
               const isSelected = index === selectedIndex;
               const isKept = index <= selectedIndex;
+              const isDeleted = index > selectedIndex && index <= currentIndex;
               return (
                 <button
                   key={stage.id}
@@ -92,6 +120,7 @@ export const ResetDubDialog = ({
                     styles.node,
                     isSelected ? styles.nodeSelected : '',
                     isKept ? styles.nodeKept : '',
+                    isDeleted ? styles.nodeDeleted : '',
                     isCurrent ? styles.nodeCurrent : '',
                   ].join(' ')}
                   disabled={isSubmitting}
@@ -107,7 +136,28 @@ export const ResetDubDialog = ({
           </div>
         </div>
 
-        <p className={styles.hint}>{hint}</p>
+        {showKeepSubs && (
+          <label className={styles.keepSubsToggle}>
+            <input
+              type="checkbox"
+              checked={keepSubtitles}
+              onChange={(e) => setKeepSubtitles(e.target.checked)}
+              disabled={isSubmitting}
+            />
+            Keep generated subtitles
+          </label>
+        )}
+
+        <div className={styles.artifacts}>
+          <ul className={styles.artifactDeleted}>
+            {artifacts.deleted.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+          {artifacts.kept.length > 0 && (
+            <ul className={styles.artifactKept}>
+              {artifacts.kept.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          )}
+        </div>
 
         <div className={styles.actions}>
           <button

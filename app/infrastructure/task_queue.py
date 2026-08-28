@@ -566,7 +566,9 @@ class TaskQueueManager:
                         len(resumed_segments),
                         generated_subtitle,
                     )
-                    return reproj, resumed_segments, False
+                    # skipped_stt=True: user already reviewed this subtitle,
+                    # bypass the quality-hold gate on this pass.
+                    return reproj, resumed_segments, True
 
                 if _project_path and task.audio_chunk_duration is None:
                     staged_sub = stage_existing_subtitle(
@@ -1289,6 +1291,7 @@ class TaskQueueManager:
         project_id: int,
         video_id: int,
         reset_to: str = "start",
+        keep_subtitles: bool = False,
     ) -> str:
         """Submit an async job to revert a finalized dub.
 
@@ -1318,7 +1321,7 @@ class TaskQueueManager:
             self._tasks[task_id] = initial_status
 
         asyncio.ensure_future(
-            self._process_reset_dub_task(task_id, project_id, video_id, reset_to)
+            self._process_reset_dub_task(task_id, project_id, video_id, reset_to, keep_subtitles)
         )
 
         logger.info(
@@ -1336,6 +1339,7 @@ class TaskQueueManager:
         project_id: int,
         video_id: int,
         reset_to: str = "start",
+        keep_subtitles: bool = False,
     ) -> None:
         """Run dub reset in the thread pool (ffmpeg remux can take a while)."""
         from app.core.config import settings
@@ -1380,6 +1384,7 @@ class TaskQueueManager:
                     target_language=target_language,
                     source_language=source_language,
                     reset_to=reset_to,
+                    keep_subtitles=keep_subtitles,
                 )
 
             await self._update_task_status(

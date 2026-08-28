@@ -134,11 +134,91 @@
   color: var(--color-text-primary);
 }
 
-.hint {
-  margin: 0 0 var(--spacing-sm);
+.nodeDeleted .dot {
+  border-color: var(--color-error, #e53e3e);
+  background: var(--color-error-light, #fed7d7);
+}
+
+.nodeDeleted {
+  color: var(--color-error, #e53e3e);
+}
+
+.nodeDeleted .nodeLabel {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* ─── Keep-subs toggle ──────────────────────────────────────────────────── */
+
+.keepSubsToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
+  cursor: pointer;
+  margin-bottom: var(--spacing-md);
+  user-select: none;
+}
+
+.keepSubsToggle input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ─── Artifact preview ───────────────────────────────────────────────────── */
+
+.artifacts {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin: var(--spacing-sm) 0 var(--spacing-md);
+}
+
+.artifactDeleted,
+.artifactKept {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.artifactDeleted li,
+.artifactKept li {
+  font-size: var(--font-size-sm);
   line-height: 1.4;
+  padding-left: 18px;
+  position: relative;
+}
+
+.artifactDeleted li::before {
+  content: '✕';
+  position: absolute;
+  left: 0;
+  color: var(--color-error, #e53e3e);
+  font-size: 10px;
+  top: 2px;
+}
+
+.artifactKept li::before {
+  content: '·';
+  position: absolute;
+  left: 4px;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+  top: -1px;
+}
+
+.artifactDeleted li {
+  color: var(--color-text-secondary);
+}
+
+.artifactKept li {
+  color: var(--color-text-tertiary);
 }
 
 .actions {
