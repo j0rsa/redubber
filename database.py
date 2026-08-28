@@ -8,6 +8,18 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 
+def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, definition: str) -> None:
+    """Add ``column`` to ``table`` when it doesn't exist, ignoring duplicate-column races."""
+    try:
+        cursor.execute(f"SELECT {column} FROM {table} LIMIT 1")
+    except sqlite3.OperationalError:
+        try:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+
+
 class DatabaseManager:
     """Manages SQLite database operations for project and file indexing."""
 
@@ -88,59 +100,13 @@ class DatabaseManager:
                 )
             """)
 
-            # Add duration_seconds column if it doesn't exist (migration)
-            try:
-                cursor.execute("SELECT duration_seconds FROM video_analysis LIMIT 1")
-            except sqlite3.OperationalError:
-                # Column doesn't exist, add it
-                cursor.execute(
-                    "ALTER TABLE video_analysis ADD COLUMN duration_seconds REAL DEFAULT 0"
-                )
-
-            # Add source_language_override column if it doesn't exist (migration)
-            try:
-                cursor.execute("SELECT source_language_override FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                # Column doesn't exist, add it
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN source_language_override TEXT DEFAULT ''"
-                )
-
-            # Add voice column if it doesn't exist (migration)
-            try:
-                cursor.execute("SELECT voice FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute("ALTER TABLE projects ADD COLUMN voice TEXT DEFAULT ''")
-
-            # Add voice_instructions column if it doesn't exist (migration)
-            try:
-                cursor.execute("SELECT voice_instructions FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN voice_instructions TEXT DEFAULT ''"
-                )
-
-            # Add target_language column if it doesn't exist (migration)
-            try:
-                cursor.execute("SELECT target_language FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN target_language TEXT DEFAULT 'eng'"
-                )
-
-            # Add video count columns if they don't exist (migration)
-            try:
-                cursor.execute("SELECT total_videos FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN total_videos INTEGER DEFAULT 0"
-                )
-            try:
-                cursor.execute("SELECT replaced_videos FROM projects LIMIT 1")
-            except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN replaced_videos INTEGER DEFAULT 0"
-                )
+            _ensure_column(cursor, "video_analysis", "duration_seconds", "REAL DEFAULT 0")
+            _ensure_column(cursor, "projects", "source_language_override", "TEXT DEFAULT ''")
+            _ensure_column(cursor, "projects", "voice", "TEXT DEFAULT ''")
+            _ensure_column(cursor, "projects", "voice_instructions", "TEXT DEFAULT ''")
+            _ensure_column(cursor, "projects", "target_language", "TEXT DEFAULT 'eng'")
+            _ensure_column(cursor, "projects", "total_videos", "INTEGER DEFAULT 0")
+            _ensure_column(cursor, "projects", "replaced_videos", "INTEGER DEFAULT 0")
 
             # Add duration/size aggregate columns if they don't exist (migration)
             _added_duration_col = False
@@ -148,17 +114,25 @@ class DatabaseManager:
             try:
                 cursor.execute("SELECT total_duration_seconds FROM projects LIMIT 1")
             except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN total_duration_seconds REAL DEFAULT 0"
-                )
-                _added_duration_col = True
+                try:
+                    cursor.execute(
+                        "ALTER TABLE projects ADD COLUMN total_duration_seconds REAL DEFAULT 0"
+                    )
+                    _added_duration_col = True
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
             try:
                 cursor.execute("SELECT total_size_mb FROM projects LIMIT 1")
             except sqlite3.OperationalError:
-                cursor.execute(
-                    "ALTER TABLE projects ADD COLUMN total_size_mb REAL DEFAULT 0"
-                )
-                _added_size_col = True
+                try:
+                    cursor.execute(
+                        "ALTER TABLE projects ADD COLUMN total_size_mb REAL DEFAULT 0"
+                    )
+                    _added_size_col = True
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
 
             # Backfill aggregates once when columns are first introduced
             if _added_duration_col or _added_size_col:

@@ -141,7 +141,7 @@ class Redubber(BaseModel):
         chunk_label: str | None = None,
     ) -> None:
         try:
-            self._check_stt_quality(
+            assert_segments_acceptable(
                 segments,
                 audio_duration=audio_duration,
                 source_label=source_label,
