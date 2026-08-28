@@ -414,9 +414,9 @@ def is_video_in_target_state(
 ) -> bool:
     """Return True if a video appears fully redubbed to the target language.
 
-    Matches the pre-redubbed detection used in the video list API: at least two
-    audio tracks with one in the project target language, plus a subtitle in
-    that same language. Does not rely on backup files or working-dir artifacts.
+    A dubbed track in the target language muxed into the file is the definitive
+    signal. Subtitles are not checked — an external sidecar in the same language
+    is not evidence that the pipeline ran, and would produce a false positive.
     """
     target = normalize_lang_code(target_language)
     if not target:
@@ -428,14 +428,8 @@ def is_video_in_target_state(
         if _item_language(stream)
     }
     audio_langs.discard("")
-    sub_langs = {
-        normalize_lang_code(_item_language(subtitle))
-        for subtitle in subtitles
-        if _item_language(subtitle)
-    }
-    sub_langs.discard("")
 
-    return len(audio_streams) >= 2 and target in audio_langs and target in sub_langs
+    return len(audio_streams) >= 2 and target in audio_langs
 
 
 def count_videos_in_target_state(

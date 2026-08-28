@@ -29,17 +29,19 @@ class TestIsVideoInTargetState:
             "eng",
         ) is False
 
-    def test_requires_target_language_subtitle(self) -> None:
+    def test_subtitle_not_required(self) -> None:
+        # Subtitles no longer factor into target-state detection — an external
+        # sidecar in the same language is not evidence the pipeline ran.
+        assert is_video_in_target_state(
+            [{"language": "eng"}, {"language": "jpn"}],
+            [],
+            "eng",
+        ) is True
+
+    def test_true_when_audio_matches_target(self) -> None:
         assert is_video_in_target_state(
             [{"language": "eng"}, {"language": "jpn"}],
             [{"language": "jpn"}],
-            "eng",
-        ) is False
-
-    def test_true_when_audio_and_subtitle_match_target(self) -> None:
-        assert is_video_in_target_state(
-            [{"language": "eng"}, {"language": "jpn"}],
-            [{"language": "eng"}],
             "eng",
         ) is True
 
