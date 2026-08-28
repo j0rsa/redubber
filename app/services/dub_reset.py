@@ -441,7 +441,27 @@ def reset_dubbed_video(
     deleted: list[str] = []
     delete_subtitles = keep_through == "start" and not keep_subtitles
     if delete_subtitles:
+        working_srt = working_dir_subtitle_path(video_path, project_path, project_name)
+        workdir_bytes: bytes | None = None
+        if working_srt.exists():
+            try:
+                workdir_bytes = working_srt.read_bytes()
+            except OSError:
+                pass
+
         for sub_path in find_generated_subtitle_paths(video_path, target_language):
+            # If the sidecar is byte-for-byte identical to the workdir copy the
+            # pipeline placed there, the sidecar *was* the original (reused via
+            # skipped_stt) and must not be deleted on reset.
+            if workdir_bytes is not None:
+                try:
+                    if sub_path.read_bytes() == workdir_bytes:
+                        log.info(
+                            "Keeping original sidecar %s (matches workdir copy)", sub_path
+                        )
+                        continue
+                except OSError:
+                    pass
             try:
                 sub_path.unlink()
                 deleted.append(str(sub_path))
@@ -449,7 +469,6 @@ def reset_dubbed_video(
             except OSError as exc:
                 log.warning("Could not delete subtitle %s: %s", sub_path, exc)
 
-        working_srt = working_dir_subtitle_path(video_path, project_path, project_name)
         if working_srt.exists():
             try:
                 working_srt.unlink()
