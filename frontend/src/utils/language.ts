@@ -29,21 +29,22 @@ export function normalizeLangCode(code: string | undefined | null): string {
   return ISO639_2_ALIASES[three] ?? three;
 }
 
-/** True when a video looks fully redubbed to the project target language. */
+/** True when a video looks fully redubbed to the project target language.
+ *
+ * Audio-only check: a dubbed track muxed into the file is the definitive
+ * signal. Subtitles are intentionally excluded — an external sidecar in the
+ * same language is not evidence that the pipeline ran.
+ */
 export function isVideoInTargetState(
   audioStreams: { language: string }[],
-  subtitles: { language: string }[],
+  _subtitles: { language: string }[],
   targetLanguage: string,
 ): boolean {
   const target = normalizeLangCode(targetLanguage);
   if (!target || audioStreams.length < 2) return false;
-  const hasTargetAudio = audioStreams.some(
+  return audioStreams.some(
     (stream) => normalizeLangCode(stream.language) === target,
   );
-  const hasTargetSub = subtitles.some(
-    (sub) => normalizeLangCode(sub.language) === target,
-  );
-  return hasTargetAudio && hasTargetSub;
 }
 
 /** True when a video is finalized, including disk-derived target-language state. */

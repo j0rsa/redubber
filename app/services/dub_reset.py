@@ -321,7 +321,7 @@ def strip_first_audio_track(video_path: Path) -> None:
 _RESET_REJECTED_MSG = (
     "Video is not in the final redubbed state. "
     "Reset is only allowed when the file has a dubbed audio track "
-    "and a generated subtitle in the project target language."
+    "in the project target language."
 )
 
 
